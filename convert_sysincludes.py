@@ -3,10 +3,10 @@ Import("env" ,"projenv")
 
 platform = env.PioPlatform()
 FRAMEWORK_DIR = Path(platform.get_package_dir("framework-arduinoespressif32"))
-framework_includes = list()
-filtered_cpppath = list()
 # apply these changes to current working env, the project env and the global env
 for e in (env, projenv, DefaultEnvironment()):
+    framework_includes = list()
+    filtered_cpppath = list()
     for p in e["CPPPATH"]:
         # is the current include path inside the framework directory?
         if FRAMEWORK_DIR in Path(p).parents:
