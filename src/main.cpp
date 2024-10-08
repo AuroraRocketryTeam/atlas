@@ -1,6 +1,6 @@
 #include <Wire.h>
 #include "sensors/BME680/BME680Sensor.h"
-#include "sensors/BN0055/BNO055Sensor.h"
+#include "sensors/BNO055/BNO055Sensor.h"
 
 BME680Sensor bme680;
 BME680Sensor bme680_2;
@@ -19,13 +19,13 @@ void setup()
 void loop()
 {
     bme680.readData();
-    Serial.println("BME680: ");
-    Serial.print(bme680.getData().toString());
+    Serial.println("################# BME680 ################# ");
+    Serial.println(bme680.getData().toString());
     bme680_2.readData();
-    Serial.println("BME680_2: ");
-    Serial.print(bme680_2.getData().toString());
+    Serial.println("################# BME680_2 #################");
+    Serial.println(bme680_2.getData().toString());
     bno055.readData();
-    Serial.println("BNO055: ");
-    Serial.print(bno055.getData().toString());
+    Serial.println("################# BNO055 #################");
+    Serial.println(bno055.getData().toString());
     delay(1000);
 }
