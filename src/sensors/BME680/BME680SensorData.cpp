@@ -22,8 +22,8 @@ uint32_t BME680SensorData::getGasResistance() const
 
 String BME680SensorData::toString()
 {
-    return "Temperature: " + String(this->temperature) + " °C\n" +
-           "Pressure: " + String(this->pressure) + " Pa\n" +
-           "Humidity: " + String(this->humidity) + " %\n";
-           // "Gas Resistance: " + String(this->gas_resistance) + "Ohms\n";
+    return "Temperature: " + String(this->getTemperature()) + " °C\n" +
+           "Pressure: " + String(this->getPressure()) + " Pa\n" +
+           "Humidity: " + String(this->getHumidity()) + " %\n";
+           // "Gas Resistance: " + String(this->getGasResistance()) + " Ohms\n";    // Not used.
 }
