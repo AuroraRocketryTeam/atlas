@@ -15,10 +15,11 @@ public:
                                                                                humidity(hum),
                                                                                gas_resistance(gas_res) {}
 
-    float getTemperature() const { return temperature; }
-    uint32_t getPressure() const { return pressure; }
-    float getHumidity() const { return humidity; }
-    uint32_t getGasResistance() const { return gas_resistance; }
+    float getTemperature() const;
+    uint32_t getPressure() const;
+    float getHumidity() const;
+    uint32_t getGasResistance() const;
+    void toString() override;
 
 private:
     float temperature;
