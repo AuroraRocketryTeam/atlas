@@ -9,6 +9,7 @@ class MPRLSSensorData : public SensorData
 public:
     float getPressure() const { return this->pressure; }
     String toString() override;
+    void log(CborLogger &logger) override;
 
 private:
     MPRLSSensorData() : pressure(-10000) {}

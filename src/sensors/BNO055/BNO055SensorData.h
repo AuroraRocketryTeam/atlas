@@ -80,6 +80,7 @@ public:
     uint8_t getMagCalibration() const { return this->mag_calibration; }
 
     String toString() override;
+    void log(CborLogger &logger) override;
 
 private:
     BNO055SensorData() : orientation({0, 0, 0, 0, 0}), angularVelocity({0, 0, 0, 0, 0}), linearAcceleration({0, 0, 0, 0, 0}),

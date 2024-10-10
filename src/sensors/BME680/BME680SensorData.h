@@ -16,6 +16,7 @@ public:
     float getHumidity() const { return this->humidity; };
     uint32_t getGasResistance() const { return this->gas_resistance; };
     String toString() override;
+    void log(CborLogger &logger) override;
 
 private:
     BME680SensorData() : temperature(-39), pressure(-1), humidity(-1), gas_resistance(-1) {}
