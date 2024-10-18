@@ -1,4 +1,3 @@
-// LoggerInterface.h
 #ifndef LOG_SENSOR_DATA_H
 #define LOG_SENSOR_DATA_H
 
@@ -7,25 +6,40 @@
 #include "sensors/SensorData.hpp"
 #include "utils/logger/data/ILoggable.hpp"
 
+/**
+ * @brief A class to represent a log of sensor data.
+ * 
+ */
 class LogSensorData : public ILoggable {
 private:
-    std::string source;
+    // The sensor data to be logged
     SensorData sensorData;
 public:
-    LogSensorData(std::string source, SensorData sensorData) : source(source), sensorData(sensorData) {}
-    ~LogSensorData() = default;
-
-    // Virtual function to get the log source
-    std::string getSource() const {
-        return source;
+    /**
+     * @brief Construct a new Log Sensor Data object
+     * 
+     * @param source The origin of the log.
+     * @param sensorData The sensor data to be logged.
+     */
+    LogSensorData(std::string source, SensorData sensorData) 
+        : sensorData(sensorData) {
+        this->source = source;
     }
 
-    // Virtual function to get the sensor data
+    /**
+     * @brief Get the sensor data.
+     * 
+     * @return The sensor data.
+     */
     SensorData getSensorData() const {
         return sensorData;
     }
 
-    // Function to convert the object to JSON
+    /**
+     * @brief Get the JSON representation of the object.
+     * 
+     * @return A json object.
+     */
     json toJSON() const override {
         json j;
 
@@ -48,4 +62,4 @@ public:
     }
 };
 
-#endif
+#endif // LOG_SENSOR_DATA_H

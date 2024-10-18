@@ -4,6 +4,10 @@
 #include "sensors/SensorData.hpp"
 #include <optional>
 
+/**
+ * @brief Interface for sensors.
+ * 
+ */
 class ISensor
 {
 public:
@@ -16,9 +20,9 @@ public:
     virtual bool init() = 0;
 
     /**
-     * @brief Get the sensor data.
+     * @brief Read and then get the sensor data.
      *
-     * @return T the sensor data
+     * @return Just read data.
      */
     virtual std::optional<SensorData> getData() = 0;
 };
