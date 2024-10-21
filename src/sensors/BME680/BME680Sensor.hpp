@@ -25,12 +25,12 @@
 class BME680Sensor : public ISensor
 {
 public:
-    BME680Sensor();
+    BME680Sensor(uint8_t addr);
     bool init() override;
-    bool init(uint8_t addr);
     std::optional<SensorData> getData() override;
 
 private:
     Adafruit_BME680 bme;
+    uint8_t addr;
 };
 #endif
