@@ -20,7 +20,7 @@ bool BNO055Sensor::init()
     int attempts = 0;
     uint start = millis();
     while (!bno055.begin() && attempts++ < SENSOR_LOOKUP_MAX_ATTEMPTS)
-    {   
+    {
         uint end = millis();
         while (end - start < SENSOR_LOOKUP_TIMEOUT)
         {
@@ -42,7 +42,7 @@ std::optional<SensorData> BNO055Sensor::getData()
     {
         return std::nullopt;
     }
-    
+
     bno055.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
     bno055.getEvent(&angVelocityData, Adafruit_BNO055::VECTOR_GYROSCOPE);
     bno055.getEvent(&linearAccelData, Adafruit_BNO055::VECTOR_LINEARACCEL);
@@ -53,7 +53,7 @@ std::optional<SensorData> BNO055Sensor::getData()
     quaternionData = bno055.getQuat();
 
     SensorData data("BNO055");
-    /** 
+    /**
      * TODO: Implementare la conversione da sensors_vec_t ad uno dei dati supportati (float, int o string)
     data.setData("orientation", orientationData.orientation);
     data.setData("angular_velocity", angVelocityData.gyro);
@@ -68,14 +68,42 @@ std::optional<SensorData> BNO055Sensor::getData()
     data.setData("accel_calibration", accelCal);
     data.setData("mag_calibration", magCal);
 
-    data.setData("orientation", std::map<std::string, float>{{"x", orientationData.orientation.x}, {"y", orientationData.orientation.y}, {"z", orientationData.orientation.z}});
-    data.setData("angular_velocity", std::map<std::string, float>{{"x", angVelocityData.gyro.x}, {"y", angVelocityData.gyro.y}, {"z", angVelocityData.gyro.z}});
-    data.setData("linear_acceleration", std::map<std::string, float>{{"x", linearAccelData.acceleration.x}, {"y", linearAccelData.acceleration.y}, {"z", linearAccelData.acceleration.z}});
-    data.setData("magnetometer", std::map<std::string, float>{{"x", magnetometerData.magnetic.x}, {"y", magnetometerData.magnetic.y}, {"z", magnetometerData.magnetic.z}});
-    data.setData("accelerometer", std::map<std::string, float>{{"x", accelerometerData.acceleration.x}, {"y", accelerometerData.acceleration.y}, {"z", accelerometerData.acceleration.z}});
-    data.setData("gravity", std::map<std::string, float>{{"x", gravityData.acceleration.x}, {"y", gravityData.acceleration.y}, {"z", gravityData.acceleration.z}});
+    data.setData("orientation", std::map<std::string, float>{
+                                    {"x", orientationData.orientation.x},
+                                    {"y", orientationData.orientation.y},
+                                    {"z", orientationData.orientation.z}});
+
+    data.setData("angular_velocity", std::map<std::string, float>{
+                                         {"x", angVelocityData.gyro.x},
+                                         {"y", angVelocityData.gyro.y},
+                                         {"z", angVelocityData.gyro.z}});
+
+    data.setData("linear_acceleration", std::map<std::string, float>{
+                                            {"x", linearAccelData.acceleration.x},
+                                            {"y", linearAccelData.acceleration.y},
+                                            {"z", linearAccelData.acceleration.z}});
+
+    data.setData("magnetometer", std::map<std::string, float>{
+                                     {"x", magnetometerData.magnetic.x},
+                                     {"y", magnetometerData.magnetic.y},
+                                     {"z", magnetometerData.magnetic.z}});
+
+    data.setData("accelerometer", std::map<std::string, float>{
+                                      {"x", accelerometerData.acceleration.x},
+                                      {"y", accelerometerData.acceleration.y},
+                                      {"z", accelerometerData.acceleration.z}});
+
+    data.setData("gravity", std::map<std::string, float>{
+                                {"x", gravityData.acceleration.x},
+                                {"y", gravityData.acceleration.y},
+                                {"z", gravityData.acceleration.z}});
+
     data.setData("board_temperature", bno055.getTemp());
-    data.setData("quaternion", std::map<std::string, double>{{"w", quaternionData.w()}, {"x", quaternionData.x()}, {"y", quaternionData.y()}, {"z", quaternionData.z()}});
+    data.setData("quaternion", std::map<std::string, double>{
+                                   {"w", quaternionData.w()},
+                                   {"x", quaternionData.x()},
+                                   {"y", quaternionData.y()},
+                                   {"z", quaternionData.z()}});
 
     return data;
 }
