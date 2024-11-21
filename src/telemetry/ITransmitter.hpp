@@ -4,15 +4,17 @@
 #include <variant>
 #include <string>
 #include <Arduino.h>
+#include "ResponseStatusContainer.hpp"
 
 /**
  * @brief Interface for a transmitter
  * 
  */
+
 class ITransmitter
 {
     public:
-        virtual bool init() = 0;
-        virtual void transmit(std::variant<char *, String, std::string, nlohmann::json> data) = 0;
+        virtual ResponseStatusContainer init() = 0;
+        virtual ResponseStatusContainer transmit(std::variant<char *, String, std::string, nlohmann::json> data) = 0;
 };
 
