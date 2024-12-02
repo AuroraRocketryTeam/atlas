@@ -1,5 +1,5 @@
 #include "BNO055Sensor.hpp"
-#include "config/config.h"
+#include "global/config.h"
 
 sensors_event_t orientationData, angVelocityData, linearAccelData, magnetometerData, accelerometerData, gravityData;
 imu::Quaternion quaternionData;

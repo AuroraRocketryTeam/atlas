@@ -18,8 +18,8 @@
  */
 #include <Adafruit_BME680.h>
 #include "sensors/ISensor.hpp"
-#include "const/pins.h"
-#include "config/config.h"
+#include "global/pins.h"
+#include "global/config.h"
 
 class BME680Sensor : public ISensor
 {

@@ -1,5 +1,5 @@
 #include "MPRLSSensor.hpp"
-#include "config/config.h"
+#include "global/config.h"
 
 MPRLSSensor::MPRLSSensor()
 {
