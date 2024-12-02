@@ -6,7 +6,7 @@
 #include "sensors/BNO055/BNO055Sensor.hpp"
 #include "sensors/MPRLS/MPRLSSensor.hpp"
 #include "utils/logger/rocket_logger/RocketLogger.hpp"
-#include "config/config.h"
+#include "global/config.h"
 #include "telemetry/LoRa/E220LoRaTransmitter.hpp"
 
 ILogger *rocketLogger;
@@ -14,18 +14,18 @@ ILogger *rocketLogger;
 ISensor *bno055;
 ISensor *mprls;
 ITransmitter *loraTransmitter;
-HardwareSerial serial(1);
+HardwareSerial lora_serial(1);
 
 void setup()
 {
-    serial.begin(9600, SERIAL_8N1, 2, 3);
-    Serial.begin(9600);
+    lora_serial.begin(SERIAL_BAUD_RATE, SERIAL_8N1, 2, 3);
+    Serial.begin(SERIAL_BAUD_RATE);
     delay(500);
     rocketLogger = new RocketLogger();
     // bme680 = new BME680Sensor(BME680_I2C_ADDR_1);
     mprls = new MPRLSSensor();
     bno055 = new BNO055Sensor();
-    loraTransmitter = new E220LoRaTransmitter(serial, 4, -1, -1);
+    loraTransmitter = new E220LoRaTransmitter(lora_serial, 4, -1, -1);
     auto transmitterStatus = loraTransmitter->init();
     if (transmitterStatus.getCode() == RESPONSE_STATUS::E220_SUCCESS)
     {
