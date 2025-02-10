@@ -86,7 +86,7 @@ void loop()
     Serial.write((rocketLogger->getJSONAll().dump(4) + "\n").c_str());
     Serial.println("######################################");
     //! TODO: Delete after testing phase is over.
-    delay(205);
+    delay(250);
     rocketLogger->clearData();
 
     // non_blocking_delay(1000);
@@ -126,9 +126,7 @@ void logTransmissionResponse(ResponseStatusContainer &response)
 // Log a sensor initialization status
 void logInitializationResult(const std::string &sensorName, const std::optional<int> &address, bool success)
 {
-    std::string addressInfo = address.has_value()
-                                  ? " on address " + std::to_string(address.value())
-                                  : "";
+    std::string addressInfo = address.has_value() ? " on address " + std::to_string(address.value()) : "";
 
     if (success)
     {

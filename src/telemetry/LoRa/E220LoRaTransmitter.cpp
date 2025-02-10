@@ -39,14 +39,21 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(std::variant<char *, Strin
     // Extract the data from the variant
     String dataString;
     if (std::holds_alternative<char *>(data))
+    {
         dataString = String(std::get<char *>(data));
+    }
     else if (std::holds_alternative<String>(data))
+    {
         dataString = std::get<String>(data);
+    }
     else if (std::holds_alternative<std::string>(data))
+    {
         dataString = String(std::get<std::string>(data).c_str());
+    }
     else if (std::holds_alternative<nlohmann::json>(data))
+    {
         dataString = String(std::get<nlohmann::json>(data).dump().c_str());
-
+    }
     // Split and send data in chunks of up to 200 bytes
     const size_t MAX_CHUNK_SIZE = 199;
     for (size_t start = 0; start < dataString.length(); start += MAX_CHUNK_SIZE)
@@ -100,7 +107,7 @@ String E220LoRaTransmitter::getConfigurationString(Configuration configuration) 
 }
 
 template <typename T>
-T E220LoRaTransmitter::getBpsValue(const std::map<int, T>& baudRateMap, T defaultValue) const
+T E220LoRaTransmitter::getBpsValue(const std::map<int, T> &baudRateMap, T defaultValue) const
 {
     auto it = baudRateMap.find(SERIAL_BAUD_RATE);
     if (it != baudRateMap.end())
