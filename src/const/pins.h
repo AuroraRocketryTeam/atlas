@@ -23,6 +23,14 @@
 #define I2C_MASTER_TX_BUF_DISABLE 0
 #define I2C_MASTER_RX_BUF_DISABLE 0
 
+
+// SD Card pins.
+#define SD_CLK 18 // D9 pin on nano esp32
+#define SD_SO 21 // D10 pin on nano esp32
+#define SD_CS 7 // D4 pin on nano esp32
+#define SD_D1 47 // D12 pin on nano esp32
+#define SD_DET 48 // D13 pin on nano esp32
+
 // Add here some other pin.
 
 #endif // PINS_H
