@@ -5,7 +5,7 @@
  *
  * @return true if the SD card is initialized, false otherwise
  */
-void SD::init()
+bool SD::init()
 {
     return this->SD.begin(SD_CS, SPI_HALF_SPEED);
 }
@@ -54,7 +54,10 @@ bool SD::writeFile(std::string filename, std::variant<std::string, String, char 
 {
     if (!this->file->isOpen())
     {
-        return false;
+        if(!this->openFile(filename))
+        {
+            return false;
+        }
     }
     char *data;
     if (std::holds_alternative<std::string>(content))
@@ -84,11 +87,14 @@ bool SD::writeFile(std::string filename, std::variant<std::string, String, char 
  *
  * @return char* the content of the file.
  */
-char *SD::readFile()
+char *SD::readFile(std::string filename)
 {
     if (!this->file->isOpen())
     {
-        return nullptr;
+        if(!this->openFile(filename))
+        {
+            return nullptr;
+        }
     }
 
     this->file->seekSet(0); // Riporta il puntatore all'inizio
