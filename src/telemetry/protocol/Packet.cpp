@@ -1,9 +1,9 @@
 #include "Packet.hpp"
 
-uint16_t calculateCRC(const Packet &packet)
+void Packet::calculateCRC()
 {
     uint16_t crc = 0xFFFF; // Valore iniziale del CRC
-    const uint8_t *data = reinterpret_cast<const uint8_t *>(&packet);
+    const uint8_t *data = reinterpret_cast<const uint8_t *>(this);
 
     // Calcola la lunghezza corretta senza includere il campo CRC
     size_t length = offsetof(Packet, crc);
@@ -19,5 +19,5 @@ uint16_t calculateCRC(const Packet &packet)
                 crc = crc >> 1;
         }
     }
-    return crc;
+    this->crc = crc;
 }
