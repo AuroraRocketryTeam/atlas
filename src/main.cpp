@@ -14,12 +14,14 @@
 #include "sensors/MPRLS/MPRLSSensor.hpp"
 #include "telemetry/LoRa/E220LoRaTransmitter.hpp"
 
+using TransmitDataType = std::variant<char*, String, std::string, nlohmann::json>;
+
 ILogger *rocketLogger;
 // ISensor *bme680;
-ISensor *bno055;
-ISensor *mprls;
-ITransmitter *loraTransmitter;
-HardwareSerial loraSerial(LORA_SERIAL);
+// ISensor *bno055;
+// ISensor *mprls;
+ITransmitter<TransmitDataType> *loraTransmitter;
+HardwareSerial loraSerial(2);
 
 // Struct to store sensor information for initialization and logging
 struct SensorInfo
@@ -32,8 +34,9 @@ struct SensorInfo
 // Vector of sensors to initialize (add the used sensors here)
 std::vector<SensorInfo> sensors = {
     // {bme680, "BME680", BME680_I2C_ADDR_1},
-    {mprls, "MPRLS", MPRLS_I2C_ADDR},
-    {bno055, "BNO055", BNO055_I2C_ADDR}};
+    // {mprls, "MPRLS", MPRLS_I2C_ADDR},
+    // {bno055, "BNO055", BNO055_I2C_ADDR}
+    };
 
 void logTransmitterStatus(ResponseStatusContainer &transmitterStatus);
 void logTransmissionResponse(ResponseStatusContainer &response);
@@ -51,8 +54,8 @@ void setup()
     //! TODO: Delete after testing phase is over.
     delay(500);
     // bme680 = new BME680Sensor(BME680_I2C_ADDR_1);
-    mprls = new MPRLSSensor();
-    bno055 = new BNO055Sensor();
+    // mprls = new MPRLSSensor();
+    // bno055 = new BNO055Sensor();
     loraTransmitter = new E220LoRaTransmitter(loraSerial, LORA_AUX, LORA_M0, LORA_M1);
 
     auto transmitterStatus = loraTransmitter->init();
@@ -112,6 +115,7 @@ void logTransmitterStatus(ResponseStatusContainer &transmitterStatus)
         rocketLogger->logInfo(("Current configuration: " +
                                static_cast<E220LoRaTransmitter *>(loraTransmitter)->getConfigurationString(*(Configuration *)(static_cast<E220LoRaTransmitter *>(loraTransmitter)->getConfiguration().data)))
                                   .c_str());
+        exit(transmitterStatus.getCode());
     }
 }
 
