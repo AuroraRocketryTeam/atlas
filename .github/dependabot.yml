@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"                       # directory contenente .github/workflows/
+    schedule:
+      interval: "weekly"                 # controlla settimanalmente aggiornamenti
+      day: "sunday"                      # puoi cambiare: monday, tuesday, ...
+      time: "08:00"                      # UTC
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 5
