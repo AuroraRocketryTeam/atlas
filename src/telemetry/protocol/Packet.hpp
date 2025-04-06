@@ -8,7 +8,14 @@ constexpr size_t MAX_PACKET_SIZE = 199;
 
 /**
  * @brief The packet header.
- *
+ * 
+ * @param packetNumber The number of the packet.
+ * @param totalChunks The total number of chunks.
+ * @param chunkNumber The number of the chunk.
+ * @param chunkSize The size of the chunk.
+ * @param payloadSize The size of the payload.
+ * @param timestamp The timestamp of the packet.
+ * @param crc The CRC of the packet.
  */
 struct PacketHeader
 {
@@ -24,7 +31,7 @@ constexpr size_t MAX_PAYLOAD_SIZE = MAX_PACKET_SIZE - sizeof(PacketHeader) - siz
 
 /**
  * @brief The payload of a packet.
- *
+ * @param data The data of the payload (a byte array).
  */
 struct PacketPayload
 {
