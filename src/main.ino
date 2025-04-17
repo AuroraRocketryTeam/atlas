@@ -1,7 +1,6 @@
 /***
  * Temporary code for testing EKF with MPRLS and BNO055 sensors (the real main is main_orig.cpp)
  */
-
 #define EKF_N 24
 #define EKF_M 24
 
@@ -23,6 +22,7 @@ static MPRLSSensor mprls;
 static BNO055Sensor bno;
 
 static ekf_t _ekf;
+
 
 void setup() 
 {
@@ -70,6 +70,7 @@ void setup()
 
 void loop()
 {
+    Serial.println("Test");
     // Retrieve data from MPRLS sensor
     auto mprlsDataOpt = mprls.getData();
     if (!mprlsDataOpt.has_value()) {
@@ -85,36 +86,36 @@ void loop()
     }
     auto bnoData = bnoDataOpt.value();
     
-    float bno_orientation_x = std::get<std::map<std::string, float>>(bnoData.getData("orientation").value())["x"];
-    float bno_orientation_y = std::get<std::map<std::string, float>>(bnoData.getData("orientation").value())["y"];
-    float bno_orientation_z = std::get<std::map<std::string, float>>(bnoData.getData("orientation").value())["z"];
+    float bno_orientation_x = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("orientation").value())["x"]);
+    float bno_orientation_y = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("orientation").value())["y"]);
+    float bno_orientation_z = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("orientation").value())["z"]);
 
-    float bno_angVelocity_x = std::get<std::map<std::string, float>>(bnoData.getData("angular_velocity").value())["x"];
-    float bno_angVelocity_y = std::get<std::map<std::string, float>>(bnoData.getData("angular_velocity").value())["y"];
-    float bno_angVelocity_z = std::get<std::map<std::string, float>>(bnoData.getData("angular_velocity").value())["z"];
+    float bno_angVelocity_x = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("angular_velocity").value())["x"]);
+    float bno_angVelocity_y = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("angular_velocity").value())["y"]);
+    float bno_angVelocity_z = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("angular_velocity").value())["z"]);
 
-    float bno_linearAccel_x = std::get<std::map<std::string, float>>(bnoData.getData("linear_acceleration").value())["x"];
-    float bno_linearAccel_y = std::get<std::map<std::string, float>>(bnoData.getData("linear_acceleration").value())["y"];
-    float bno_linearAccel_z = std::get<std::map<std::string, float>>(bnoData.getData("linear_acceleration").value())["z"];
+    float bno_linearAccel_x = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("linear_acceleration").value())["x"]);
+    float bno_linearAccel_y = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("linear_acceleration").value())["y"]);
+    float bno_linearAccel_z = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("linear_acceleration").value())["z"]);
     
-    float bno_magnetometer_x = std::get<std::map<std::string, float>>(bnoData.getData("magnetometer").value())["x"];
-    float bno_magnetometer_y = std::get<std::map<std::string, float>>(bnoData.getData("magnetometer").value())["y"];
-    float bno_magnetometer_z = std::get<std::map<std::string, float>>(bnoData.getData("magnetometer").value())["z"];
+    float bno_magnetometer_x = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("magnetometer").value())["x"]);
+    float bno_magnetometer_y = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("magnetometer").value())["y"]);
+    float bno_magnetometer_z = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("magnetometer").value())["z"]);
     
-    float bno_accelerometer_x = std::get<std::map<std::string, float>>(bnoData.getData("accelerometer").value())["x"];
-    float bno_accelerometer_y = std::get<std::map<std::string, float>>(bnoData.getData("accelerometer").value())["y"];
-    float bno_accelerometer_z = std::get<std::map<std::string, float>>(bnoData.getData("accelerometer").value())["z"];
+    float bno_accelerometer_x = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("accelerometer").value())["x"]);
+    float bno_accelerometer_y = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("accelerometer").value())["y"]);
+    float bno_accelerometer_z = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("accelerometer").value())["z"]);
     
-    float bno_gravity_x = std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["x"];
-    float bno_gravity_y = std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["y"];
-    float bno_gravity_z = std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["z"];
+    float bno_gravity_x = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["x"]);
+    float bno_gravity_y = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["y"]);
+    float bno_gravity_z = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["z"]);
     
-    float bno_temperature = std::get<float>(bnoData.getData("board_temperature").value());
+    float bno_temperature = static_cast<float>(std::get<int8_t>(bnoData.getData("board_temperature").value()));
     
-    float bno_quaternion_w = std::get<std::map<std::string, float>>(bnoData.getData("quaternion").value())["w"];
-    float bno_quaternion_x = std::get<std::map<std::string, float>>(bnoData.getData("quaternion").value())["x"];
-    float bno_quaternion_y = std::get<std::map<std::string, float>>(bnoData.getData("quaternion").value())["y"];
-    float bno_quaternion_z = std::get<std::map<std::string, float>>(bnoData.getData("quaternion").value())["z"];
+    float bno_quaternion_w = static_cast<float>(std::get<std::map<std::string, double>>(bnoData.getData("quaternion").value())["w"]);
+    float bno_quaternion_x = static_cast<float>(std::get<std::map<std::string, double>>(bnoData.getData("quaternion").value())["x"]);
+    float bno_quaternion_y = static_cast<float>(std::get<std::map<std::string, double>>(bnoData.getData("quaternion").value())["y"]);
+    float bno_quaternion_z = static_cast<float>(std::get<std::map<std::string, double>>(bnoData.getData("quaternion").value())["z"]);
     
     float z[EKF_M] = {
         mprls_pressure, 
@@ -127,7 +128,7 @@ void loop()
         bno_quaternion_w, bno_quaternion_x, bno_quaternion_y, bno_quaternion_z, 
         bno_temperature
     };
-
+    
     // Process model: f(x) = x (state remains unchanged)
     float fx[EKF_N];
     for (int i = 0; i < EKF_N; i++) {
@@ -145,7 +146,7 @@ void loop()
 
     // Run the update step of the EKF
     ekf_update(&_ekf, z, hx, H, R);
-
+    
     Serial.println("MPRLS Pressure:");
     Serial.println(z[0]);
     Serial.println();
@@ -161,7 +162,7 @@ void loop()
     Serial.println(z[5]);
     Serial.println(z[6]);
     Serial.println();
-
+    
     Serial.println("BNO055 Linear Acceleration:");
     Serial.println(z[7]);
     Serial.println(z[8]);
