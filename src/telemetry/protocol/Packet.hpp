@@ -3,12 +3,19 @@
 #include <cstdint>
 #include <cstddef>
 
-constexpr size_t MAX_PACKET_SIZE = 199;
+constexpr size_t MAX_PACKET_SIZE = 200;
+/* 3 bytes are reserved for ADDH, ADDL and CHAN in the library */
+constexpr size_t RESERVED_BYTES = 3;
+/* 199 - 3 = 196 bytes */
+constexpr size_t MAX_SIZE_TX_PACKET = MAX_PACKET_SIZE - RESERVED_BYTES;
+/* MAX_SIZE_TX_PACKET - header size - crc size */
+constexpr size_t MAX_PAYLOAD_SIZE = MAX_SIZE_TX_PACKET - sizeof(PacketHeader) - sizeof(uint16_t);
+
 #pragma pack(push, 1) // Evita padding nelle strutture
 
 /**
  * @brief The packet header.
- * 
+ *
  * @param packetNumber The number of the packet.
  * @param totalChunks The total number of chunks.
  * @param chunkNumber The number of the chunk.
@@ -26,8 +33,6 @@ struct PacketHeader
     uint8_t payloadSize; // In bytes
     uint32_t timestamp;  // Unix timestamp
 };
-
-constexpr size_t MAX_PAYLOAD_SIZE = MAX_PACKET_SIZE - sizeof(PacketHeader) - sizeof(uint16_t); // MAX_PACKET_SIZE - header size - crc size
 
 /**
  * @brief The payload of a packet.
