@@ -5,6 +5,9 @@
 #define BME680_I2C_ADDR_2 0x76
 #define BNO055_I2C_ADDR 0x28
 #define MPRLS_I2C_ADDR 0x18
+#define I2C_MULTIPLEXER_ADDRESS 0x70
+#define I2C_MULTIPLEXER_MPRLS1 1
+#define I2C_MULTIPLEXER_MPRLS2 0
 
 /* LoRa configuration */
 #define E220_22         // E220-900T22D
@@ -14,6 +17,7 @@
 #define LORA_RX_PIN 2 // The pin connected to the TX pin of the LoRa module
 #define LORA_TX_PIN 3 // The pin connected to the RX pin of the LoRa module
 
+/* Transmitter antenna address */
 #define LORA_ADDH 0x00
 #define LORA_ADDL 0x03
 /* Receiver antenna address */
