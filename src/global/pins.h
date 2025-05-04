@@ -26,7 +26,8 @@
 #define SD_CLK D13
 #define SD_SO D12
 #define SD_SI D11
-#define SD_CS D7
+#define SD_CS D10
+#define SD_DET D9
 
 #define LORA_RX 2
 #define LORA_TX 3
