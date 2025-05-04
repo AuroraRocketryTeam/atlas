@@ -128,6 +128,7 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
         Serial.println("Chunk Size: " + String(packet.header.chunkSize));
         Serial.println("Payload Size: " + String(packet.header.payloadSize));
         Serial.println("Timestamp: " + String(packet.header.timestamp));
+        Serial.println("Protocol Version: " + String(packet.header.protocolVersion));
         Serial.println("######## PAYLOAD ########");
         for (int i = 0; i < MAX_PAYLOAD_SIZE; i++)
         {
