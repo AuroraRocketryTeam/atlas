@@ -118,9 +118,6 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
         {
             // Se il chunk è più piccolo del massimo, riempi con 1 dopo il termine del payload
             memset(packet.payload.data + payloadSize, 0x01, MAX_PAYLOAD_SIZE - payloadSize);
-            // Aggiorna la dimensione del payload
-            packet.header.payloadSize = MAX_PAYLOAD_SIZE;
-            packet.header.chunkSize = MAX_PAYLOAD_SIZE + HEADER_SIZE + CRC_SIZE;
         }
 
         packet.calculateCRC();
