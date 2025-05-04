@@ -105,7 +105,6 @@ void logTransmitterStatus(ResponseStatusContainer &transmitterStatus)
         rocketLogger->logInfo(("Current configuration: " +
                                static_cast<E220LoRaTransmitter *>(loraTransmitter)->getConfigurationString(*(Configuration *)(static_cast<E220LoRaTransmitter *>(loraTransmitter)->getConfiguration().data)))
                                   .c_str());
-        exit(transmitterStatus.getCode());
     }
 }
 
