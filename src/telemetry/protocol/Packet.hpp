@@ -35,7 +35,7 @@ struct PacketHeader
     uint8_t chunkSize;   // In bytes
     uint8_t payloadSize; // In bytes
     uint32_t timestamp;  // Unix timestamp
-    uint8_t protocolVersion = 1; // Versione del protocollo
+    const uint8_t protocolVersion = 1; // Versione del protocollo
 };
 
 constexpr size_t HEADER_SIZE = sizeof(PacketHeader);
