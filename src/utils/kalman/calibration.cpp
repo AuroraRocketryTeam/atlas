@@ -17,7 +17,23 @@
 int main() {
 
     // Gravity vector got from the accelerometer
-    Eigen::Vector3f gravity(-5.0105, -1.7072 , 8.3120);
+    std::vector<Eigen::Vector3f> gravity_readings;
+    for (int i = 0; i < 200; ++i) {
+        // Simulate reading from accelerometer
+        Eigen::Vector3f reading(0, 0, 9.81); // Replace with actual reading of accelerometer
+        gravity_readings.push_back(reading);
+        // delay(10); // Simulate delay between readings
+    }
+    // TO DO: COMPUTE STANDARD DEVIATION OF THE GRAVITY READINGS, IF TOO HIGH, REPEAT THE CALIBRATION
+
+    // Calculate the mean of the gravity readings
+    Eigen::Vector3f gravity_sum = Eigen::Vector3f::Zero();
+    for (const auto& reading : gravity_readings) {
+        gravity_sum += reading;
+    }
+    Eigen::Vector3f gravity = gravity_sum / gravity_readings.size();
+    Eigen::Vector3f expected_gravity(0, 0, 9.80537); // Expected gravity vector for specific location (Forlì - 34 m over sea level)
+    // Got from: https://www.sensorsone.com/local-gravity-calculator/
 
     // Rotation Axis: cross product of gravity in local R.F. and Z R.F.
     Eigen::Vector3f z(0, 0, 1);
@@ -39,6 +55,14 @@ int main() {
     Eigen::Quaternionf q_yaw(Eigen::AngleAxisf(yaw, Eigen::Vector3f(0, 0, 1)));
     Eigen::Quaternionf initial_quaternion = q_yaw * q_rot;
     initial_quaternion.normalize();
+
+    // Bias of the accelerometer
+    Eigen::Vector3f initial_gravity = initial_quaternion * gravity;
+    Eigen::Vector3f bias_a = initial_gravity - expected_gravity;
+
+    // Bias of the gyroscope
+    Eigen::Vector3f initial_omega(0, 0, 0); // Mean of various readings
+    Eigen::Vector3f bias_w = initial_omega - Eigen::Vector3f(0, 0, 0); // Assuming no rotation
 
     return 0;
 }
