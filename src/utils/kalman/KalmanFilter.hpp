@@ -25,12 +25,6 @@
 #include <random>
 #include <ArduinoEigen.h>
 
-// These vectors should be put private iside of the class
-static float Q_diag[EKF_N];  // Process noise covariance
-static float R[EKF_M * EKF_M];  // Measurement noise covariance
-static float H[EKF_M*EKF_N];  // Measurement Jacobian
-static float F[EKF_N*EKF_N];  // Jacobian with input/output relations
-
 class KalmanFilter {
 public:
     KalmanFilter();
@@ -39,18 +33,49 @@ public:
 
 private:
     ekf_t ekf;
-    
-    // initial covariances of state noise, measurement noise
-    // Q matrix (model) // We obtain this value from a comparison between a model and the real data.
+
     const float P0 = 1e-4; 
     const float V0 = 1e-4;
     const float q_a = 1e-8;
     const float b_a = 1e-8;
     const float b_g = 1e-8;
 
-    // R matrix (measurements)
+    // R matrix (measurements), obtain this value from a comparison between a model and the real data.
     const float A0 = 1e-3;
     const float G0 = 1e-5;
+
+    // Process noise covariance
+    float Q_diag[EKF_N] = {
+        P0, P0, P0,
+        V0, V0, V0,
+        q_a, q_a, q_a, q_a,
+        b_a, b_a, b_a,
+        b_g, b_g, b_g
+    };
+
+    // Measurement noise covariance
+    float R[EKF_M * EKF_M] = {
+        A0, 0, 0, 0, 0, 0,
+        0, A0, 0, 0, 0, 0,
+        0, 0, A0, 0, 0, 0,
+        0, 0, 0, G0, 0, 0,
+        0, 0, 0, 0, G0, 0,
+        0, 0, 0, 0, 0, G0
+    
+    };
+
+    // Initially, the acceleration is constantly zero, so it won't change
+    float H[EKF_M*EKF_N] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
+    };
+    
+    // Measurement Jacobian with input/output relations
+    float F[EKF_N*EKF_N];\
 
     // Gravity vector in ENU coordinates
     const Eigen::Vector3f gravity{0, 0, -9.81};

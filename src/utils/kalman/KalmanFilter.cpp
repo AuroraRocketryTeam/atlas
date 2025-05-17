@@ -1,37 +1,6 @@
 #include "KalmanFilter.hpp"
 
 KalmanFilter::KalmanFilter() {
-    // Q: process noise covariance
-    const float Q_diag[EKF_N] = {
-        P0, P0, P0,
-        V0, V0, V0,
-        q_a, q_a, q_a, q_a,
-        b_a, b_a, b_a,
-        b_g, b_g, b_g
-    };
-
-    // R: measurement noise covariance
-    const float R[EKF_M*EKF_M] = {
-        A0, 0, 0, 0, 0, 0,
-        0, A0, 0, 0, 0, 0,
-        0, 0, A0, 0, 0, 0,
-        0, 0, 0, G0, 0, 0,
-        0, 0, 0, 0, G0, 0,
-        0, 0, 0, 0, 0, G0
-    
-    };
-
-    // Initially, the acceleration is constantly zero, so it won't change
-    const float H[EKF_M*EKF_N] = {
-        
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
-    };
-
     ekf_initialize(&ekf, Q_diag);
 
     // Position
