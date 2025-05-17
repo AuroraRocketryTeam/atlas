@@ -27,7 +27,7 @@
 
 class KalmanFilter {
 public:
-    KalmanFilter();
+    KalmanFilter(std::vector<Eigen::Vector3f> gravity_readings);
     std::vector<std::vector<float>> step(float dt, float omega[3], float accel[3]);
     float* state();
 
@@ -79,6 +79,15 @@ private:
 
     // Gravity vector in ENU coordinates
     const Eigen::Vector3f gravity{0, 0, -9.81};
+
+    /**
+     * @brief This function must run when the Launcher is still in the launching position.
+     * It will also use the magnetometer to align the Z axis with the North, we might not get exact Norht since the readings might be modified by the presence of the aluminum frame, it is just to get a rough idea of the North.
+     * 
+     * @param gravity_readings A vector of gravity reading samples (a good amount is 200)
+     * @return std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f>: the good approximations of quaternions, ???TODO
+     */
+    std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> calibration(std::vector<Eigen::Vector3f> gravity_readings);
 
     Eigen::Vector3f rotateToBody(const Eigen::Quaternionf& q, const Eigen::Vector3f& vec_world);
 

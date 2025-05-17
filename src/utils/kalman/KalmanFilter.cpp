@@ -1,6 +1,9 @@
 #include "KalmanFilter.hpp"
 
-KalmanFilter::KalmanFilter() {
+KalmanFilter::KalmanFilter(std::vector<Eigen::Vector3f> gravity_readings) {
+    //calibration phase
+    std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> calibration_data = calibration(gravity_readings);
+
     ekf_initialize(&ekf, Q_diag);
 
     // Position
@@ -14,24 +17,70 @@ KalmanFilter::KalmanFilter() {
     ekf.x[5] = 0;
 
     // Quaternion: received from calibration phase
-    ekf.x[6] = 0.9541;
-    ekf.x[7] = -0.0571;
-    ekf.x[8] = 0.2734;
-    ekf.x[9] = -0.1079;
+    ekf.x[6] = std::get<0>(calibration_data).x();
+    ekf.x[7] = std::get<0>(calibration_data).y();
+    ekf.x[8] = std::get<0>(calibration_data).z();
+    ekf.x[9] = std::get<0>(calibration_data).w();
     
     // Accel Bias
-    ekf.x[10] = 0.01;
-    ekf.x[11] = 0.01;
-    ekf.x[12] = 0.01;
+    ekf.x[10] = std::get<1>(calibration_data)[0];
+    ekf.x[11] = std::get<1>(calibration_data)[1];
+    ekf.x[12] = std::get<1>(calibration_data)[2];
     
     // Gyro Bias
-    ekf.x[13] = 0.01;
-    ekf.x[14] = 0.01;
-    ekf.x[15] = 0.01;
+    ekf.x[13] = std::get<2>(calibration_data)[0];
+    ekf.x[14] = std::get<2>(calibration_data)[1];
+    ekf.x[15] = std::get<2>(calibration_data)[2];
 }
 
 float* KalmanFilter::state() {
     return ekf.x;
+}
+
+std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> KalmanFilter::calibration(std::vector<Eigen::Vector3f> gravity_readings) {
+    // TO DO: COMPUTE STANDARD DEVIATION OF THE GRAVITY READINGS, IF TOO HIGH, REPEAT THE CALIBRATION
+
+    // Calculate the mean of the gravity readings
+    Eigen::Vector3f gravity_sum = Eigen::Vector3f::Zero();
+    for (const auto& reading : gravity_readings) {
+        gravity_sum += reading;
+    }
+    Eigen::Vector3f gravity = gravity_sum / gravity_readings.size();
+    
+    // Expected gravity vector for specific location (Forlì - 34 m over sea level)
+    // Got from: https://www.sensorsone.com/local-gravity-calculator/
+    Eigen::Vector3f expected_gravity(0, 0, 9.80537);
+
+    // Rotation Axis: cross product of gravity in local R.F. and Z R.F.
+    Eigen::Vector3f z(0, 0, 1);
+    Eigen::Vector3f g = gravity.normalized();
+    Eigen::Vector3f axis = g.cross(z);
+    axis.normalize();
+
+    // Angle: acos of the dot product
+    float angle = acos(g.dot(z));
+
+    // Quaternion
+    Eigen::Quaternionf q_rot(Eigen::AngleAxisf(angle, axis));
+
+    // Rotate the quaternion to align with north
+    // Reading of the angle relative to North
+    Eigen::Vector3f magnetometer(21.87, 27.56, -19.75); // Magnetometer reading
+    //!!!Eigen::Vector3f magnetometer_z_aligned = q_rot * magnetometer;
+    float yaw = atan2f(magnetometer[1], magnetometer[0]); // Yaw angle in radians
+    Eigen::Quaternionf q_yaw(Eigen::AngleAxisf(yaw, Eigen::Vector3f(0, 0, 1)));
+    Eigen::Quaternionf initial_quaternion = q_yaw * q_rot;
+    initial_quaternion.normalize();
+
+    // Bias of the accelerometer
+    Eigen::Vector3f initial_gravity = initial_quaternion * gravity;
+    Eigen::Vector3f bias_a = initial_gravity - expected_gravity;
+
+    // Bias of the gyroscope
+    Eigen::Vector3f initial_omega(0, 0, 0); // Mean of various readings
+    Eigen::Vector3f bias_w = initial_omega - Eigen::Vector3f(0, 0, 0); // Assuming no rotation
+
+    return std::make_tuple(initial_quaternion, bias_a, bias_w);
 }
 
 Eigen::Vector3f KalmanFilter::rotateToBody(const Eigen::Quaternionf& q, const Eigen::Vector3f& vec_world) {
