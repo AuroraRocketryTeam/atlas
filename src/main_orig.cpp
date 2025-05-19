@@ -1,11 +1,5 @@
-#include <Arduino.h>
-#include <Wire.h>
-#include <HardwareSerial.h>
-#include <optional>
-#include <vector>
-#include <string>
-#include "global/config.h"
-#include "utils/utilities/functions.h"
+/*#include <Wire.h>
+#include "sensors/ISensor.hpp"
 #include "utils/logger/ILogger.hpp"
 #include "utils/logger/rocket_logger/RocketLogger.hpp"
 #include "sensors/ISensor.hpp"
@@ -151,3 +145,4 @@ void logToSDCard(const std::string &filename, const std::string &data)
         rocketLogger->logError("Failed to open file: " + filename);
     }
 }
+*/
