@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include "sensors/ISensor.hpp"
 #include "sensors/MPRLS/MPRLSSensor.hpp"
+#include "MPLRS/MPRLSPrinter.hpp"
 #include <global/config.h>
 #include <global/pins.h>
 
@@ -12,6 +13,7 @@
  */
 
 ISensor* mprls;
+MPRLSPrinter* mprlsPrinter;
 
 void setup() {
     Serial.begin(SERIAL_BAUD_RATE);
@@ -30,6 +32,12 @@ void setup() {
         exit(1);
     }
 
-    
-    
+    mprlsPrinter = new MPRLSPrinter(mprls);
+    delay(1000);
 }
+
+void loop() {
+    mprlsPrinter->displayPressure();
+    delay(1000);
+}
+
