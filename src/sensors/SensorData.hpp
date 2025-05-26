@@ -11,6 +11,7 @@ using SensorDataVariant = std::variant<
     uint8_t,
     int,
     unsigned int,
+    float,
     double,
     std::string,
     std::vector<float>,
