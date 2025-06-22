@@ -2,12 +2,14 @@
 #include "sensors/ISensor.hpp"
 #include "utils/logger/ILogger.hpp"
 #include "utils/logger/rocket_logger/RocketLogger.hpp"
-#include "sensors/ISensor.hpp"
-#include "sensors/BME680/BME680Sensor.hpp"
-#include "sensors/BNO055/BNO055Sensor.hpp"
-#include "sensors/MPRLS/MPRLSSensor.hpp"
+#include <ISensor.hpp>
+#include <BME680Sensor.hpp>
+#include <BNO055Sensor.hpp>
+#include <MPRLSSensor.hpp>
 #include "telemetry/LoRa/E220LoRaTransmitter.hpp"
 #include "utils/logger/SD/SD-master.hpp"
+
+using TransmitDataType = std::variant<char*, String, std::string, nlohmann::json>;
 
 ILogger *rocketLogger;
 SD *sdModule;
@@ -15,7 +17,7 @@ SD *sdModule;
 ISensor *bno055;
 ISensor *mprls1;
 ISensor *mprls2;
-ITransmitter *loraTransmitter;
+ITransmitter<TransmitDataType> *loraTransmitter;
 HardwareSerial loraSerial(LORA_SERIAL);
 
 std::string log_file = "log.json";
@@ -46,6 +48,7 @@ void setup()
     mprls1 = new MPRLSSensor();
     mprls1->init();
 
+
     tcaSelect(I2C_MULTIPLEXER_MPRLS2);
     mprls2 = new MPRLSSensor();
     mprls2->init();
@@ -56,12 +59,10 @@ void setup()
     loraTransmitter = new E220LoRaTransmitter(loraSerial, LORA_AUX, LORA_M0, LORA_M1);
     auto transmitterStatus = loraTransmitter->init();
     logTransmitterStatus(transmitterStatus);
-    rocketLogger->logInfo(static_cast<E220LoRaTransmitter *>(loraTransmitter)->getConfigurationString(*(Configuration *)(static_cast<E220LoRaTransmitter *>(loraTransmitter)->getConfiguration().data)).c_str());
     rocketLogger->logInfo("Setup complete.");
     logToSDCard(log_file, rocketLogger->getJSONAll().dump(4) + "\n");
     auto response = loraTransmitter->transmit(rocketLogger->getJSONAll());
     logTransmissionResponse(response);
-    rocketLogger->clearData();
 }
 
 void loop()
@@ -90,7 +91,7 @@ void loop()
     }
     logToSDCard(log_file, rocketLogger->getJSONAll().dump(4) + "\n");
     auto response = loraTransmitter->transmit(rocketLogger->getJSONAll());
-
+    logTransmissionResponse(response);
     rocketLogger->clearData();
 }
 
@@ -115,34 +116,15 @@ void logTransmitterStatus(ResponseStatusContainer &transmitterStatus)
                                static_cast<E220LoRaTransmitter *>(loraTransmitter)->getConfigurationString(*(Configuration *)(static_cast<E220LoRaTransmitter *>(loraTransmitter)->getConfiguration().data)))
                                   .c_str());
     }
-}
 
-// Log data transmission response
-void logTransmissionResponse(ResponseStatusContainer &response)
-{
-    response.getCode() != RESPONSE_STATUS::E220_SUCCESS
-        ? rocketLogger->logError(("Failed to transmit data with error: " + response.getDescription() + " (" + String(response.getCode()) + ")").c_str())
-        : rocketLogger->logInfo("Data transmitted successfully.");
-}
-
-// Function to select the TCA9548A multiplexer bus
-void tcaSelect(uint8_t bus)
-{
-    Wire.beginTransmission(0x70); // TCA9548A address
-    Wire.write(1 << bus);         // send byte to select bus
-    Wire.endTransmission();
-}
-
-void logToSDCard(const std::string &filename, const std::string &data)
-{
-    if (sdModule->openFile(filename))
+    auto bno055Value = bno055->getData();
+    if (bno055Value.has_value())
     {
-        sdModule->writeFile(filename, data);
-        sdModule->closeFile();
+        rocketLogger->logSensorData(bno055Value.value());
     }
-    else
-    {
-        rocketLogger->logError("Failed to open file: " + filename);
-    }
+
+    Serial.write(rocketLogger->getJSONAll().dump(4).c_str());
+    rocketLogger->clearData();
+    delay(1000);
 }
 */
