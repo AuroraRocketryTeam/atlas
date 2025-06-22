@@ -1,5 +1,5 @@
 #include "E220LoRaTransmitter.hpp"
-#include "global/pins.h"
+#include <pins.h>
 
 /**
  * @brief Initialize the LoRa module with default configuration.
