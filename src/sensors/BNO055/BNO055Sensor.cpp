@@ -124,3 +124,16 @@ bool BNO055Sensor::calibrate()
 
     return false;
 }
+
+bool BNO055Sensor::hardwareTest() {
+    bool accel_status = bno_interface.selftest_accel();
+    bool mag_status = bno_interface.selftest_mag();
+    bool gyro_status = bno_interface.selftest_gyro();
+    bool mcu_status = bno_interface.selftest_mcu();
+
+    // !!! These are not strictly hardware stuff, should we add another test function?
+    bool system_status = bno_interface.check_system_error();
+    bool clock_status = bno_interface.check_clock_status();
+
+    return accel_status && mag_status && gyro_status && mcu_status;
+}
