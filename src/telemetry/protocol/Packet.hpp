@@ -13,8 +13,6 @@ constexpr size_t CRC_SIZE = sizeof(uint16_t);
 /* HEADER size + PAYLOAD size + crc size */
 constexpr size_t MAX_TX_PACKET_SIZE = MAX_PACKET_SIZE - RESERVED_BYTES;
 
-// Forward declaration of the Packet struct
-struct Packet;
 
 #pragma pack(push, 1) // Evita padding nelle strutture
 
