@@ -15,7 +15,6 @@ constexpr size_t MAX_TX_PACKET_SIZE = MAX_PACKET_SIZE - RESERVED_BYTES;
 
 // Forward declaration of the Packet struct
 struct Packet;
-void printPacket(const Packet &packet);
 
 #pragma pack(push, 1) // Evita padding nelle strutture
 
@@ -67,11 +66,7 @@ struct Packet
      * @brief Calculate the CRC16 of the packet.
      */
     void calculateCRC();
-    void printPacket() const
-    {
-        // Function to print the packet for debugging purposes
-        ::printPacket(*this);
-    }
+    void printPacket();
 };
 #pragma pack(pop) // Ripristina l'allineamento predefinito
 

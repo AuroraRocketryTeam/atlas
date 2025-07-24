@@ -24,21 +24,21 @@ void Packet::calculateCRC()
 }
 
 
-void printPacket(const Packet &packet)
+void Packet::printPacket()
 {
     Serial.println("######## HEADER ########");
-    Serial.println("Packet Number: " + String(packet.header.packetNumber));
-    Serial.println("Total Chunks: " + String(packet.header.totalChunks));
-    Serial.println("Chunk Number: " + String(packet.header.chunkNumber));
-    Serial.println("Chunk Size: " + String(packet.header.chunkSize));
-    Serial.println("Payload Size: " + String(packet.header.payloadSize));
-    Serial.println("Timestamp: " + String(packet.header.timestamp));
-    Serial.println("Protocol Version: " + String(packet.header.protocolVersion));
+    Serial.println("Packet Number: " + String(this->header.packetNumber));
+    Serial.println("Total Chunks: " + String(this->header.totalChunks));
+    Serial.println("Chunk Number: " + String(this->header.chunkNumber));
+    Serial.println("Chunk Size: " + String(this->header.chunkSize));
+    Serial.println("Payload Size: " + String(this->header.payloadSize));
+    Serial.println("Timestamp: " + String(this->header.timestamp));
+    Serial.println("Protocol Version: " + String(this->header.protocolVersion));
     Serial.println("######## PAYLOAD ########");
     for (int i = 0; i < MAX_PAYLOAD_SIZE; i++)
     {
-        Serial.print(String(packet.payload.data[i], HEX) + " ");
+        Serial.print(String(this->payload.data[i], HEX) + " ");
     }
     Serial.println();
-    Serial.println("CRC: " + String(packet.crc, HEX));
+    Serial.println("CRC: " + String(this->crc, HEX));
 }
