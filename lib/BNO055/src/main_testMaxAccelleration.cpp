@@ -1,26 +1,30 @@
 #include <vector>
 #include <tuple>
+#include <config.h>
 #include <BNO055Sensor.hpp>
  
 static BNO055Sensor bno;
 
 void setup()
 {
-    Serial.begin(115200);
+    Serial.begin(SERIAL_BAUD_RATE);
+    Serial.println("Initializing BNO055...");
     
     if (!bno.init()) {
-        while(1) {
-            Serial.println("Failed to initialize BNO055");
-        }
+        Serial.println("Failed to initialize BNO055 - continuing with error messages");
+    } else {
+        Serial.println("BNO055 initialized successfully");
     }
 }
  
 void loop()
 {
+    Serial.println("Reading BNO055 data...");
     auto bnoDataOpt = bno.getData();
     if (!bnoDataOpt.has_value()) {
-        Serial.println("BNO055 data not available");
-        return;
+        Serial.println("BNO055 data not available - sensor not initialized or failed");
+    } else {
+        Serial.println("BNO055 data retrieved successfully");
     }
     auto bnoData = bnoDataOpt.value();
 
@@ -35,5 +39,5 @@ void loop()
                    ", z: " + String(bno_gravity_z) +
                    ", xyz: " + String(bno_gravity_xyz));
     
-    delay(10);
+    delay(100);
 }
