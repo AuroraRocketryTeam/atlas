@@ -30,3 +30,7 @@
 #define SERIAL_BAUD_RATE 115200 // Serial baud rate
 
 // #define TRANSMITTER_CONFIG_MODE_ENABLE // Enable configuration mode for the transmitter (needs to be tested on new hardware)
+
+/* Flight parameters configuration */
+#define LIFTOFF_TIMEOUT_MS 100      // Threshold for the detection of liftoff when acceleration is > 0 in any direction
+#define DROGUE_APOGEE_TIMEOUT 300   // Threshold for opening the drogue parachute after apogee is detected
