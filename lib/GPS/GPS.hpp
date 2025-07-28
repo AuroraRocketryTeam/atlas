@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Adafruit_BNO055.h>
 #include <ISensor.hpp>
 #include <TinyGPSPlus.h>
 #include <config.h>

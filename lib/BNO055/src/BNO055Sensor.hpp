@@ -10,8 +10,7 @@ public:
     bool init() override;
     bool calibrate();
     bool hardwareTest();
-    std::optional<SensorData> getData() override;
-    
+    std::optional<SensorData> getData() override;    
 
 private:
     BNO055SensorInterface bno_interface;
