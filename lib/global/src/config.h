@@ -32,3 +32,6 @@
 #define SERIAL_BAUD_RATE 115200 // Serial baud rate
 
 // #define TRANSMITTER_CONFIG_MODE_ENABLE // Enable configuration mode for the transmitter (needs to be tested on new hardware)
+
+// Important math constants
+#define GRAVITY 9.80665f
