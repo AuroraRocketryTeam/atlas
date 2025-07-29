@@ -35,9 +35,9 @@ void setup() {
     ms56_2.init();
     gps.init();
 
-    // Initialize actuators
-    //startTime = millis();
-    //pinMode(D0, OUTPUT);
+    // Testing the buzzer or actuators (just change the pins)
+    startTime = millis();
+    pinMode(D2, OUTPUT);
     //pinMode(D1, OUTPUT);
 }
 
@@ -92,19 +92,17 @@ void loop() {
     rocketLogger.clearData();
 
     // Actuator control logic
-    /*unsigned long currentTime = millis();
+    unsigned long currentTime = millis();
 
-    if (currentTime - startTime >= 5000) {
+    if (currentTime - startTime >= 3000) {
         if (toggleState) {
-            digitalWrite(D0, HIGH);
-            digitalWrite(D1, HIGH);
+            digitalWrite(D2, HIGH);
         } else {
-            digitalWrite(D0, LOW);
-            digitalWrite(D1, LOW);
+            digitalWrite(D2, LOW);
         }
         toggleState = !toggleState;
         startTime = currentTime;
-    }*/
+    }
 
     delay(100);
 }
