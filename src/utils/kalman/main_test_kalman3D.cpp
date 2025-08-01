@@ -4,41 +4,102 @@
 #include "../../sensors/BNO055/BNO055Sensor.hpp"
 #include "./KalmanFilter.hpp"
  
- // Elements needed to update the kalman filter
- unsigned long lastTime = 0;
- 
+// Elements needed to update the kalman filter
+unsigned long lastTime = 0;
+const int NUM_SAMPLES = 200;
+const float STD_TRESHOLD = 0.1f;
+
 KalmanFilter* ekf = nullptr;
  
- static MPRLSSensor mprls;
- static BNO055Sensor bno;
+static MPRLSSensor mprls;
+static BNO055Sensor bno;
  
- // Vector to keep track of the position
- std::vector<std::tuple<float, float, float>> positionLog;
+// Vector to keep track of the position
+std::vector<std::tuple<float, float, float>> positionLog;
  
+Eigen::Vector3f standard_deviation(const std::vector<Eigen::Vector3f>& readings) {
+    Eigen::Vector3f mean = Eigen::Vector3f::Zero();
+    for (const auto& reading : readings) {
+        mean += reading;
+    }
+    mean /= readings.size();
+
+    Eigen::Vector3f variance = Eigen::Vector3f::Zero();
+    for (const auto& reading : readings) {
+        Eigen::Vector3f diff = reading - mean;
+        variance += diff.cwiseProduct(diff); // componente a componente: (x^2, y^2, z^2)
+    }
+    variance /= static_cast<float>(readings.size() - 1);
+
+    return variance.cwiseSqrt(); // raíz cuadrada componente a componente
+}
+
  void setup()
  {
+    Serial.begin(115200);
+
+    Serial.println("Sensors Initialization...");
     mprls.init();
     bno.init();
 
-    // Reading gravity vector samples for kalman filter initialization
-    std::vector<Eigen::Vector3f> gravity_readings;
-    for (int i = 0; i < 200; i++) {
-        auto bnoDataOpt = bno.getData();
-        if (!bnoDataOpt.has_value()) {
-            Serial.println("BNO055 data not available");
-            return;
+    Serial.println("Gravity and Magnetometer Readings...");
+    Eigen::Vector3f gravity_value, magnetometer_value;
+    bool calibration = true;
+    do {
+        // Reading gravity vector samples for kalman filter initialization
+        std::vector<Eigen::Vector3f> gravity_readings;
+        std::vector<Eigen::Vector3f> magnometer_readings;
+        for (int i = 0; i < NUM_SAMPLES; i++) {
+            auto bnoDataOpt = bno.getData();
+            if (!bnoDataOpt.has_value()) {
+                Serial.println("BNO055 data not available");
+                return;
+            }
+            auto bnoData = bnoDataOpt.value();
+            
+            float bno_gravity_x = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["x"]);
+            float bno_gravity_y = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["y"]);
+            float bno_gravity_z = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["z"]);
+            
+            float bno_magnetometer_x = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("magnetometer").value())["x"]);
+            float bno_magnetometer_y = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("magnetometer").value())["y"]);
+            float bno_magnetometer_z = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("magnetometer").value())["z"]);
+            
+            gravity_readings.push_back(Eigen::Vector3f(bno_gravity_x, bno_gravity_y, bno_gravity_z));
+            magnometer_readings.push_back(Eigen::Vector3f(bno_magnetometer_x, bno_magnetometer_y, bno_magnetometer_z));
+            delay(10); // Small delay to avoid flooding the sensor !!!
         }
-        auto bnoData = bnoDataOpt.value();
-        
-        float bno_gravity_x = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["x"]);
-        float bno_gravity_y = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["y"]);
-        float bno_gravity_z = static_cast<float>(std::get<std::map<std::string, float>>(bnoData.getData("gravity").value())["z"]);
-        
-        gravity_readings.push_back(Eigen::Vector3f(bno_gravity_x, bno_gravity_y, bno_gravity_z));
-    }
-    ekf = new KalmanFilter(gravity_readings);
 
-    Serial.begin(115200);
+        // Calculate the mean of the readings
+        Eigen::Vector3f gravity_sum = Eigen::Vector3f::Zero();
+        Eigen::Vector3f magnometer_sum = Eigen::Vector3f::Zero();
+        
+        for (int i=0; i < NUM_SAMPLES; i++) {
+            gravity_sum += gravity_readings[i];
+            magnometer_sum += magnometer_readings[i];
+        }
+
+        gravity_value = gravity_sum / gravity_readings.size();
+        magnetometer_value = magnometer_sum / magnometer_readings.size();
+
+        // Computing the standard deviation of the readings to check for calibration quality
+        Eigen::Vector3f gravity_std = standard_deviation(gravity_readings);
+        Eigen::Vector3f magnetometer_std = standard_deviation(magnometer_readings);
+
+        if (gravity_std.norm() > STD_TRESHOLD) {
+            Serial.println("Calibration failed, gravity variance too high, retrying...");
+            calibration = true;
+        } else if (magnetometer_std.norm() > STD_TRESHOLD) {
+            Serial.println("Calibration failed, magnometer variance too high, retrying...");
+            calibration = true;
+        } else {
+            Serial.println("Calibration successful!");
+            calibration = false;
+        }
+    } while(calibration);
+    
+    Serial.print("Kalman Filter Initialization");
+    ekf = new KalmanFilter(gravity_value, magnetometer_value);
  }
  
  void loop()

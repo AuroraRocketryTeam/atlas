@@ -24,10 +24,11 @@
 #include <stdlib.h>
 #include <random>
 #include <ArduinoEigen.h>
+#include "esp_task_wdt.h"
 
 class KalmanFilter {
 public:
-    KalmanFilter(std::vector<Eigen::Vector3f> gravity_readings);
+    KalmanFilter(Eigen::Vector3f gravity_value, Eigen::Vector3f magnometer_value);
     std::vector<std::vector<float>> step(float dt, float omega[3], float accel[3]);
     float* state();
 
@@ -87,7 +88,7 @@ private:
      * @param gravity_readings A vector of gravity reading samples (a good amount is 200)
      * @return std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f>: the good approximations of quaternions, ???TODO
      */
-    std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> calibration(std::vector<Eigen::Vector3f> gravity_readings);
+    std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> calibration(Eigen::Vector3f gravity_value, Eigen::Vector3f magnetometer_value);
 
     Eigen::Vector3f rotateToBody(const Eigen::Quaternionf& q, const Eigen::Vector3f& vec_world);
 

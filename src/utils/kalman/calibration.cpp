@@ -28,15 +28,44 @@
 // It will also use the magnetometer to align the Z axis with the North. We might not get exact Norht since the readings
 // might be modified by the presence of the aluminum frame. It is just to get a rough idea of the North.
 
+Eigen::Vector3f standard_deviation(const std::vector<Eigen::Vector3f>& readings) {
+    Eigen::Vector3f mean = Eigen::Vector3f::Zero();
+    for (const auto& reading : readings) {
+        mean += reading;
+    }
+    mean /= readings.size();
+
+    Eigen::Vector3f variance = Eigen::Vector3f::Zero();
+    for (const auto& reading : readings) {
+        Eigen::Vector3f diff = reading - mean;
+        variance += diff.cwiseProduct(diff); // componente a componente: (x^2, y^2, z^2)
+    }
+    variance /= static_cast<float>(readings.size() - 1);
+
+    return variance.cwiseSqrt(); // raíz cuadrada componente a componente
+}
+
 int main() {
 
-    // Gravity vector got from the accelerometer
-    std::vector<Eigen::Vector3f> gravity_readings;
-    for (int i = 0; i < 200; ++i) {
-        // Simulate reading from accelerometer
-        Eigen::Vector3f reading(0, 0, 9.81); // Replace with actual reading of accelerometer
-        gravity_readings.push_back(reading);
-        // delay(10); // Simulate delay between readings
+    Eigen::Vector3f TolSTD(0.1, 0.1, 0.1); // Tolerance for standard deviation
+    Eigen::Vector3f std(1, 1, 1); // Standard deviation of the gravity readings
+
+    while ((std.array() > TolSTD.array()).any()) {
+        // Gravity vector got from the accelerometer
+        std::vector<Eigen::Vector3f> gravity_readings;
+        for (int i = 0; i < 200; ++i) {
+            // Simulate reading from accelerometer
+            Eigen::Vector3f reading(0, 0, 9.81); // Replace with actual reading of accelerometer
+            gravity_readings.push_back(reading);
+            // delay(10); // Simulate delay between readings
+        }
+        Eigen::Vector3f std = standard_deviation(gravity_readings);
+        if ((std.array() > TolSTD.array()).any()) {
+            std::cout << "Standard deviation too high, repeat calibration." << std::endl;
+            // delay(1000); // Simulate delay before next calibration attempt
+        } else {
+            std::cout << "Measuring succesful!" << std::endl;
+        }
     }
     // TO DO: COMPUTE STANDARD DEVIATION OF THE GRAVITY READINGS, IF TOO HIGH, REPEAT THE CALIBRATION
 
@@ -64,15 +93,19 @@ int main() {
     // Rotate the quaternion to align with north
     // Reading of the angle relative to North
     Eigen::Vector3f magnetometer(21.87, 27.56, -19.75); // Magnetometer reading
-    Eigen::Vector3f magnetometer_z_aligned = q_rot * magnetometer;
-    float yaw = atan2f(magnetometer[1], magnetometer[0]); // Yaw angle in radians
-    Eigen::Quaternionf q_yaw(Eigen::AngleAxisf(yaw, Eigen::Vector3f(0, 0, 1)));
-    Eigen::Quaternionf initial_quaternion = q_yaw * q_rot;
+    Eigen::Vector3f north_body = magnetometer.normalized();
+    Eigen::Vector3f y_axis_abs(0, 1, 0); // North vector in ENU frame
+    Eigen::Vector3f north_abs = q_rot * north_body; // Rotate magntetic north to body frame
+    float angle_rad = std::acos(north_abs.dot(y_axis_abs) / north_abs.norm());
+    Eigen::Quaternionf q_north(Eigen::AngleAxisf(angle_rad, Eigen::Vector3f(0, 0, 1))); // Quaternion to align with North
+    Eigen::Quaternionf initial_quaternion = q_north * q_rot;    // Rotation Abs RF to align with North
     initial_quaternion.normalize();
 
-    // Bias of the accelerometer
-    Eigen::Vector3f initial_gravity = initial_quaternion * gravity;
-    Eigen::Vector3f bias_a = initial_gravity - expected_gravity;
+    // Bias of the accelerometer. gravity is in ENU coordinates, so we need to rotate it to match the sensor's frame of reference.
+    Eigen::Quaternionf q_absolute_to_body = initial_quaternion.conjugate();
+    Eigen::Vector3f initial_gravity_body = q_absolute_to_body * gravity;
+    Eigen::Vector3f expected_gravity_body = q_absolute_to_body * expected_gravity;
+    Eigen::Vector3f bias_a = initial_gravity_body - expected_gravity_body;
 
     // Bias of the gyroscope
     Eigen::Vector3f initial_omega(0, 0, 0); // Mean of various readings

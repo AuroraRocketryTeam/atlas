@@ -1,8 +1,8 @@
 #include "KalmanFilter.hpp"
 
-KalmanFilter::KalmanFilter(std::vector<Eigen::Vector3f> gravity_readings) {
+KalmanFilter::KalmanFilter(Eigen::Vector3f gravity_value, Eigen::Vector3f magnetometer_value) {
     //calibration phase
-    std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> calibration_data = calibration(gravity_readings);
+    std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> calibration_data = calibration(gravity_value, magnetometer_value);
 
     ekf_initialize(&ekf, Q_diag);
 
@@ -37,19 +37,12 @@ float* KalmanFilter::state() {
     return ekf.x;
 }
 
-std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> KalmanFilter::calibration(std::vector<Eigen::Vector3f> gravity_readings) {
-    // TO DO: COMPUTE STANDARD DEVIATION OF THE GRAVITY READINGS, IF TOO HIGH, REPEAT THE CALIBRATION
+std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> KalmanFilter::calibration(Eigen::Vector3f gravity_reading, Eigen::Vector3f magnetometer_reading) {
+    Eigen::Vector3f TolSTD(0.1, 0.1, 0.1); // Tolerance for standard deviation
+    Eigen::Vector3f std(1, 1, 1); // Standard deviation of the gravity readings
 
-    // Calculate the mean of the gravity readings
-    Eigen::Vector3f gravity_sum = Eigen::Vector3f::Zero();
-    for (const auto& reading : gravity_readings) {
-        gravity_sum += reading;
-    }
-    Eigen::Vector3f gravity = gravity_sum / gravity_readings.size();
-    
-    // Expected gravity vector for specific location (Forlì - 34 m over sea level)
+    Eigen::Vector3f expected_gravity(0, 0, 9.80537); // Expected gravity vector for specific location (Forlì - 34 m over sea level)
     // Got from: https://www.sensorsone.com/local-gravity-calculator/
-    Eigen::Vector3f expected_gravity(0, 0, 9.80537);
 
     // Rotation Axis: cross product of gravity in local R.F. and Z R.F.
     Eigen::Vector3f z(0, 0, 1);
@@ -65,21 +58,24 @@ std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> KalmanFilter::c
 
     // Rotate the quaternion to align with north
     // Reading of the angle relative to North
-    Eigen::Vector3f magnetometer(21.87, 27.56, -19.75); // Magnetometer reading
-    //!!!Eigen::Vector3f magnetometer_z_aligned = q_rot * magnetometer;
-    float yaw = atan2f(magnetometer[1], magnetometer[0]); // Yaw angle in radians
-    Eigen::Quaternionf q_yaw(Eigen::AngleAxisf(yaw, Eigen::Vector3f(0, 0, 1)));
-    Eigen::Quaternionf initial_quaternion = q_yaw * q_rot;
+    Eigen::Vector3f north_body = magnetometer_reading.normalized();
+    Eigen::Vector3f y_axis_abs(0, 1, 0); // North vector in ENU frame
+    Eigen::Vector3f north_abs = q_rot * north_body; // Rotate magntetic north to body frame
+    float angle_rad = std::acos(north_abs.dot(y_axis_abs) / north_abs.norm());
+    Eigen::Quaternionf q_north(Eigen::AngleAxisf(angle_rad, Eigen::Vector3f(0, 0, 1))); // Quaternion to align with North
+    Eigen::Quaternionf initial_quaternion = q_north * q_rot;    // Rotation Abs RF to align with North
     initial_quaternion.normalize();
 
-    // Bias of the accelerometer
-    Eigen::Vector3f initial_gravity = initial_quaternion * gravity;
-    Eigen::Vector3f bias_a = initial_gravity - expected_gravity;
+    // Bias of the accelerometer. gravity is in ENU coordinates, so we need to rotate it to match the sensor's frame of reference.
+    Eigen::Quaternionf q_absolute_to_body = initial_quaternion.conjugate();
+    Eigen::Vector3f initial_gravity_body = q_absolute_to_body * gravity;
+    Eigen::Vector3f expected_gravity_body = q_absolute_to_body * expected_gravity;
+    Eigen::Vector3f bias_a = initial_gravity_body - expected_gravity_body;
 
     // Bias of the gyroscope
     Eigen::Vector3f initial_omega(0, 0, 0); // Mean of various readings
     Eigen::Vector3f bias_w = initial_omega - Eigen::Vector3f(0, 0, 0); // Assuming no rotation
-
+    
     return std::make_tuple(initial_quaternion, bias_a, bias_w);
 }
 
@@ -117,39 +113,83 @@ Eigen::Matrix<float, 3, 4> KalmanFilter::computeHqAccelJacobian(const Eigen::Qua
     return H;  // size 3x4
 }
 
+// Add these monitoring variables as class members or globals
+static unsigned long iteration_count = 0;
+static size_t min_free_heap = SIZE_MAX;
+
 std::vector<std::vector<float>> KalmanFilter::step(float dt, float omega[3], float accel[3]) {
+    iteration_count++;
+    
+    // Monitor memory before operation
+    size_t heap_before = ESP.getFreeHeap();
+    size_t stack_before = uxTaskGetStackHighWaterMark(NULL);
+    
+    Serial.print("Iteration: "); Serial.print(iteration_count);
+    Serial.print(", Heap before: "); Serial.print(heap_before);
+    Serial.print(", Stack free: "); Serial.println(stack_before);
+    
+    if (heap_before < min_free_heap) {
+        min_free_heap = heap_before;
+        Serial.print("New minimum heap: "); Serial.println(min_free_heap);
+    }
+    
+    // Reset watchdog
+    esp_task_wdt_reset();
+    
     Eigen::Vector3f accel_z(accel[0], accel[1], accel[2]);
     
     // Conversion to rad/s
-    float omega_x = omega[0]*(float)M_PI/180.0f;
-    float omega_y = omega[1]*(float)M_PI/180.0f;
-    float omega_z = omega[2]*(float)M_PI/180.0f;
-
+    float omega_x = omega[0] * (float)M_PI / 180.0f;
+    float omega_y = omega[1] * (float)M_PI / 180.0f;
+    float omega_z = omega[2] * (float)M_PI / 180.0f;
+    
     float fx[EKF_N] = {0};
     float hx[EKF_M] = {0};
-
+    
+    // Check heap after each major allocation
+    Serial.print("After fx/hx: "); Serial.println(ESP.getFreeHeap());
+    
     // Biases
     Eigen::Vector3f bias_a(ekf.x[10], ekf.x[11], ekf.x[12]);
     Eigen::Vector3f bias_g(ekf.x[13], ekf.x[14], ekf.x[15]);
-
+    
     // Update quaternion
-    // omega = [wx, wy, wz] in rad/s
     Eigen::Vector3f omega_eigen(omega_x - bias_g[0], omega_y - bias_g[1], omega_z - bias_g[2]);
-    Eigen::Vector3f axis = omega_eigen.normalized();
-    float theta = omega_eigen.norm() * dt;
-    Eigen::Quaternionf delta_q(Eigen::AngleAxisf(theta, axis)); // delta_q = cos(theta/2) + axis*sin(theta/2)
-
+    
+    // Safe axis computation
+    float omega_norm = omega_eigen.norm();
+    Eigen::Vector3f axis;
+    float theta;
+    
+    if (omega_norm < 1e-6f) {
+        axis = Eigen::Vector3f(0, 0, 1);
+        theta = 0.0f;
+    } else {
+        axis = omega_eigen / omega_norm;
+        theta = omega_norm * dt;
+    }
+    
+    Serial.print("After Eigen ops: "); Serial.println(ESP.getFreeHeap());
+    
+    Eigen::Quaternionf delta_q(Eigen::AngleAxisf(theta, axis));
     Eigen::Quaternionf q_nominal(ekf.x[6], ekf.x[7], ekf.x[8], ekf.x[9]);
-    Eigen::Quaternionf q_rot =  q_nominal * delta_q;
+    q_nominal.normalize();
+    Eigen::Quaternionf q_rot = q_nominal * delta_q;
     q_rot.normalize();
     
-    Eigen::Vector3f accel_abs = q_rot * (accel_z - bias_a) - gravity;  // Equivalent to q * a * q.inverse()
-
+    Eigen::Vector3f accel_abs = q_rot * (accel_z - bias_a) - gravity;
+    
+    Serial.print("After quaternion ops: "); Serial.println(ESP.getFreeHeap());
+    
+    // Check if this function call is the culprit
     Eigen::Matrix<float,3,4> Hq = computeHqAccelJacobian(
         Eigen::Quaternionf(ekf.x[6], ekf.x[7], ekf.x[8], ekf.x[9]),
         Eigen::Vector3f(accel_abs[0], accel_abs[1], accel_abs[2])
-    );    
-
+    );
+    
+    Serial.print("After Hq computation: "); Serial.println(ESP.getFreeHeap());
+    
+    // Use stack arrays (should be fine for this size)
     float H[EKF_M*EKF_N] = {
         0, 0, 0, 0, 0, 0, Hq(0,0), Hq(0,1), Hq(0,2), Hq(0,3), 1, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, Hq(1,0), Hq(1,1), Hq(1,2), Hq(1,3), 0, 1, 0, 0, 0, 0,
@@ -158,48 +198,71 @@ std::vector<std::vector<float>> KalmanFilter::step(float dt, float omega[3], flo
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     };
-
-    // F: state transition Jacobian
+    
     float F[EKF_N*EKF_N] = {
         1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 1, 0, 0, dt, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    
         0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    
         0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-    
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
-        
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
-    
     };
-
-    // Set the observation vector z
+    
+    Serial.print("After H/F arrays: "); Serial.println(ESP.getFreeHeap());
+    
     float z[EKF_M] = {accel[0], accel[1], accel[2], omega_x, omega_y, omega_z};
-
+    
+    Serial.println("Before run_model");
     run_model(dt, fx, hx, omega_x, omega_y, omega_z, accel);
+    Serial.print("After run_model: "); Serial.println(ESP.getFreeHeap());
     
-    // I have Q_diag, but Q shouldn't be diagonal for the fun
+    Serial.println("Before ekf_predict");
     ekf_predict(&ekf, fx, F, Q_diag);
-
-    ekf_update(&ekf, z, hx, H, R);
-
-    std::vector<float> posEKF = { ekf.x[0], ekf.x[1], ekf.x[2] };
-    std::vector<float> velEKF = { ekf.x[3], ekf.x[4], ekf.x[5] };
-    std::vector<float> accEKF = { ekf.x[6], ekf.x[7], ekf.x[8] };
+    Serial.print("After ekf_predict: "); Serial.println(ESP.getFreeHeap());
     
-    std::vector<std::vector<float>> result = {posEKF, velEKF, accEKF};
-
+    Serial.println("Before ekf_update");
+    ekf_update(&ekf, z, hx, H, R);
+    Serial.print("After ekf_update: "); Serial.println(ESP.getFreeHeap());
+    
+    // Try to avoid std::vector fragmentation by pre-allocating
+    // and reusing static vectors
+    static std::vector<float> posEKF(3);
+    static std::vector<float> velEKF(3);
+    static std::vector<float> accEKF(3);
+    static std::vector<std::vector<float>> result(3);
+    static bool first_time = true;
+    
+    if (first_time) {
+        result[0] = std::move(posEKF);
+        result[1] = std::move(velEKF);
+        result[2] = std::move(accEKF);
+        first_time = false;
+    }
+    
+    // Just update values, don't reallocate
+    result[0][0] = ekf.x[0]; result[0][1] = ekf.x[1]; result[0][2] = ekf.x[2];
+    result[1][0] = ekf.x[3]; result[1][1] = ekf.x[4]; result[1][2] = ekf.x[5];
+    result[2][0] = ekf.x[6]; result[2][1] = ekf.x[7]; result[2][2] = ekf.x[8];
+    
+    size_t heap_after = ESP.getFreeHeap();
+    Serial.print("Heap after: "); Serial.println(heap_after);
+    
+    if (heap_before - heap_after > 100) {
+        Serial.print("WARNING: Memory leak detected! Lost ");
+        Serial.print(heap_before - heap_after);
+        Serial.println(" bytes");
+    }
+    
     return result;
 }
 
@@ -290,4 +353,3 @@ void KalmanFilter::computeJacobianF_tinyEKF(float dt, float omega_x, float omega
         ekf.x[i] = original_state[i]; // Restore original state
     }
 }
-
