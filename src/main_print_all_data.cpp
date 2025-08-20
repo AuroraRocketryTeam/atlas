@@ -1,4 +1,4 @@
-/*#include <Arduino.h>
+#include <Arduino.h>
 #include <BNO055Sensor.hpp>
 #include <MPRLSSensor.hpp>
 #include <LIS3DHTRSensor.hpp>
@@ -16,7 +16,7 @@ BNO055Sensor bno;
 LIS3DHTRSensor lis3dh;
 MS561101BA03 ms56_1(0x77);
 MS561101BA03 ms56_2(0x76);
-//GPS gps;
+GPS gps;
 //Termoresistenze termoresistenze(THERMISTOR_PIN, SERIES_RESISTOR, NOMINAL_RESISTANCE, NOMINAL_TEMPERATURE, B_COEFFICIENT);
 
 // Logger object
@@ -58,7 +58,7 @@ void setup() {
     lis3dh.init();
     ms56_1.init();
     ms56_2.init();
-    //gps.init();
+    gps.init();
     //termoresistenze.init();
 
     // Testing the buzzer or actuators (just change the pins)
@@ -78,7 +78,7 @@ void loop() {
     auto ms56DataOpt_1 = ms56_1.getData();
     auto ms56DataOpt_2 = ms56_2.getData();
 
-    //auto gpsDataOpt = gps.getData();
+    auto gpsDataOpt = gps.getData();
 
     //auto termoresistenzeDataOpt = termoresistenze.getData();
 
@@ -117,11 +117,11 @@ void loop() {
     //    rocketLogger.logError("Termoresistenze data not available");
     //}
 
-    //if (gpsDataOpt.has_value()) {
-    //    rocketLogger.logSensorData("GPS", gpsDataOpt.value());
-    //} else {
-    //    rocketLogger.logError("GPS data not available");
-    //}
+    if (gpsDataOpt.has_value()) {
+        rocketLogger.logSensorData("GPS", gpsDataOpt.value());
+    } else {
+        rocketLogger.logError("GPS data not available");
+    }
 
     // Buzzer control logic
     unsigned long currentTime = millis();
@@ -211,11 +211,21 @@ void loop() {
     rocketLogger.logSensorData(voltageData);
 
     // Log all data
-    Serial.println(rocketLogger.getJSONAll().dump().c_str());
-    Serial.flush();
+    json allData = rocketLogger.getJSONAll();
+    std::vector<uint8_t> cborData = nlohmann::json::to_cbor(allData);
+
+    // Option 1: just send raw CBOR (not framed)
+    //Serial.write(cborData.data(), cborData.size());
+
+    // Option 2: send framed (length first) for Python parsing
+    uint32_t size = cborData.size();
+    Serial.write(reinterpret_cast<uint8_t*>(&size), sizeof(size));
+    Serial.write(cborData.data(), cborData.size());
+    
+    //Serial.println(rocketLogger.getJSONAll().dump().c_str());
+    //Serial.flush();
 
     rocketLogger.clearData();
 
     delay(100);
 }
-*/
