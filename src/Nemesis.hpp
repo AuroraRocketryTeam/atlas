@@ -1,58 +1,56 @@
-#pragma once
+// #pragma once
 
-#include <Arduino.h>
-#include <BNO055Sensor.hpp>
-#include <MPRLSSensor.hpp>
-#include <LIS3DHTRSensor.hpp>
-#include <MS561101BA03.hpp>
-#include <GPS.hpp>
-#include <Termoresistenze.hpp>
-#include <config.h>
-#include "utils/logger/rocket_logger/RocketLogger.hpp"
-#include "utils/logger/data/LogSensorData.hpp"
-#include "utils/logger/LogData.hpp"
+// #include <Arduino.h>
+// #include <BNO055Sensor.hpp>
+// #include <MPRLSSensor.hpp>
+// #include <LIS3DHTRSensor.hpp>
+// #include <MS561101BA03.hpp>
+// #include <GPS.hpp>
+// #include <Termoresistenze.hpp>
+// #include <config.h>
 
-// State machine for actuator sequencing
-enum class ActuatorState {
-    MAIN_ON,
-    MAIN_PAUSE,
-    DROGUE_ON,
-    DROGUE_PAUSE
-};
 
-class Nemesis {
-public:
-    Nemesis();
-    void init();
-    void run();
+// // State machine for actuator sequencing
+// enum class ActuatorState {
+//     MAIN_ON,
+//     MAIN_PAUSE,
+//     DROGUE_ON,
+//     DROGUE_PAUSE
+// };
 
-    BNO055Sensor bno;
-    //MPRLSSensor mprls;
-    LIS3DHTRSensor lis3dh;
-    MS561101BA03 ms56_1;
-    MS561101BA03 ms56_2;
-    GPS gps;
-    //Termoresistenze termoresistenze;
+// class Nemesis {
+// public:
+//     Nemesis();
+//     void init();
+//     void run();
 
-    RocketLogger rocketLogger;
+//     BNO055Sensor bno;
+//     //MPRLSSensor mprls;
+//     LIS3DHTRSensor lis3dh;
+//     MS561101BA03 ms56_1;
+//     MS561101BA03 ms56_2;
+//     GPS gps;
+//     //Termoresistenze termoresistenze;
 
-private:
-    // Timing variables for actuators and buzzer
-    unsigned long actuatorsTimer;
-    unsigned long actuatorsDuration;
-    unsigned long actuatorsDelay;
-    bool toggleStateMainAct;
-    bool toggleStateDrogueAct;
-    ActuatorState currentActuatorState;
+//     RocketLogger rocketLogger;
 
-    unsigned long buzzerTimer;
-    unsigned long buzzerDuration;
-    unsigned long buzzerInterval;
-    bool buzzerPlaying;
+// private:
+//     // Timing variables for actuators and buzzer
+//     unsigned long actuatorsTimer;
+//     unsigned long actuatorsDuration;
+//     unsigned long actuatorsDelay;
+//     bool toggleStateMainAct;
+//     bool toggleStateDrogueAct;
+//     ActuatorState currentActuatorState;
 
-    void readSensors();
-    void controlActuators();
-    void controlBuzzer();
-    void readBattery();
-    void logData();
-};
+//     unsigned long buzzerTimer;
+//     unsigned long buzzerDuration;
+//     unsigned long buzzerInterval;
+//     bool buzzerPlaying;
+
+//     void readSensors();
+//     void controlActuators();
+//     void controlBuzzer();
+//     void readBattery();
+//     void logData();
+// };
