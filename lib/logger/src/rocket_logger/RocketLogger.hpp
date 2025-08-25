@@ -2,9 +2,9 @@
 #include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
-#include "utils/logger/ILogger.hpp"
-#include "utils/logger/data/LogMessage.hpp"
-#include "utils/logger/data/LogSensorData.hpp"
+#include <ILogger.hpp>
+#include "../data/LogMessage.hpp"
+#include "../data/LogSensorData.hpp"
 
 using json = nlohmann::json;
 

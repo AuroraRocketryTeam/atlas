@@ -3,7 +3,7 @@
 #include <string>
 #include <nlohmann/json.hpp>
 #include <SensorData.hpp>
-#include "utils/logger/data/ILoggable.hpp"
+#include "data/ILoggable.hpp"
 
 using json = nlohmann::json;
 

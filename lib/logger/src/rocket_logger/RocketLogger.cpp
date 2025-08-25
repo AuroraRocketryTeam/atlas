@@ -1,4 +1,4 @@
-#include "utils/logger/rocket_logger/RocketLogger.hpp"
+#include "RocketLogger.hpp"
 
 // Override logInfo to log informational messages
 void RocketLogger::logInfo(const std::string& message) {

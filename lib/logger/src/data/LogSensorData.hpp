@@ -3,7 +3,7 @@
 #include <string>
 #include <nlohmann/json.hpp>
 #include <SensorData.hpp>
-#include "utils/logger/data/ILoggable.hpp"
+#include "ILoggable.hpp"
 
 /**
  * @brief A class to represent a log of sensor data.
