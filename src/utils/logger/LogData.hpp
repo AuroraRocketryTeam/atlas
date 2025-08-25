@@ -40,7 +40,12 @@ public:
      * 
      * @return A json object.
      */
-    json toJSON() const { return this->data->toJSON(); }
+    json toJSON() const { 
+        json j;
+        j["type"] = this->getSource();
+        j["content"] = this->data->toJSON();
+        return j;
+    }
 };
 
 

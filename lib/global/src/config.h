@@ -1,3 +1,5 @@
+// Minimum calibration value to consider the sensor sufficiently calibrated, going from 0 to 3
+#define SUFFICIENT_SENSOR_CALIBRATION 2
 #define SENSOR_LOOKUP_MAX_ATTEMPTS 5
 #define SENSOR_LOOKUP_TIMEOUT 1000
 
@@ -34,3 +36,15 @@
 /* Flight parameters configuration */
 #define LIFTOFF_TIMEOUT_MS 100      // Threshold for the detection of liftoff when relative_acceleration is > gravity in any direction (relative_acceleration = acceleration - gravity)
 #define DROGUE_APOGEE_TIMEOUT 300   // Threshold for opening the drogue parachute after apogee is detected
+
+/* Flight parameters configuration */
+#define LIFTOFF_TIMEOUT_MS 100      // Threshold for the detection of liftoff when relative_acceleration is > gravity in any direction (relative_acceleration = acceleration - gravity)
+#define DROGUE_APOGEE_TIMEOUT 300   // Threshold for opening the drogue parachute after apogee is detected
+
+// Kalman Constants
+#define SEA_LEVEL 165.0f
+#define H_BIAS_PRESSURE_SENSOR 2.0f
+#define GPS_BIAS 3.0f
+
+// Important math constants
+#define GRAVITY 9.80665f
