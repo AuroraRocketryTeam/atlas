@@ -29,7 +29,7 @@ bool MPRLSSensor::init()
 std::optional<SensorData> MPRLSSensor::getData()
 {
     this->pressure = mprls.readPressure();
-
+    
     SensorData data("MPRLS");
     data.setData("pressure", this->pressure);
 
