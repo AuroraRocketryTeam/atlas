@@ -147,3 +147,12 @@ bool BNO055Sensor::hardwareTest() {
 
     return accel_status && mag_status && gyro_status && mcu_status;
 }
+
+BNO055Sensor::CalibrationStatus BNO055Sensor::getCalibration() {
+        CalibrationStatus status;
+        status.sys = bno_interface.check_calibration_sys();
+        status.gyro = bno_interface.check_calibration_gyro();
+        status.accel = bno_interface.check_calibration_accel();
+        status.mag = bno_interface.check_calibration_mag();
+        return status;
+    }    
