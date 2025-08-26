@@ -41,6 +41,20 @@ public:
     SensorData(const std::string &sensorName) : sensorName(sensorName) {}
 
     /**
+     * @brief Copy assignment operator
+     *
+     * @param other The SensorData object to copy from.
+     * @return Reference to this object.
+     */
+    SensorData& operator=(const SensorData& other)
+    {
+        if (this != &other)
+        {
+            dataMap = other.dataMap;
+        }
+        return *this;
+    }
+    /**
      * @brief Set the Data object
      *
      * @param key The key to store the data.

@@ -12,6 +12,21 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 
+// Shared sensor data structure
+struct SharedSensorData
+{
+    class SensorData imuData;
+    class SensorData baroData1;
+    class SensorData baroData2;
+    class SensorData gpsData;
+    uint32_t timestamp;
+    bool dataValid;
+};
+
+struct SharedFilteredData
+{
+    
+}
 /**
  * @brief Rocket Finite State Machine class with FreeRTOS integration
  */
@@ -101,6 +116,8 @@ private:
     std::map<RocketState, StateActions> stateActions;
     std::vector<StateTransition> transitions;
 
+private:
+    SharedSensorData sharedData;
     /**
      * @brief Static wrapper for FreeRTOS FSM task
      */

@@ -1,6 +1,6 @@
 #pragma once
 #include <ITransmitter.hpp>
-#include "../protocol/Packet.hpp"
+#include <Packet.hpp>
 #include <config.h>
 #include <zstd.h>
 #include <variant>

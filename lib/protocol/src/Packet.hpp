@@ -39,7 +39,7 @@ struct PacketHeader
 };
 
 constexpr size_t HEADER_SIZE = sizeof(PacketHeader);
-constexpr size_t MAX_PAYLOAD_SIZE = MAX_TX_PACKET_SIZE - HEADER_SIZE - CRC_SIZE;
+constexpr size_t LORA_MAX_PAYLOAD_SIZE = MAX_TX_PACKET_SIZE - HEADER_SIZE - CRC_SIZE;
 
 /**
  * @brief The payload of a packet.
@@ -47,7 +47,7 @@ constexpr size_t MAX_PAYLOAD_SIZE = MAX_TX_PACKET_SIZE - HEADER_SIZE - CRC_SIZE;
  */
 struct PacketPayload
 {
-    uint8_t data[MAX_PAYLOAD_SIZE];
+    uint8_t data[LORA_MAX_PAYLOAD_SIZE];
 };
 
 /**

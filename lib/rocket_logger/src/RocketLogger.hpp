@@ -3,8 +3,8 @@
 #include <vector>
 #include <nlohmann/json.hpp>
 #include <ILogger.hpp>
-#include "../data/LogMessage.hpp"
-#include "../data/LogSensorData.hpp"
+#include <LogMessage.hpp>
+#include <LogSensorData.hpp>
 
 using json = nlohmann::json;
 

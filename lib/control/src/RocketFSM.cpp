@@ -1,5 +1,6 @@
 #include "RocketFSM.hpp"
 #include <config.h>
+#include <KalmanFilter.hpp>
 
 using TransmitDataType = std::variant<char *, String, std::string, nlohmann::json>;
 
@@ -12,7 +13,7 @@ extern ILogger *rocketLogger;
 extern ITransmitter<TransmitDataType> *loraTransmitter;
 
 RocketFSM::RocketFSM()
-    : currentState(RocketState::INACTIVE), previousState(RocketState::INACTIVE), stateStartTime(0), lastUpdateTime(0), isRunning(false), fsmTaskHandle(nullptr), sensorTaskHandle(nullptr), ekfTaskHandle(nullptr), apogeeDetectionTaskHandle(nullptr), recoveryTaskHandle(nullptr), dataCollectionTaskHandle(nullptr), telemetryTaskHandle(nullptr), gpsTaskHandle(nullptr), loggingTaskHandle(nullptr), eventQueue(nullptr), stateMutex(nullptr)
+    : currentState(RocketState::INACTIVE), previousState(RocketState::INACTIVE), stateStartTime(0), lastUpdateTime(0), isRunning(false), fsmTaskHandle(nullptr), sensorTaskHandle(nullptr), ekfTaskHandle(nullptr), apogeeDetectionTaskHandle(nullptr), recoveryTaskHandle(nullptr), dataCollectionTaskHandle(nullptr), telemetryTaskHandle(nullptr), gpsTaskHandle(nullptr), loggingTaskHandle(nullptr), eventQueue(nullptr), stateMutex(nullptr), sharedData{SensorData("bno055"), SensorData("baro1"), SensorData("baro2"), SensorData("gps"), 0, false}
 {
 }
 
@@ -524,9 +525,31 @@ void RocketFSM::sensorTask()
         // High-frequency sensor reading and condition checking
         checkTransitions();
 
-        // Read critical sensors (IMU, pressure)
-        // TODO: Implement critical sensor reading
-
+        if(bno055)
+        {
+            auto data = bno055->getData();
+            if (data.has_value())
+            {
+                sharedData.imuData = data.value();
+            }
+        }
+        if(baro1)
+        {
+            auto data = baro1->getData();
+            if (data.has_value())
+            {
+                sharedData.baroData1 = data.value();
+            }
+        }
+        if(baro2)
+        {
+            auto data = baro2->getData();
+            if (data.has_value())
+            {
+                sharedData.baroData2 = data.value();
+            }
+        }
+        // GPS is read in its own task due to lower frequency.
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(10)); // 100Hz for critical sensors
     }
 }
@@ -538,7 +561,7 @@ void RocketFSM::ekfTask()
     while (isRunning)
     {
         // Run EKF processing
-        // TODO: Integrate your KalmanFilter here
+        // TODO: Integrate your KalmanFilter 
 
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(20)); // 50Hz for EKF
     }
@@ -580,34 +603,10 @@ void RocketFSM::dataCollectionTask()
 
     while (isRunning)
     {
-        // Collect and process sensor data for logging
-        if (bno055)
-        {
-            auto data = bno055->getData();
-            if (data.has_value() && rocketLogger)
-            {
-                rocketLogger->logSensorData(data.value());
-            }
-        }
-
-        if (baro1)
-        {
-            auto data = baro1->getData();
-            if (data.has_value() && rocketLogger)
-            {
-                rocketLogger->logSensorData(data.value());
-            }
-        }
-
-        if (baro2)
-        {
-            auto data = baro2->getData();
-            if (data.has_value() && rocketLogger)
-            {
-                rocketLogger->logSensorData(data.value());
-            }
-        }
-
+        rocketLogger->logSensorData(sharedData.imuData);
+        rocketLogger->logSensorData(sharedData.baroData1);
+        rocketLogger->logSensorData(sharedData.baroData2);
+        rocketLogger->logSensorData(sharedData.gpsData);
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(50)); // 20Hz for data collection
     }
 }
@@ -634,8 +633,14 @@ void RocketFSM::gpsTask()
 
     while (isRunning)
     {
-        // Read GPS data
-        // TODO: Implement GPS reading
+        if (gps)
+        {
+            auto data = gps->getData();
+            if (data.has_value())
+            {
+                sharedData.gpsData = data.value();
+            }
+        }
 
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(200)); // 5Hz for GPS
     }
@@ -647,9 +652,7 @@ void RocketFSM::loggingTask()
 
     while (isRunning)
     {
-        // Handle logging operations
-        // TODO: Implement periodic logging to SD card
-
+        // log to SD card
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(500)); // 2Hz for logging
     }
 }

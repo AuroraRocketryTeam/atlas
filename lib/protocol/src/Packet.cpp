@@ -35,7 +35,7 @@ void Packet::printPacket()
     Serial.println("Timestamp: " + String(this->header.timestamp));
     Serial.println("Protocol Version: " + String(this->header.protocolVersion));
     Serial.println("######## PAYLOAD ########");
-    for (int i = 0; i < MAX_PAYLOAD_SIZE; i++)
+    for (int i = 0; i < LORA_MAX_PAYLOAD_SIZE; i++)
     {
         Serial.print(String(this->payload.data[i], HEX) + " ");
     }
