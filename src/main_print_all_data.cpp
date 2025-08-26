@@ -7,7 +7,8 @@
 #include <Termoresistenze.hpp>
 #include <config.h>
 #include <RocketLogger.hpp>
-#include <CSVLogger.hpp> // Aggiungi il CSV Logger
+#include <SX1261LoRaTransmitter.hpp>
+// #include <CSVLogger.hpp> // Aggiungi il CSV Logger
 
 // Sensor objects
 BNO055Sensor bno;
@@ -20,7 +21,8 @@ GPS gps;
 
 // Logger objects
 RocketLogger rocketLogger;
-CSVLogger csvLogger("flight_data.csv"); // Crea il CSV logger
+// CSVLogger csvLogger("flight_data.csv"); // Crea il CSV logger
+LoRaTransmitter transmitter;
 
 // ADC pin for voltage measurement
 #define ADC_PIN A0
@@ -64,14 +66,18 @@ void setup()
     // termoresistenze.init();
 
     // Inizializza il CSV Logger
-    if (!csvLogger.init())
-    {
-        Serial.println("Errore inizializzazione CSV Logger - continuando senza CSV");
-    }
-    else
-    {
-        Serial.println("CSV Logger inizializzato correttamente");
-    }
+    // if (!csvLogger.init())
+    // {
+    //     Serial.println("Errore inizializzazione CSV Logger - continuando senza CSV");
+    // }
+    // else
+    // {
+    //     Serial.println("CSV Logger inizializzato correttamente");
+    // }
+
+    // Inizializza il LoRa Transmitter
+    ResponseStatusContainer loraInitResult = transmitter.init();
+    Serial.println(loraInitResult.getDescription());
 
     // Testing the buzzer or actuators (just change the pins)
     pinMode(MAIN_ACTUATORS_PIN, OUTPUT);
@@ -252,7 +258,7 @@ void loop()
     json allData = rocketLogger.getJSONAll();
 
     // Log to CSV with current timestamp
-    csvLogger.logSensorData(allData, currentTime);
+    // csvLogger.logSensorData(allData, currentTime);
 
     // Continue with your existing serial output
     std::vector<uint8_t> cborData = nlohmann::json::to_cbor(allData);
@@ -265,7 +271,19 @@ void loop()
     // Serial.write(reinterpret_cast<uint8_t*>(&size), sizeof(size));
     // Serial.write(cborData.data(), cborData.size());
 
-    Serial.println(allData.dump(4).c_str());
+    static int loraTransmissionCounter = 0;
+    if (++loraTransmissionCounter >= 5) {
+        // Opzione 1: Trasmetti tutto il JSON (per debugging completo)
+        // ResponseStatusContainer loraResult = loraTransmitter.transmit(TransmitDataType{allData});
+        
+        // Opzione 2: Trasmetti solo dati compatti (raccomandato per volo)
+        ResponseStatusContainer loraResult = transmitter.transmitCompact(allData);
+        
+        Serial.println(loraResult.getDescription());
+        
+        loraTransmissionCounter = 0;
+    }
+    //Serial.println(allData.dump(4).c_str());
     Serial.flush();
 
     rocketLogger.clearData();
