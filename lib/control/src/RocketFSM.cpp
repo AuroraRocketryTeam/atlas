@@ -15,27 +15,36 @@ extern ILogger *rocketLogger;
 extern ITransmitter<TransmitDataType> *loraTransmitter;
 extern KalmanFilter *ekf;
 
+// Debug macro that only prints when __DEBUG__ is defined
+#ifdef __DEBUG__
+    #define DEBUG_PRINT(x) Serial.println(x)
+    #define DEBUG_PRINTF(format, ...) Serial.printf(format, ##__VA_ARGS__)
+#else
+    #define DEBUG_PRINT(x)
+    #define DEBUG_PRINTF(format, ...)
+#endif
+
 // Add this utility method to RocketFSM class header
 void debugMemory(const char *location)
 {
-    Serial.printf("\n=== MEMORY DEBUG [%s] ===\n", location);
-    Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
-    Serial.printf("Min free heap: %u bytes\n", ESP.getMinFreeHeap());
-    Serial.printf("Max alloc heap: %u bytes\n", ESP.getMaxAllocHeap());
-    Serial.printf("Largest free block: %u bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-    Serial.printf("==========================\n\n");
+    DEBUG_PRINTF("\n=== MEMORY DEBUG [%s] ===\n", location);
+    DEBUG_PRINTF("Free heap: %u bytes\n", ESP.getFreeHeap());
+    DEBUG_PRINTF("Min free heap: %u bytes\n", ESP.getMinFreeHeap());
+    DEBUG_PRINTF("Max alloc heap: %u bytes\n", ESP.getMaxAllocHeap());
+    DEBUG_PRINTF("Largest free block: %u bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    DEBUG_PRINTF("==========================\n\n");
 }
 
 RocketFSM::RocketFSM()
     : currentState(RocketState::INACTIVE), previousState(RocketState::INACTIVE), stateStartTime(0), lastUpdateTime(0), isRunning(false), fsmTaskHandle(nullptr), sensorTaskHandle(nullptr), ekfTaskHandle(nullptr), apogeeDetectionTaskHandle(nullptr), recoveryTaskHandle(nullptr), dataCollectionTaskHandle(nullptr), telemetryTaskHandle(nullptr), gpsTaskHandle(nullptr), loggingTaskHandle(nullptr), eventQueue(nullptr), stateMutex(nullptr), sharedData{SensorData("bno055"), SensorData("baro1"), SensorData("baro2"), SensorData("gps"), 0, false}
 {
-    Serial.println("RocketFSM constructor called");
+    DEBUG_PRINT("RocketFSM constructor called");
     debugMemory("Constructor");
 }
 
 RocketFSM::~RocketFSM()
 {
-    Serial.println("RocketFSM destructor called");
+    DEBUG_PRINT("RocketFSM destructor called");
     debugMemory("Destructor start");
     stop();
 
@@ -52,32 +61,32 @@ RocketFSM::~RocketFSM()
 
 void RocketFSM::init()
 {
-    Serial.println("FSM init() called");
+    DEBUG_PRINT("FSM init() called");
     debugMemory("Init start");
 
     // Create FreeRTOS objects with error checking
-    Serial.println("Creating event queue...");
+    DEBUG_PRINT("Creating event queue...");
     eventQueue = xQueueCreate(EVENT_QUEUE_SIZE, sizeof(FSMEventData));
     if (!eventQueue)
     {
-        Serial.println("ERROR: Failed to create event queue");
+        DEBUG_PRINT("ERROR: Failed to create event queue");
         debugMemory("Failed event queue creation");
         return;
     }
-    Serial.println("Event queue created successfully");
+    DEBUG_PRINT("Event queue created successfully");
     debugMemory("After event queue creation");
 
-    Serial.println("Creating state mutex...");
+    DEBUG_PRINT("Creating state mutex...");
     stateMutex = xSemaphoreCreateMutex();
     if (!stateMutex)
     {
-        Serial.println("ERROR: Failed to create state mutex");
+        DEBUG_PRINT("ERROR: Failed to create state mutex");
         vQueueDelete(eventQueue);
         eventQueue = nullptr;
         debugMemory("Failed mutex creation");
         return;
     }
-    Serial.println("State mutex created successfully");
+    DEBUG_PRINT("State mutex created successfully");
     debugMemory("After mutex creation");
 
     if (!eventQueue || !stateMutex)
@@ -86,20 +95,20 @@ void RocketFSM::init()
         {
             rocketLogger->logError("Failed to create FSM FreeRTOS objects");
         }
-        Serial.println("ERROR: FreeRTOS objects creation failed");
+        DEBUG_PRINT("ERROR: FreeRTOS objects creation failed");
         return;
     }
 
-    Serial.println("Setting up state actions...");
+    DEBUG_PRINT("Setting up state actions...");
     debugMemory("Before setupStateActions");
     setupStateActions();
-    Serial.println("State actions setup complete");
+    DEBUG_PRINT("State actions setup complete");
     debugMemory("After setupStateActions");
 
-    Serial.println("Setting up transitions...");
+    DEBUG_PRINT("Setting up transitions...");
     debugMemory("Before setupTransitions");
     setupTransitions();
-    Serial.println("Transitions setup complete");
+    DEBUG_PRINT("Transitions setup complete");
     debugMemory("After setupTransitions");
 
     currentState = RocketState::INACTIVE;
@@ -113,22 +122,22 @@ void RocketFSM::init()
         rocketLogger->logInfo("FSM initialized in INACTIVE state");
     }
 
-    Serial.println("FSM init() completed successfully");
+    DEBUG_PRINT("FSM init() completed successfully");
 }
 
 void RocketFSM::start()
 {
-    Serial.println("FSM start() called");
+    DEBUG_PRINT("FSM start() called");
     debugMemory("Start begin");
 
     if (isRunning)
     {
-        Serial.println("FSM already running, returning");
+        DEBUG_PRINT("FSM already running, returning");
         return;
     }
 
     // Now try with the actual task
-    Serial.println("Creating FSM task with global wrapper...");
+    DEBUG_PRINT("Creating FSM task with global wrapper...");
     debugMemory("Before FSM task creation");
 
     BaseType_t result = xTaskCreatePinnedToCore(
@@ -140,23 +149,23 @@ void RocketFSM::start()
         &fsmTaskHandle,
         1); // Pin to Core 1
 
-    Serial.printf("FSM task creation result: %d\n", result);
+    DEBUG_PRINTF("FSM task creation result: %d\n", result);
     debugMemory("After FSM task creation");
 
     if (result == pdPASS)
     {
-        Serial.println("SUCCESS: FSM task created");
+        DEBUG_PRINT("SUCCESS: FSM task created");
         isRunning = true;
     }
     else
     {
-        Serial.println("FAILED: FSM task creation");
+        DEBUG_PRINT("FAILED: FSM task creation");
         debugMemory("FSM task creation failed");
         return;
     }
 
     // Only if task created successfully, proceed with state task startup
-    Serial.println("Starting state tasks...");
+    DEBUG_PRINT("Starting state tasks...");
     debugMemory("Before startStateTasks");
     startStateTasks();
     debugMemory("After startStateTasks");
@@ -165,29 +174,29 @@ void RocketFSM::start()
 // Also modify the stop() method to add more debugging
 void RocketFSM::stop()
 {
-    Serial.println("FSM stop() called");
-    Serial.println("Call stack trace (if available):");
+    DEBUG_PRINT("FSM stop() called");
+    DEBUG_PRINT("Call stack trace (if available):");
     // This won't give you a real stack trace but might help identify patterns
-    Serial.printf("Current state: %s, Previous state: %s\n",
+    DEBUG_PRINTF("Current state: %s, Previous state: %s\n",
                   getStateString(currentState).c_str(),
                   getStateString(previousState).c_str());
     debugMemory("Stop begin");
 
     if (!isRunning)
     {
-        Serial.println("FSM already stopped, returning");
+        DEBUG_PRINT("FSM already stopped, returning");
         return;
     }
 
-    Serial.println("Setting isRunning to false...");
+    DEBUG_PRINT("Setting isRunning to false...");
     isRunning = false;
 
-    Serial.println("Stopping all tasks...");
+    DEBUG_PRINT("Stopping all tasks...");
     stopAllTasks();
 
     if (fsmTaskHandle)
     {
-        Serial.println("Deleting FSM task...");
+        DEBUG_PRINT("Deleting FSM task...");
         vTaskDelete(fsmTaskHandle);
         fsmTaskHandle = nullptr;
     }
@@ -207,7 +216,7 @@ bool RocketFSM::sendEvent(FSMEvent event, RocketState targetState, void *eventDa
 
     FSMEventData eventStruct(event, targetState, eventData);
     bool result = xQueueSend(eventQueue, &eventStruct, pdMS_TO_TICKS(100)) == pdPASS;
-    Serial.printf("Event sent: %d, result: %d\n", static_cast<int>(event), result);
+    DEBUG_PRINTF("Event sent: %d, result: %d\n", static_cast<int>(event), result);
     return result;
 }
 
@@ -250,34 +259,34 @@ FlightPhase RocketFSM::getCurrentPhase()
 // Change this function definition
 void IRAM_ATTR RocketFSM::fsmTaskWrapper(void *parameter)
 {
-    Serial.println("Global FSM task wrapper started");
+    DEBUG_PRINT("Global FSM task wrapper started");
     debugMemory("FSM task wrapper start");
 
     RocketFSM *fsm = static_cast<RocketFSM *>(parameter);
     if (!fsm)
     {
-        Serial.println("ERROR: Invalid FSM pointer");
+        DEBUG_PRINT("ERROR: Invalid FSM pointer");
         debugMemory("Invalid FSM pointer");
         vTaskDelete(NULL);
         return;
     }
 
-    Serial.println("Calling fsm->fsmTask()");
+    DEBUG_PRINT("Calling fsm->fsmTask()");
     fsm->fsmTask();
 
     // Should never reach here unless task exits
-    Serial.println("Global FSM task wrapper exiting");
+    DEBUG_PRINT("Global FSM task wrapper exiting");
     debugMemory("FSM task wrapper end");
     vTaskDelete(NULL);
 }
 
 void RocketFSM::fsmTask()
 {
-    Serial.println("fsmTask started");
+    DEBUG_PRINT("fsmTask started");
     debugMemory("fsmTask start");
 
-    Serial.printf("isRunning = %d\n", isRunning);
-    Serial.printf("Current state: %s\n", getStateString(currentState).c_str());
+    DEBUG_PRINTF("isRunning = %d\n", isRunning);
+    DEBUG_PRINTF("Current state: %s\n", getStateString(currentState).c_str());
 
     // Create a proper event structure
     FSMEventData eventData(FSMEvent::NONE);
@@ -290,13 +299,13 @@ void RocketFSM::fsmTask()
     // Critical: manually check transitions for INACTIVE state immediately
     if (currentState == RocketState::INACTIVE)
     {
-        Serial.println("Initial state is INACTIVE, sending START_CALIBRATION event");
+        DEBUG_PRINT("Initial state is INACTIVE, sending START_CALIBRATION event");
         sendEvent(FSMEvent::START_CALIBRATION);
         if (!isRunning)
         {
-            Serial.println("WARNING: isRunning is false after sending START_CALIBRATION!");
+            DEBUG_PRINT("WARNING: isRunning is false after sending START_CALIBRATION!");
             isRunning = true;
-            Serial.println("Re-enabling FSM task execution...");
+            DEBUG_PRINT("Re-enabling FSM task execution...");
         }
     }
 
@@ -308,8 +317,8 @@ void RocketFSM::fsmTask()
         // Check if isRunning was changed externally
         if (!isRunning)
         {
-            Serial.println("WARNING: isRunning changed to false unexpectedly!");
-            Serial.println("Re-enabling FSM task execution...");
+            DEBUG_PRINT("WARNING: isRunning changed to false unexpectedly!");
+            DEBUG_PRINT("Re-enabling FSM task execution...");
             isRunning = true;
         }
 
@@ -317,7 +326,7 @@ void RocketFSM::fsmTask()
         if (loopCounter % 100 == 0)
         {
             debugMemory("FSM main loop");
-            Serial.printf("FSM running status: %d\n", isRunning);
+            DEBUG_PRINTF("FSM running status: %d\n", isRunning);
         }
 
         checkTransitions();
@@ -325,7 +334,7 @@ void RocketFSM::fsmTask()
         // Check for events (non-blocking with timeout)
         if (xQueueReceive(eventQueue, &eventData, pdMS_TO_TICKS(50)) == pdPASS)
         {
-            Serial.printf("Received event: %d for state: %s\n",
+            DEBUG_PRINTF("Received event: %d for state: %s\n",
                           static_cast<int>(eventData.event),
                           getStateString(currentState).c_str());
 
@@ -337,7 +346,7 @@ void RocketFSM::fsmTask()
             }
             catch (...)
             {
-                Serial.println("EXCEPTION: Error in processEvent!");
+                DEBUG_PRINT("EXCEPTION: Error in processEvent!");
                 debugMemory("processEvent-exception");
             }
         }
@@ -345,7 +354,7 @@ void RocketFSM::fsmTask()
         // Periodically output the current state for debugging
         if (loopCounter % 20 == 0)
         {
-            Serial.printf("FSM Loop #%lu: Current state: %s, Time in state: %lu ms, isRunning: %d\n",
+            DEBUG_PRINTF("FSM Loop #%lu: Current state: %s, Time in state: %lu ms, isRunning: %d\n",
                           loopCounter, getStateString(currentState).c_str(),
                           millis() - stateStartTime, isRunning);
         }
@@ -359,8 +368,8 @@ void RocketFSM::fsmTask()
     }
 
     // We should never reach here unless stop() was explicitly called
-    Serial.println("fsmTask ended because isRunning became false!");
-    Serial.println("Stack high water mark: " + String(uxTaskGetStackHighWaterMark(NULL)));
+    DEBUG_PRINT("fsmTask ended because isRunning became false!");
+    DEBUG_PRINT("Stack high water mark: " + String(uxTaskGetStackHighWaterMark(NULL)));
     debugMemory("fsmTask end");
 
     // Clean up watchdog
@@ -369,14 +378,14 @@ void RocketFSM::fsmTask()
 
 void RocketFSM::setupStateActions()
 {
-    Serial.println("Setting up state actions...");
+    DEBUG_PRINT("Setting up state actions...");
     debugMemory("setupStateActions start");
 
     // INACTIVE state
     stateActions[RocketState::INACTIVE] = StateActions(
         [this]()
         { onInactiveEntry(); });
-    Serial.println("INACTIVE state action set");
+    DEBUG_PRINT("INACTIVE state action set");
 
     // CALIBRATING state
     stateActions[RocketState::CALIBRATING] = StateActions(
@@ -386,7 +395,7 @@ void RocketFSM::setupStateActions()
         { onCalibratingExit(); });
     stateActions[RocketState::CALIBRATING].sensorTask = TaskConfig("Sensor_Calib", 3072, 4, 0, true);
     stateActions[RocketState::CALIBRATING].loggingTask = TaskConfig("Log_Calib", 2048, 1, 1, true);
-    Serial.println("CALIBRATING state action set");
+    DEBUG_PRINT("CALIBRATING state action set");
 
     // READY_FOR_LAUNCH state
     stateActions[RocketState::READY_FOR_LAUNCH] = StateActions(
@@ -395,7 +404,7 @@ void RocketFSM::setupStateActions()
     stateActions[RocketState::READY_FOR_LAUNCH].sensorTask = TaskConfig("Sensor_Ready", 3072, 4, 0, true);
     stateActions[RocketState::READY_FOR_LAUNCH].telemetryTask = TaskConfig("Telemetry_Ready", 3072, 2, 1, true);
     stateActions[RocketState::READY_FOR_LAUNCH].loggingTask = TaskConfig("Log_Ready", 2048, 1, 1, true);
-    Serial.println("READY_FOR_LAUNCH state action set");
+    DEBUG_PRINT("READY_FOR_LAUNCH state action set");
 
     // LAUNCH state
     stateActions[RocketState::LAUNCH] = StateActions(
@@ -404,7 +413,7 @@ void RocketFSM::setupStateActions()
     stateActions[RocketState::LAUNCH].sensorTask = TaskConfig("Sensor_Launch", 3072, 5, 0, true);
     stateActions[RocketState::LAUNCH].dataCollectionTask = TaskConfig("DataCol_Launch", 2048, 2, 1, true);
     stateActions[RocketState::LAUNCH].loggingTask = TaskConfig("Log_Launch", 2048, 1, 1, true);
-    Serial.println("LAUNCH state action set");
+    DEBUG_PRINT("LAUNCH state action set");
 
     // ACCELERATED_FLIGHT state
     stateActions[RocketState::ACCELERATED_FLIGHT] = StateActions(
@@ -414,7 +423,7 @@ void RocketFSM::setupStateActions()
     stateActions[RocketState::ACCELERATED_FLIGHT].ekfTask = TaskConfig("EKF_AccFlight", 4096, 4, 0, true);
     stateActions[RocketState::ACCELERATED_FLIGHT].telemetryTask = TaskConfig("Telemetry_AccFlight", 3072, 2, 1, true);
     stateActions[RocketState::ACCELERATED_FLIGHT].dataCollectionTask = TaskConfig("DataCol_AccFlight", 2048, 2, 1, true);
-    Serial.println("ACCELERATED_FLIGHT state action set");
+    DEBUG_PRINT("ACCELERATED_FLIGHT state action set");
 
     // BALLISTIC_FLIGHT state
     stateActions[RocketState::BALLISTIC_FLIGHT] = StateActions(
@@ -425,7 +434,7 @@ void RocketFSM::setupStateActions()
     stateActions[RocketState::BALLISTIC_FLIGHT].apogeeDetectionTask = TaskConfig("Apogee_Detection", 2048, 4, 0, true);
     stateActions[RocketState::BALLISTIC_FLIGHT].telemetryTask = TaskConfig("Telemetry_BalFlight", 3072, 2, 1, true);
     stateActions[RocketState::BALLISTIC_FLIGHT].dataCollectionTask = TaskConfig("DataCol_BalFlight", 2048, 2, 1, true);
-    Serial.println("BALLISTIC_FLIGHT state action set");
+    DEBUG_PRINT("BALLISTIC_FLIGHT state action set");
 
     // APOGEE state
     stateActions[RocketState::APOGEE] = StateActions(
@@ -435,7 +444,7 @@ void RocketFSM::setupStateActions()
     stateActions[RocketState::APOGEE].recoveryTask = TaskConfig("Recovery_Apogee", 2048, 5, 0, true);
     stateActions[RocketState::APOGEE].dataCollectionTask = TaskConfig("DataCol_Apogee", 2048, 2, 1, true);
     stateActions[RocketState::APOGEE].telemetryTask = TaskConfig("Telemetry_Apogee", 3072, 2, 1, true);
-    Serial.println("APOGEE state action set");
+    DEBUG_PRINT("APOGEE state action set");
 
     // STABILIZATION state
     stateActions[RocketState::STABILIZATION] = StateActions(
@@ -446,7 +455,7 @@ void RocketFSM::setupStateActions()
     stateActions[RocketState::STABILIZATION].telemetryTask = TaskConfig("Telemetry_Stab", 3072, 2, 1, true);
     stateActions[RocketState::STABILIZATION].dataCollectionTask = TaskConfig("DataCol_Stab", 2048, 2, 1, true);
     stateActions[RocketState::STABILIZATION].gpsTask = TaskConfig("GPS_Stab", 2048, 1, 1, true);
-    Serial.println("STABILIZATION state action set");
+    DEBUG_PRINT("STABILIZATION state action set");
 
     // DECELERATION state
     stateActions[RocketState::DECELERATION] = StateActions(
@@ -457,7 +466,7 @@ void RocketFSM::setupStateActions()
     stateActions[RocketState::DECELERATION].telemetryTask = TaskConfig("Telemetry_Decel", 3072, 2, 1, true);
     stateActions[RocketState::DECELERATION].dataCollectionTask = TaskConfig("DataCol_Decel", 2048, 2, 1, true);
     stateActions[RocketState::DECELERATION].gpsTask = TaskConfig("GPS_Decel", 2048, 1, 1, true);
-    Serial.println("DECELERATION state action set");
+    DEBUG_PRINT("DECELERATION state action set");
 
     // LANDING state
     stateActions[RocketState::LANDING] = StateActions(
@@ -469,7 +478,7 @@ void RocketFSM::setupStateActions()
     stateActions[RocketState::LANDING].dataCollectionTask = TaskConfig("DataCol_Landing", 2048, 2, 1, true);
     stateActions[RocketState::LANDING].gpsTask = TaskConfig("GPS_Landing", 2048, 1, 1, true);
     stateActions[RocketState::LANDING].loggingTask = TaskConfig("Log_Landing", 3072, 1, 1, true);
-    Serial.println("LANDING state action set");
+    DEBUG_PRINT("LANDING state action set");
 
     // RECOVERED state
     stateActions[RocketState::RECOVERED] = StateActions(
@@ -479,14 +488,14 @@ void RocketFSM::setupStateActions()
         { onRecoveredExit(); });
     stateActions[RocketState::RECOVERED].gpsTask = TaskConfig("GPS_Recovered", 2048, 1, 1, true);
     stateActions[RocketState::RECOVERED].loggingTask = TaskConfig("Log_Recovered", 3072, 1, 1, true);
-    Serial.println("RECOVERED state action set");
+    DEBUG_PRINT("RECOVERED state action set");
 
     debugMemory("setupStateActions end");
 }
 
 void RocketFSM::setupTransitions()
 {
-    Serial.println("Setting up transitions...");
+    DEBUG_PRINT("Setting up transitions...");
     debugMemory("setupTransitions start");
 
     transitions.emplace_back(RocketState::INACTIVE, RocketState::CALIBRATING, FSMEvent::START_CALIBRATION);
@@ -508,14 +517,14 @@ void RocketFSM::transitionTo(RocketState newState)
     if (newState == currentState)
         return;
 
-    Serial.printf("Attempting transition from %s to %s\n", getStateString(currentState).c_str(), getStateString(newState).c_str());
+    DEBUG_PRINTF("Attempting transition from %s to %s\n", getStateString(currentState).c_str(), getStateString(newState).c_str());
     debugMemory("Before transition mutex take");
 
     if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(1000)) == pdTRUE)
     {
-        Serial.println("\n==================== STATE TRANSITION ====================");
-        Serial.printf("Time: %lu ms\n", millis());
-        Serial.printf("Transition: %s -> %s\n", getStateString(currentState).c_str(), getStateString(newState).c_str());
+        DEBUG_PRINT("\n==================== STATE TRANSITION ====================");
+        DEBUG_PRINTF("Time: %lu ms\n", millis());
+        DEBUG_PRINTF("Transition: %s -> %s\n", getStateString(currentState).c_str(), getStateString(newState).c_str());
         debugMemory("Transition start");
 
         if (rocketLogger)
@@ -527,14 +536,14 @@ void RocketFSM::transitionTo(RocketState newState)
         // Execute exit action for current state
         if (stateActions[currentState].onExit)
         {
-            Serial.println("Executing exit action for current state...");
+            DEBUG_PRINT("Executing exit action for current state...");
             debugMemory("Before exit action");
             stateActions[currentState].onExit();
             debugMemory("After exit action");
         }
 
         // Stop current state tasks
-        Serial.println("Stopping current state tasks...");
+        DEBUG_PRINT("Stopping current state tasks...");
         debugMemory("Before stopAllTasks");
         stopAllTasks();
         debugMemory("After stopAllTasks");
@@ -546,33 +555,33 @@ void RocketFSM::transitionTo(RocketState newState)
         // Execute entry action for new state
         if (stateActions[currentState].onEntry)
         {
-            Serial.println("Executing entry action for new state...");
+            DEBUG_PRINT("Executing entry action for new state...");
             debugMemory("Before entry action");
             stateActions[currentState].onEntry();
             debugMemory("After entry action");
         }
 
         // Start new state tasks
-        Serial.println("Starting new state tasks...");
+        DEBUG_PRINT("Starting new state tasks...");
         debugMemory("Before startStateTasks");
         startStateTasks();
         debugMemory("After startStateTasks");
 
-        Serial.println("==========================================================\n");
+        DEBUG_PRINT("==========================================================\n");
 
         xSemaphoreGive(stateMutex);
         debugMemory("After transition mutex give");
     }
     else
     {
-        Serial.println("ERROR: Failed to take mutex for transition");
+        DEBUG_PRINT("ERROR: Failed to take mutex for transition");
         debugMemory("Failed mutex take");
     }
 }
 
 void RocketFSM::processEvent(const FSMEventData &eventData)
 {
-    Serial.printf("Processing event: %d\n", static_cast<int>(eventData.event));
+    DEBUG_PRINTF("Processing event: %d\n", static_cast<int>(eventData.event));
     debugMemory("processEvent start");
 
     if (eventData.event == FSMEvent::FORCE_TRANSITION)
@@ -586,7 +595,7 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
     {
         if (transition.fromState == currentState && transition.triggerEvent == eventData.event)
         {
-            Serial.printf("Found matching transition: %s -> %s\n",
+            DEBUG_PRINTF("Found matching transition: %s -> %s\n",
                           getStateString(transition.fromState).c_str(),
                           getStateString(transition.toState).c_str());
             transitionTo(transition.toState);
@@ -599,7 +608,7 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
 
 void RocketFSM::startStateTasks()
 {
-    Serial.printf("Starting tasks for state: %s\n", getStateString(currentState).c_str());
+    DEBUG_PRINTF("Starting tasks for state: %s\n", getStateString(currentState).c_str());
     debugMemory("startStateTasks begin");
 
     const StateActions &actions = stateActions[currentState];
@@ -607,76 +616,76 @@ void RocketFSM::startStateTasks()
     // Start Core 0 tasks (Critical)
     if (actions.sensorTask.shouldRun)
     {
-        Serial.printf("Creating sensor task: %s\n", actions.sensorTask.name);
+        DEBUG_PRINTF("Creating sensor task: %s\n", actions.sensorTask.name);
         debugMemory("Before sensor task creation");
 
         BaseType_t result = xTaskCreatePinnedToCore(sensorTaskWrapper, actions.sensorTask.name, actions.sensorTask.stackSize,
                                                     this, actions.sensorTask.priority, &sensorTaskHandle, actions.sensorTask.coreId);
         if (result != pdPASS)
         {
-            Serial.printf("Failed to create sensor task: %d\n", result);
+            DEBUG_PRINTF("Failed to create sensor task: %d\n", result);
             debugMemory("Sensor task creation failed");
         }
         else
         {
-            Serial.println("Sensor task created successfully");
+            DEBUG_PRINT("Sensor task created successfully");
             debugMemory("After sensor task creation");
         }
     }
 
     if (actions.ekfTask.shouldRun)
     {
-        Serial.printf("Creating EKF task: %s\n", actions.ekfTask.name);
+        DEBUG_PRINTF("Creating EKF task: %s\n", actions.ekfTask.name);
         debugMemory("Before EKF task creation");
 
         BaseType_t result = xTaskCreatePinnedToCore(ekfTaskWrapper, actions.ekfTask.name, actions.ekfTask.stackSize,
                                                     this, actions.ekfTask.priority, &ekfTaskHandle, actions.ekfTask.coreId);
         if (result != pdPASS)
         {
-            Serial.printf("Failed to create EKF task: %d\n", result);
+            DEBUG_PRINTF("Failed to create EKF task: %d\n", result);
             debugMemory("EKF task creation failed");
         }
         else
         {
-            Serial.println("EKF task created successfully");
+            DEBUG_PRINT("EKF task created successfully");
             debugMemory("After EKF task creation");
         }
     }
 
     if (actions.apogeeDetectionTask.shouldRun)
     {
-        Serial.printf("Creating apogee detection task: %s\n", actions.apogeeDetectionTask.name);
+        DEBUG_PRINTF("Creating apogee detection task: %s\n", actions.apogeeDetectionTask.name);
         debugMemory("Before apogee task creation");
 
         BaseType_t result = xTaskCreatePinnedToCore(apogeeDetectionTaskWrapper, actions.apogeeDetectionTask.name, actions.apogeeDetectionTask.stackSize,
                                                     this, actions.apogeeDetectionTask.priority, &apogeeDetectionTaskHandle, actions.apogeeDetectionTask.coreId);
         if (result != pdPASS)
         {
-            Serial.printf("Failed to create apogee detection task: %d\n", result);
+            DEBUG_PRINTF("Failed to create apogee detection task: %d\n", result);
             debugMemory("Apogee task creation failed");
         }
         else
         {
-            Serial.println("Apogee detection task created successfully");
+            DEBUG_PRINT("Apogee detection task created successfully");
             debugMemory("After apogee task creation");
         }
     }
 
     if (actions.recoveryTask.shouldRun)
     {
-        Serial.printf("Creating recovery task: %s\n", actions.recoveryTask.name);
+        DEBUG_PRINTF("Creating recovery task: %s\n", actions.recoveryTask.name);
         debugMemory("Before recovery task creation");
 
         BaseType_t result = xTaskCreatePinnedToCore(recoveryTaskWrapper, actions.recoveryTask.name, actions.recoveryTask.stackSize,
                                                     this, actions.recoveryTask.priority, &recoveryTaskHandle, actions.recoveryTask.coreId);
         if (result != pdPASS)
         {
-            Serial.printf("Failed to create recovery task: %d\n", result);
+            DEBUG_PRINTF("Failed to create recovery task: %d\n", result);
             debugMemory("Recovery task creation failed");
         }
         else
         {
-            Serial.println("Recovery task created successfully");
+            DEBUG_PRINT("Recovery task created successfully");
             debugMemory("After recovery task creation");
         }
     }
@@ -684,114 +693,114 @@ void RocketFSM::startStateTasks()
     // Start Core 1 tasks (Non-critical)
     if (actions.dataCollectionTask.shouldRun)
     {
-        Serial.printf("Creating data collection task: %s\n", actions.dataCollectionTask.name);
+        DEBUG_PRINTF("Creating data collection task: %s\n", actions.dataCollectionTask.name);
         debugMemory("Before data collection task creation");
 
         BaseType_t result = xTaskCreatePinnedToCore(dataCollectionTaskWrapper, actions.dataCollectionTask.name, actions.dataCollectionTask.stackSize,
                                                     this, actions.dataCollectionTask.priority, &dataCollectionTaskHandle, actions.dataCollectionTask.coreId);
         if (result != pdPASS)
         {
-            Serial.printf("Failed to create data collection task: %d\n", result);
+            DEBUG_PRINTF("Failed to create data collection task: %d\n", result);
             debugMemory("Data collection task creation failed");
         }
         else
         {
-            Serial.println("Data collection task created successfully");
+            DEBUG_PRINT("Data collection task created successfully");
             debugMemory("After data collection task creation");
         }
     }
 
     if (actions.telemetryTask.shouldRun)
     {
-        Serial.printf("Creating telemetry task: %s\n", actions.telemetryTask.name);
+        DEBUG_PRINTF("Creating telemetry task: %s\n", actions.telemetryTask.name);
         debugMemory("Before telemetry task creation");
 
         BaseType_t result = xTaskCreatePinnedToCore(telemetryTaskWrapper, actions.telemetryTask.name, actions.telemetryTask.stackSize,
                                                     this, actions.telemetryTask.priority, &telemetryTaskHandle, actions.telemetryTask.coreId);
         if (result != pdPASS)
         {
-            Serial.printf("Failed to create telemetry task: %d\n", result);
+            DEBUG_PRINTF("Failed to create telemetry task: %d\n", result);
             debugMemory("Telemetry task creation failed");
         }
         else
         {
-            Serial.println("Telemetry task created successfully");
+            DEBUG_PRINT("Telemetry task created successfully");
             debugMemory("After telemetry task creation");
         }
     }
 
     if (actions.gpsTask.shouldRun)
     {
-        Serial.printf("Creating GPS task: %s\n", actions.gpsTask.name);
+        DEBUG_PRINTF("Creating GPS task: %s\n", actions.gpsTask.name);
         debugMemory("Before GPS task creation");
 
         BaseType_t result = xTaskCreatePinnedToCore(gpsTaskWrapper, actions.gpsTask.name, actions.gpsTask.stackSize,
                                                     this, actions.gpsTask.priority, &gpsTaskHandle, actions.gpsTask.coreId);
         if (result != pdPASS)
         {
-            Serial.printf("Failed to create GPS task: %d\n", result);
+            DEBUG_PRINTF("Failed to create GPS task: %d\n", result);
             debugMemory("GPS task creation failed");
         }
         else
         {
-            Serial.println("GPS task created successfully");
+            DEBUG_PRINT("GPS task created successfully");
             debugMemory("After GPS task creation");
         }
     }
 
     if (actions.loggingTask.shouldRun)
     {
-        Serial.printf("Creating logging task: %s\n", actions.loggingTask.name);
+        DEBUG_PRINTF("Creating logging task: %s\n", actions.loggingTask.name);
         debugMemory("Before logging task creation");
 
         BaseType_t result = xTaskCreatePinnedToCore(loggingTaskWrapper, actions.loggingTask.name, actions.loggingTask.stackSize,
                                                     this, actions.loggingTask.priority, &loggingTaskHandle, actions.loggingTask.coreId);
         if (result != pdPASS)
         {
-            Serial.printf("Failed to create logging task: %d\n", result);
+            DEBUG_PRINTF("Failed to create logging task: %d\n", result);
             debugMemory("Logging task creation failed");
         }
         else
         {
-            Serial.println("Logging task created successfully");
+            DEBUG_PRINT("Logging task created successfully");
             debugMemory("After logging task creation");
         }
     }
 
     debugMemory("startStateTasks end");
-    Serial.println("All state tasks creation completed");
+    DEBUG_PRINT("All state tasks creation completed");
 }
 
 void RocketFSM::stopAllTasks()
 {
-    Serial.println("Stopping all tasks...");
+    DEBUG_PRINT("Stopping all tasks...");
     debugMemory("stopAllTasks begin");
 
     // Stop Core 0 tasks
     if (sensorTaskHandle)
     {
-        Serial.println("Deleting sensor task");
+        DEBUG_PRINT("Deleting sensor task");
         vTaskDelete(sensorTaskHandle);
         sensorTaskHandle = nullptr;
         debugMemory("After sensor task deletion");
     }
     if (ekfTaskHandle)
     {
-        Serial.println("Deleting EKF task");
+        DEBUG_PRINT("Deleting EKF task");
         vTaskDelete(ekfTaskHandle);
         ekfTaskHandle = nullptr;
         debugMemory("After EKF task deletion");
     }
     if (apogeeDetectionTaskHandle)
     {
-        Serial.println("Deleting apogee detection task");
+        DEBUG_PRINT("Deleting apogee detection task");
         vTaskDelete(apogeeDetectionTaskHandle);
         apogeeDetectionTaskHandle = nullptr;
         debugMemory("After apogee task deletion");
     }
     if (recoveryTaskHandle)
     {
-        Serial.println("Deleting recovery task");
+        DEBUG_PRINT("Deleting recovery task");
         vTaskDelete(recoveryTaskHandle);
         recoveryTaskHandle = nullptr;
         debugMemory("After recovery task deletion");
@@ -800,28 +809,28 @@ void RocketFSM::stopAllTasks()
     // Stop Core 1 tasks
     if (dataCollectionTaskHandle)
     {
-        Serial.println("Deleting data collection task");
+        DEBUG_PRINT("Deleting data collection task");
         vTaskDelete(dataCollectionTaskHandle);
         dataCollectionTaskHandle = nullptr;
         debugMemory("After data collection task deletion");
     }
     if (telemetryTaskHandle)
     {
-        Serial.println("Deleting telemetry task");
+        DEBUG_PRINT("Deleting telemetry task");
         vTaskDelete(telemetryTaskHandle);
         telemetryTaskHandle = nullptr;
         debugMemory("After telemetry task deletion");
     }
     if (gpsTaskHandle)
     {
-        Serial.println("Deleting GPS task");
+        DEBUG_PRINT("Deleting GPS task");
         vTaskDelete(gpsTaskHandle);
         gpsTaskHandle = nullptr;
         debugMemory("After GPS task deletion");
     }
     if (loggingTaskHandle)
     {
-        Serial.println("Deleting logging task");
+        DEBUG_PRINT("Deleting logging task");
         vTaskDelete(loggingTaskHandle);
         loggingTaskHandle = nullptr;
         debugMemory("After logging task deletion");
@@ -830,13 +839,13 @@ void RocketFSM::stopAllTasks()
     // Add small delay to ensure tasks are cleaned up
     vTaskDelay(pdMS_TO_TICKS(100));
     debugMemory("stopAllTasks end");
-    Serial.println("All tasks stopped");
+    DEBUG_PRINT("All tasks stopped");
 }
 
 // Task wrappers for Core 0 (Critical)
 void IRAM_ATTR RocketFSM::sensorTaskWrapper(void *parameter)
 {
-    Serial.println("Sensor task wrapper started");
+    DEBUG_PRINT("Sensor task wrapper started");
     debugMemory("Sensor task wrapper start");
 
     RocketFSM *fsm = static_cast<RocketFSM *>(parameter);
@@ -845,14 +854,14 @@ void IRAM_ATTR RocketFSM::sensorTaskWrapper(void *parameter)
         fsm->sensorTask();
     }
 
-    Serial.println("Sensor task wrapper ending");
+    DEBUG_PRINT("Sensor task wrapper ending");
     debugMemory("Sensor task wrapper end");
     vTaskDelete(NULL);
 }
 
 void IRAM_ATTR RocketFSM::ekfTaskWrapper(void *parameter)
 {
-    Serial.println("EKF task wrapper started");
+    DEBUG_PRINT("EKF task wrapper started");
     debugMemory("EKF task wrapper start");
 
     RocketFSM *fsm = static_cast<RocketFSM *>(parameter);
@@ -861,14 +870,14 @@ void IRAM_ATTR RocketFSM::ekfTaskWrapper(void *parameter)
         fsm->ekfTask();
     }
 
-    Serial.println("EKF task wrapper ending");
+    DEBUG_PRINT("EKF task wrapper ending");
     debugMemory("EKF task wrapper end");
     vTaskDelete(NULL);
 }
 
 void IRAM_ATTR RocketFSM::apogeeDetectionTaskWrapper(void *parameter)
 {
-    Serial.println("Apogee detection task wrapper started");
+    DEBUG_PRINT("Apogee detection task wrapper started");
     debugMemory("Apogee task wrapper start");
 
     RocketFSM *fsm = static_cast<RocketFSM *>(parameter);
@@ -877,14 +886,14 @@ void IRAM_ATTR RocketFSM::apogeeDetectionTaskWrapper(void *parameter)
         fsm->apogeeDetectionTask();
     }
 
-    Serial.println("Apogee detection task wrapper ending");
+    DEBUG_PRINT("Apogee detection task wrapper ending");
     debugMemory("Apogee task wrapper end");
     vTaskDelete(NULL);
 }
 
 void IRAM_ATTR RocketFSM::recoveryTaskWrapper(void *parameter)
 {
-    Serial.println("Recovery task wrapper started");
+    DEBUG_PRINT("Recovery task wrapper started");
     debugMemory("Recovery task wrapper start");
 
     RocketFSM *fsm = static_cast<RocketFSM *>(parameter);
@@ -893,7 +902,7 @@ void IRAM_ATTR RocketFSM::recoveryTaskWrapper(void *parameter)
         fsm->recoveryTask();
     }
 
-    Serial.println("Recovery task wrapper ending");
+    DEBUG_PRINT("Recovery task wrapper ending");
     debugMemory("Recovery task wrapper end");
     vTaskDelete(NULL);
 }
@@ -901,7 +910,7 @@ void IRAM_ATTR RocketFSM::recoveryTaskWrapper(void *parameter)
 // Task wrappers for Core 1 (Non-critical)
 void IRAM_ATTR RocketFSM::dataCollectionTaskWrapper(void *parameter)
 {
-    Serial.println("Data collection task wrapper started");
+    DEBUG_PRINT("Data collection task wrapper started");
     debugMemory("Data collection task wrapper start");
 
     RocketFSM *fsm = static_cast<RocketFSM *>(parameter);
@@ -910,14 +919,14 @@ void IRAM_ATTR RocketFSM::dataCollectionTaskWrapper(void *parameter)
         fsm->dataCollectionTask();
     }
 
-    Serial.println("Data collection task wrapper ending");
+    DEBUG_PRINT("Data collection task wrapper ending");
     debugMemory("Data collection task wrapper end");
     vTaskDelete(NULL);
 }
 
 void IRAM_ATTR RocketFSM::telemetryTaskWrapper(void *parameter)
 {
-    Serial.println("Telemetry task wrapper started");
+    DEBUG_PRINT("Telemetry task wrapper started");
     debugMemory("Telemetry task wrapper start");
 
     RocketFSM *fsm = static_cast<RocketFSM *>(parameter);
@@ -926,14 +935,14 @@ void IRAM_ATTR RocketFSM::telemetryTaskWrapper(void *parameter)
         fsm->telemetryTask();
     }
 
-    Serial.println("Telemetry task wrapper ending");
+    DEBUG_PRINT("Telemetry task wrapper ending");
     debugMemory("Telemetry task wrapper end");
     vTaskDelete(NULL);
 }
 
 void IRAM_ATTR RocketFSM::gpsTaskWrapper(void *parameter)
 {
-    Serial.println("GPS task wrapper started");
+    DEBUG_PRINT("GPS task wrapper started");
     debugMemory("GPS task wrapper start");
 
     RocketFSM *fsm = static_cast<RocketFSM *>(parameter);
@@ -942,14 +951,14 @@ void IRAM_ATTR RocketFSM::gpsTaskWrapper(void *parameter)
         fsm->gpsTask();
     }
 
-    Serial.println("GPS task wrapper ending");
+    DEBUG_PRINT("GPS task wrapper ending");
     debugMemory("GPS task wrapper end");
     vTaskDelete(NULL);
 }
 
 void IRAM_ATTR RocketFSM::loggingTaskWrapper(void *parameter)
 {
-    Serial.println("Logging task wrapper started");
+    DEBUG_PRINT("Logging task wrapper started");
     debugMemory("Logging task wrapper start");
 
     RocketFSM *fsm = static_cast<RocketFSM *>(parameter);
@@ -958,7 +967,7 @@ void IRAM_ATTR RocketFSM::loggingTaskWrapper(void *parameter)
         fsm->loggingTask();
     }
 
-    Serial.println("Logging task wrapper ending");
+    DEBUG_PRINT("Logging task wrapper ending");
     debugMemory("Logging task wrapper end");
     vTaskDelete(NULL);
 }
@@ -966,7 +975,7 @@ void IRAM_ATTR RocketFSM::loggingTaskWrapper(void *parameter)
 // Core 0 Task implementations (Critical) - OPTIMIZED
 void RocketFSM::sensorTask()
 {
-    Serial.println("Sensor task started");
+    DEBUG_PRINT("Sensor task started");
     debugMemory("Sensor task start");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1011,13 +1020,13 @@ void RocketFSM::sensorTask()
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 
-    Serial.println("Sensor task ended");
+    DEBUG_PRINT("Sensor task ended");
     debugMemory("Sensor task end");
 }
 
 void RocketFSM::ekfTask()
 {
-    Serial.println("EKF task started");
+    DEBUG_PRINT("EKF task started");
     debugMemory("EKF task start");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1043,13 +1052,13 @@ void RocketFSM::ekfTask()
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 
-    Serial.println("EKF task ended");
+    DEBUG_PRINT("EKF task ended");
     debugMemory("EKF task end");
 }
 
 void RocketFSM::apogeeDetectionTask()
 {
-    Serial.println("Apogee detection task started");
+    DEBUG_PRINT("Apogee detection task started");
     debugMemory("Apogee detection task start");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1067,7 +1076,7 @@ void RocketFSM::apogeeDetectionTask()
         // Critical apogee detection
         if (isApogeeReached())
         {
-            Serial.println("Apogee reached! Sending event...");
+            DEBUG_PRINT("Apogee reached! Sending event...");
             sendEvent(FSMEvent::APOGEE_REACHED);
         }
 
@@ -1075,13 +1084,13 @@ void RocketFSM::apogeeDetectionTask()
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 
-    Serial.println("Apogee detection task ended");
+    DEBUG_PRINT("Apogee detection task ended");
     debugMemory("Apogee detection task end");
 }
 
 void RocketFSM::recoveryTask()
 {
-    Serial.println("Recovery task started");
+    DEBUG_PRINT("Recovery task started");
     debugMemory("Recovery task start");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1103,14 +1112,14 @@ void RocketFSM::recoveryTask()
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 
-    Serial.println("Recovery task ended");
+    DEBUG_PRINT("Recovery task ended");
     debugMemory("Recovery task end");
 }
 
 // Core 1 Task implementations (Non-critical) - OPTIMIZED
 void RocketFSM::dataCollectionTask()
 {
-    Serial.println("Data collection task started");
+    DEBUG_PRINT("Data collection task started");
     debugMemory("Data collection task start");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1137,13 +1146,13 @@ void RocketFSM::dataCollectionTask()
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 
-    Serial.println("Data collection task ended");
+    DEBUG_PRINT("Data collection task ended");
     debugMemory("Data collection task end");
 }
 
 void RocketFSM::telemetryTask()
 {
-    Serial.println("Telemetry task started");
+    DEBUG_PRINT("Telemetry task started");
     debugMemory("Telemetry task start");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1168,13 +1177,13 @@ void RocketFSM::telemetryTask()
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 
-    Serial.println("Telemetry task ended");
+    DEBUG_PRINT("Telemetry task ended");
     debugMemory("Telemetry task end");
 }
 
 void RocketFSM::gpsTask()
 {
-    Serial.println("GPS task started");
+    DEBUG_PRINT("GPS task started");
     debugMemory("GPS task start");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1202,13 +1211,13 @@ void RocketFSM::gpsTask()
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 
-    Serial.println("GPS task ended");
+    DEBUG_PRINT("GPS task ended");
     debugMemory("GPS task end");
 }
 
 void RocketFSM::loggingTask()
 {
-    Serial.println("Logging task started");
+    DEBUG_PRINT("Logging task started");
     debugMemory("Logging task start");
 
     TickType_t xLastWakeTime = xTaskGetTickCount();
@@ -1230,7 +1239,7 @@ void RocketFSM::loggingTask()
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 
-    Serial.println("Logging task ended");
+    DEBUG_PRINT("Logging task ended");
     debugMemory("Logging task end");
 }
 
@@ -1241,14 +1250,14 @@ void RocketFSM::checkTransitions()
     switch (state)
     {
     case RocketState::INACTIVE:
-        Serial.println("In INACTIVE state, sending START_CALIBRATION event");
-        Serial.printf("START_CALIBRATION event sent result: %d\n", sendEvent(FSMEvent::START_CALIBRATION));
+        DEBUG_PRINT("In INACTIVE state, sending START_CALIBRATION event");
+        DEBUG_PRINTF("START_CALIBRATION event sent result: %d\n", sendEvent(FSMEvent::START_CALIBRATION));
         break;
 
     case RocketState::CALIBRATING:
         if (isCalibrationComplete())
         {
-            Serial.println("Calibration complete! Sending event...");
+            DEBUG_PRINT("Calibration complete! Sending event...");
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
         break;
@@ -1260,9 +1269,9 @@ void RocketFSM::checkTransitions()
 
         if (isLaunchDetected())
         {
-            Serial.println("*** LAUNCH DETECTED! Sending LAUNCH_DETECTED event ***");
+            DEBUG_PRINT("*** LAUNCH DETECTED! Sending LAUNCH_DETECTED event ***");
             bool sent = sendEvent(FSMEvent::LAUNCH_DETECTED);
-            Serial.printf("Event sent result: %d\n", sent);
+            DEBUG_PRINTF("Event sent result: %d\n", sent);
         }
     }
     break;
@@ -1270,7 +1279,7 @@ void RocketFSM::checkTransitions()
     case RocketState::LAUNCH:
         if (isLiftoffStarted())
         {
-            Serial.println("Liftoff started! Sending event...");
+            DEBUG_PRINT("Liftoff started! Sending event...");
             sendEvent(FSMEvent::LIFTOFF_STARTED);
         }
         break;
@@ -1278,16 +1287,16 @@ void RocketFSM::checkTransitions()
     case RocketState::ACCELERATED_FLIGHT:
         if (isAccelerationPhaseComplete())
         {
-            Serial.println("Acceleration phase complete! Sending event...");
+            DEBUG_PRINT("Acceleration phase complete! Sending event...");
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);
         }
         break;
 
     case RocketState::BALLISTIC_FLIGHT:
-        Serial.println("Checking for apogee...");
+        DEBUG_PRINT("Checking for apogee...");
         if (isApogeeReached())
         {
-            Serial.println("Apogee reached! Sending APOGEE_REACHED event");
+            DEBUG_PRINT("Apogee reached! Sending APOGEE_REACHED event");
             sendEvent(FSMEvent::APOGEE_REACHED);
         }
         break;
@@ -1295,7 +1304,7 @@ void RocketFSM::checkTransitions()
     case RocketState::APOGEE:
         if (isDrogueReady())
         {
-            Serial.println("Drogue ready! Sending event...");
+            DEBUG_PRINT("Drogue ready! Sending event...");
             sendEvent(FSMEvent::DROGUE_READY);
         }
         break;
@@ -1303,7 +1312,7 @@ void RocketFSM::checkTransitions()
     case RocketState::STABILIZATION:
         if (isStabilizationComplete())
         {
-            Serial.println("Stabilization complete! Sending event...");
+            DEBUG_PRINT("Stabilization complete! Sending event...");
             sendEvent(FSMEvent::STABILIZATION_COMPLETE);
         }
         break;
@@ -1311,7 +1320,7 @@ void RocketFSM::checkTransitions()
     case RocketState::DECELERATION:
         if (isDecelerationComplete())
         {
-            Serial.println("Deceleration complete! Sending event...");
+            DEBUG_PRINT("Deceleration complete! Sending event...");
             sendEvent(FSMEvent::DECELERATION_COMPLETE);
         }
         break;
@@ -1319,13 +1328,13 @@ void RocketFSM::checkTransitions()
     case RocketState::LANDING:
         if (isLandingComplete())
         {
-            Serial.println("Landing complete! Sending event...");
+            DEBUG_PRINT("Landing complete! Sending event...");
             sendEvent(FSMEvent::LANDING_COMPLETE);
         }
         break;
 
     default:
-        Serial.printf("No transition check for state: %s\n", getStateString(state).c_str());
+        DEBUG_PRINTF("No transition check for state: %s\n", getStateString(state).c_str());
         break;
     }
 }
@@ -1333,7 +1342,7 @@ void RocketFSM::checkTransitions()
 // Keep all your existing state entry/exit and condition checking methods unchanged
 void RocketFSM::onInactiveEntry()
 {
-    Serial.println("Inactive state entered");
+    DEBUG_PRINT("Inactive state entered");
     debugMemory("onInactiveEntry");
 
     if (rocketLogger)
@@ -1342,7 +1351,7 @@ void RocketFSM::onInactiveEntry()
 
 void RocketFSM::onCalibratingEntry()
 {
-    Serial.println("Calibrating state entered");
+    DEBUG_PRINT("Calibrating state entered");
     debugMemory("onCalibratingEntry");
 
     if (rocketLogger)
@@ -1351,7 +1360,7 @@ void RocketFSM::onCalibratingEntry()
 
 void RocketFSM::onReadyForLaunchEntry()
 {
-    Serial.println("Ready for launch state entered");
+    DEBUG_PRINT("Ready for launch state entered");
     debugMemory("onReadyForLaunchEntry");
 
     if (rocketLogger)
@@ -1363,7 +1372,7 @@ void RocketFSM::onReadyForLaunchEntry()
 
 void RocketFSM::onLaunchEntry()
 {
-    Serial.println("Launch state entered");
+    DEBUG_PRINT("Launch state entered");
     debugMemory("onLaunchEntry");
 
     if (rocketLogger)
@@ -1375,7 +1384,7 @@ void RocketFSM::onLaunchEntry()
 
 void RocketFSM::onAcceleratedFlightEntry()
 {
-    Serial.println("Accelerated flight state entered");
+    DEBUG_PRINT("Accelerated flight state entered");
     debugMemory("onAcceleratedFlightEntry");
 
     if (rocketLogger)
@@ -1384,7 +1393,7 @@ void RocketFSM::onAcceleratedFlightEntry()
 
 void RocketFSM::onBallisticFlightEntry()
 {
-    Serial.println("Ballistic flight state entered");
+    DEBUG_PRINT("Ballistic flight state entered");
     debugMemory("onBallisticFlightEntry");
 
     if (rocketLogger)
@@ -1393,7 +1402,7 @@ void RocketFSM::onBallisticFlightEntry()
 
 void RocketFSM::onApogeeEntry()
 {
-    Serial.println("Apogee state entered");
+    DEBUG_PRINT("Apogee state entered");
     debugMemory("onApogeeEntry");
 
     if (rocketLogger)
@@ -1402,7 +1411,7 @@ void RocketFSM::onApogeeEntry()
 
 void RocketFSM::onStabilizationEntry()
 {
-    Serial.println("Stabilization state entered");
+    DEBUG_PRINT("Stabilization state entered");
     debugMemory("onStabilizationEntry");
 
     if (rocketLogger)
@@ -1411,7 +1420,7 @@ void RocketFSM::onStabilizationEntry()
 
 void RocketFSM::onDecelerationEntry()
 {
-    Serial.println("Deceleration state entered");
+    DEBUG_PRINT("Deceleration state entered");
     debugMemory("onDecelerationEntry");
 
     if (rocketLogger)
@@ -1420,7 +1429,7 @@ void RocketFSM::onDecelerationEntry()
 
 void RocketFSM::onLandingEntry()
 {
-    Serial.println("Landing state entered");
+    DEBUG_PRINT("Landing state entered");
     debugMemory("onLandingEntry");
 
     if (rocketLogger)
@@ -1429,7 +1438,7 @@ void RocketFSM::onLandingEntry()
 
 void RocketFSM::onRecoveredEntry()
 {
-    Serial.println("Recovered state entered");
+    DEBUG_PRINT("Recovered state entered");
     debugMemory("onRecoveredEntry");
 
     if (rocketLogger)
@@ -1438,7 +1447,7 @@ void RocketFSM::onRecoveredEntry()
 
 void RocketFSM::onCalibratingExit()
 {
-    Serial.println("Exiting Calibrating state");
+    DEBUG_PRINT("Exiting Calibrating state");
     debugMemory("onCalibratingExit");
 
     if (rocketLogger)
@@ -1447,7 +1456,7 @@ void RocketFSM::onCalibratingExit()
 
 void RocketFSM::onLandingExit()
 {
-    Serial.println("Exiting Landing state");
+    DEBUG_PRINT("Exiting Landing state");
     debugMemory("onLandingExit");
 
     if (rocketLogger)
@@ -1457,7 +1466,7 @@ void RocketFSM::onLandingExit()
 
 void RocketFSM::onRecoveredExit()
 {
-    Serial.println("Exiting Recovered state");
+    DEBUG_PRINT("Exiting Recovered state");
     debugMemory("onRecoveredExit");
 
     if (rocketLogger)
@@ -1472,7 +1481,7 @@ bool RocketFSM::isCalibrationComplete()
     bool result = millis() - stateStartTime > 3000;
     if (result)
     {
-        Serial.println("DEBUG: Calibration timeout reached, triggering transition");
+        DEBUG_PRINT("DEBUG: Calibration timeout reached, triggering transition");
     }
     return result;
 }
@@ -1483,7 +1492,7 @@ bool RocketFSM::isLaunchDetected()
     bool result = millis() - stateStartTime > 4000;
     if (result)
     {
-        Serial.println("DEBUG: Launch detection timeout reached, triggering transition");
+        DEBUG_PRINT("DEBUG: Launch detection timeout reached, triggering transition");
     }
     return result;
 }
@@ -1494,7 +1503,7 @@ bool RocketFSM::isLiftoffStarted()
     bool result = millis() - stateStartTime > 2000;
     if (result)
     {
-        Serial.println("DEBUG: Liftoff timeout reached, triggering transition");
+        DEBUG_PRINT("DEBUG: Liftoff timeout reached, triggering transition");
     }
     return result;
 }
@@ -1505,7 +1514,7 @@ bool RocketFSM::isAccelerationPhaseComplete()
     bool result = millis() - stateStartTime > 5000;
     if (result)
     {
-        Serial.println("DEBUG: Acceleration phase timeout reached, triggering transition");
+        DEBUG_PRINT("DEBUG: Acceleration phase timeout reached, triggering transition");
     }
     return result;
 }
@@ -1516,7 +1525,7 @@ bool RocketFSM::isBallisticPhaseComplete()
     bool result = millis() - stateStartTime > 6000;
     if (result)
     {
-        Serial.println("DEBUG: Ballistic phase timeout reached, triggering transition");
+        DEBUG_PRINT("DEBUG: Ballistic phase timeout reached, triggering transition");
     }
     return result;
 }
@@ -1530,7 +1539,7 @@ bool RocketFSM::isApogeeReached()
         bool result = millis() - stateStartTime > 5000;
         if (result)
         {
-            Serial.println("DEBUG: Apogee detection timeout reached, triggering transition");
+            DEBUG_PRINT("DEBUG: Apogee detection timeout reached, triggering transition");
         }
         return result;
     }
@@ -1543,7 +1552,7 @@ bool RocketFSM::isDrogueReady()
     bool result = millis() - stateStartTime > 2000;
     if (result)
     {
-        Serial.println("DEBUG: Drogue ready timeout reached, triggering transition");
+        DEBUG_PRINT("DEBUG: Drogue ready timeout reached, triggering transition");
     }
     return result;
 }
@@ -1554,7 +1563,7 @@ bool RocketFSM::isStabilizationComplete()
     bool result = millis() - stateStartTime > 4000;
     if (result)
     {
-        Serial.println("DEBUG: Stabilization timeout reached, triggering transition");
+        DEBUG_PRINT("DEBUG: Stabilization timeout reached, triggering transition");
     }
     return result;
 }
@@ -1565,7 +1574,7 @@ bool RocketFSM::isDecelerationComplete()
     bool result = millis() - stateStartTime > 5000;
     if (result)
     {
-        Serial.println("DEBUG: Deceleration timeout reached, triggering transition");
+        DEBUG_PRINT("DEBUG: Deceleration timeout reached, triggering transition");
     }
     return result;
 }
@@ -1576,7 +1585,7 @@ bool RocketFSM::isLandingComplete()
     bool result = millis() - stateStartTime > 6000;
     if (result)
     {
-        Serial.println("DEBUG: Landing timeout reached, triggering transition");
+        DEBUG_PRINT("DEBUG: Landing timeout reached, triggering transition");
     }
     return result;
 }
