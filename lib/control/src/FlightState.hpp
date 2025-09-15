@@ -45,6 +45,8 @@ enum class FlightPhase
  */
 enum class FSMEvent
 {
+    NONE,
+    START_CALIBRATION,
     CALIBRATION_COMPLETE,
     LAUNCH_DETECTED,
     LIFTOFF_STARTED,
