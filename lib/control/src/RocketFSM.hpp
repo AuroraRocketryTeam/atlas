@@ -25,8 +25,7 @@ struct SharedSensorData
 
 struct SharedFilteredData
 {
-    
-}
+};
 /**
  * @brief Rocket Finite State Machine class with FreeRTOS integration
  */
@@ -81,9 +80,6 @@ public:
      */
     bool isFinished();
 
-    // Legacy methods for backward compatibility
-    void update(); // Will be deprecated
-
 private:
     // FreeRTOS components
     TaskHandle_t fsmTaskHandle;
@@ -104,7 +100,7 @@ private:
     // Configuration constants
     static const int EVENT_QUEUE_SIZE = 10;
     static const int FSM_TASK_STACK_SIZE = 4096;
-    static const UBaseType_t FSM_TASK_PRIORITY = 5; // Highest priority
+    static const UBaseType_t FSM_TASK_PRIORITY = 2; // Highest priority
 
     // State management
     RocketState currentState;
@@ -216,8 +212,4 @@ private:
     bool isStabilizationComplete();
     bool isDecelerationComplete();
     bool isLandingComplete();
-
-    // Update functions for compatibility
-    void onFlightUpdate();
-    void onRecoveryUpdate();
 };
