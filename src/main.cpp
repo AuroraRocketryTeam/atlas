@@ -17,7 +17,7 @@
 // #include <GPSSensor.hpp> // Assuming you have this
 #include <RocketLogger.hpp>
 #include <E220LoRaTransmitter.hpp>
-#include <KalmanFilter.hpp>
+#include <KalmanFilter1D.hpp>
 #include <RocketFSM.hpp>
 
 // Type definitions
@@ -30,7 +30,7 @@ ISensor *baro2 = nullptr;
 ISensor *gps = nullptr;
 ILogger *rocketLogger = nullptr;
 ITransmitter<TransmitDataType> *loraTransmitter = nullptr;
-KalmanFilter *ekf = nullptr;
+KalmanFilter1D *ekf = nullptr;
 
 // Hardware serial for LoRa
 HardwareSerial loraSerial(LORA_SERIAL);
@@ -270,9 +270,9 @@ void initializeComponents()
 
     // Initialize Kalman Filter
     Serial.println("Initializing Kalman Filter...");
-    Eigen::Vector3f gravity(0, 0, -9.81f);
+    Eigen::Vector3f gravity(0, 0, GRAVITY);
     Eigen::Vector3f magnetometer(1, 0, 0); // Placeholder values
-    ekf = new KalmanFilter(gravity, magnetometer);
+    ekf = new KalmanFilter1D(gravity, magnetometer);
     if (ekf)
     {
         Serial.println("✓ Kalman Filter initialized");
