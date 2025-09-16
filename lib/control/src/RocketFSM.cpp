@@ -24,7 +24,6 @@ extern KalmanFilter *ekf;
     #define DEBUG_PRINTF(format, ...)
 #endif
 
-// Add this utility method to RocketFSM class header
 void debugMemory(const char *location)
 {
     DEBUG_PRINTF("\n=== MEMORY DEBUG [%s] ===\n", location);
@@ -91,9 +90,9 @@ void RocketFSM::init()
 
     if (!eventQueue || !stateMutex)
     {
-        if (rocketLogger)
+        // if (rocketLogger)
         {
-            rocketLogger->logError("Failed to create FSM FreeRTOS objects");
+            // rocketLogger->logError("Failed to create FSM FreeRTOS objects");
         }
         DEBUG_PRINT("ERROR: FreeRTOS objects creation failed");
         return;
@@ -117,9 +116,9 @@ void RocketFSM::init()
 
     debugMemory("Init end");
 
-    if (rocketLogger)
+    // if (rocketLogger)
     {
-        rocketLogger->logInfo("FSM initialized in INACTIVE state");
+        // rocketLogger->logInfo("FSM initialized in INACTIVE state");
     }
 
     DEBUG_PRINT("FSM init() completed successfully");
@@ -201,9 +200,9 @@ void RocketFSM::stop()
         fsmTaskHandle = nullptr;
     }
 
-    if (rocketLogger)
+    // if (rocketLogger)
     {
-        rocketLogger->logInfo("FSM stopped");
+        // rocketLogger->logInfo("FSM stopped");
     }
 
     debugMemory("Stop end");
@@ -527,10 +526,10 @@ void RocketFSM::transitionTo(RocketState newState)
         DEBUG_PRINTF("Transition: %s -> %s\n", getStateString(currentState).c_str(), getStateString(newState).c_str());
         debugMemory("Transition start");
 
-        if (rocketLogger)
+        // if (rocketLogger)
         {
             String transitionMsg = "FSM transition: " + getStateString(currentState) + " -> " + getStateString(newState);
-            rocketLogger->logInfo(transitionMsg.c_str());
+            // rocketLogger->logInfo(transitionMsg.c_str());
         }
 
         // Execute exit action for current state
@@ -1134,12 +1133,12 @@ void RocketFSM::dataCollectionTask()
             debugMemory("Data collection task loop");
         }
 
-        if (rocketLogger)
+        // if (rocketLogger)
         {
-            rocketLogger->logSensorData(sharedData.imuData);
-            rocketLogger->logSensorData(sharedData.baroData1);
-            rocketLogger->logSensorData(sharedData.baroData2);
-            rocketLogger->logSensorData(sharedData.gpsData);
+            // rocketLogger->logSensorData(sharedData.imuData);
+            // rocketLogger->logSensorData(sharedData.baroData1);
+            // rocketLogger->logSensorData(sharedData.baroData2);
+            // rocketLogger->logSensorData(sharedData.gpsData);
         }
 
         loopCount++;
@@ -1169,7 +1168,7 @@ void RocketFSM::telemetryTask()
 
         if (loraTransmitter && rocketLogger)
         {
-            auto response = loraTransmitter->transmit(rocketLogger->getJSONAll());
+            // auto response = loraTransmitter->transmit(rocketLogger->getJSONAll());
             // Process response if needed
         }
 
@@ -1293,7 +1292,6 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::BALLISTIC_FLIGHT:
-        DEBUG_PRINT("Checking for apogee...");
         if (isApogeeReached())
         {
             DEBUG_PRINT("Apogee reached! Sending APOGEE_REACHED event");
@@ -1345,8 +1343,8 @@ void RocketFSM::onInactiveEntry()
     DEBUG_PRINT("Inactive state entered");
     debugMemory("onInactiveEntry");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("System initialization");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("System initialization");
 }
 
 void RocketFSM::onCalibratingEntry()
@@ -1354,8 +1352,8 @@ void RocketFSM::onCalibratingEntry()
     DEBUG_PRINT("Calibrating state entered");
     debugMemory("onCalibratingEntry");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("Starting calibration");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("Starting calibration");
 }
 
 void RocketFSM::onReadyForLaunchEntry()
@@ -1363,10 +1361,10 @@ void RocketFSM::onReadyForLaunchEntry()
     DEBUG_PRINT("Ready for launch state entered");
     debugMemory("onReadyForLaunchEntry");
 
-    if (rocketLogger)
+    // if (rocketLogger)
     {
-        rocketLogger->logInfo("Logger enabled");
-        rocketLogger->logInfo("Data transmission enabled");
+        // rocketLogger->logInfo("Logger enabled");
+        // rocketLogger->logInfo("Data transmission enabled");
     }
 }
 
@@ -1375,10 +1373,10 @@ void RocketFSM::onLaunchEntry()
     DEBUG_PRINT("Launch state entered");
     debugMemory("onLaunchEntry");
 
-    if (rocketLogger)
+    // if (rocketLogger)
     {
-        rocketLogger->logInfo("Flight timer started");
-        rocketLogger->logInfo("LAUNCH DETECTED!");
+        // rocketLogger->logInfo("Flight timer started");
+        // rocketLogger->logInfo("LAUNCH DETECTED!");
     }
 }
 
@@ -1387,8 +1385,8 @@ void RocketFSM::onAcceleratedFlightEntry()
     DEBUG_PRINT("Accelerated flight state entered");
     debugMemory("onAcceleratedFlightEntry");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("Accelerated flight phase");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("Accelerated flight phase");
 }
 
 void RocketFSM::onBallisticFlightEntry()
@@ -1396,8 +1394,8 @@ void RocketFSM::onBallisticFlightEntry()
     DEBUG_PRINT("Ballistic flight state entered");
     debugMemory("onBallisticFlightEntry");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("Ballistic flight phase - EKF started");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("Ballistic flight phase - EKF started");
 }
 
 void RocketFSM::onApogeeEntry()
@@ -1405,8 +1403,8 @@ void RocketFSM::onApogeeEntry()
     DEBUG_PRINT("Apogee state entered");
     debugMemory("onApogeeEntry");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("APOGEE REACHED");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("APOGEE REACHED");
 }
 
 void RocketFSM::onStabilizationEntry()
@@ -1414,8 +1412,8 @@ void RocketFSM::onStabilizationEntry()
     DEBUG_PRINT("Stabilization state entered");
     debugMemory("onStabilizationEntry");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("Stabilization phase - Drogue deployed");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("Stabilization phase - Drogue deployed");
 }
 
 void RocketFSM::onDecelerationEntry()
@@ -1423,8 +1421,8 @@ void RocketFSM::onDecelerationEntry()
     DEBUG_PRINT("Deceleration state entered");
     debugMemory("onDecelerationEntry");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("Deceleration phase - Main chute deployed");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("Deceleration phase - Main chute deployed");
 }
 
 void RocketFSM::onLandingEntry()
@@ -1432,8 +1430,8 @@ void RocketFSM::onLandingEntry()
     DEBUG_PRINT("Landing state entered");
     debugMemory("onLandingEntry");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("Landing phase");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("Landing phase");
 }
 
 void RocketFSM::onRecoveredEntry()
@@ -1441,8 +1439,8 @@ void RocketFSM::onRecoveredEntry()
     DEBUG_PRINT("Recovered state entered");
     debugMemory("onRecoveredEntry");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("ROCKET RECOVERED");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("ROCKET RECOVERED");
 }
 
 void RocketFSM::onCalibratingExit()
@@ -1450,8 +1448,8 @@ void RocketFSM::onCalibratingExit()
     DEBUG_PRINT("Exiting Calibrating state");
     debugMemory("onCalibratingExit");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("Calibration complete");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("Calibration complete");
 }
 
 void RocketFSM::onLandingExit()
@@ -1459,8 +1457,8 @@ void RocketFSM::onLandingExit()
     DEBUG_PRINT("Exiting Landing state");
     debugMemory("onLandingExit");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("Saving data to SD card");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("Saving data to SD card");
     // TODO: Implement SD card saving
 }
 
@@ -1469,8 +1467,8 @@ void RocketFSM::onRecoveredExit()
     DEBUG_PRINT("Exiting Recovered state");
     debugMemory("onRecoveredExit");
 
-    if (rocketLogger)
-        rocketLogger->logInfo("System shutdown");
+    // if (rocketLogger)
+        // rocketLogger->logInfo("System shutdown");
 }
 
 // Modifica questi metodi per avere transizioni automatiche basate sul tempo
