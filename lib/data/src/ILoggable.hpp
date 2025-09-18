@@ -14,6 +14,11 @@ protected:
     std::string source;
 public:
     /**
+     * @brief Virtual destructor for proper cleanup
+     */
+    virtual ~ILoggable() = default;
+
+    /**
      * @brief Get the Source of the log.
      * 
      * @return A string representing the name of the source.
