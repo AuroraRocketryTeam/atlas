@@ -5,6 +5,7 @@
 #include <memory>
 #include <map>
 #include <string>
+#include <KalmanFilter1D.hpp>
 
 enum class TaskType {
     SENSOR,
@@ -21,15 +22,13 @@ class TaskManager {
 private:
     std::map<TaskType, std::unique_ptr<ITask>> tasks;
     std::shared_ptr<SharedSensorData> sensorData;
-    std::shared_ptr<SharedFilteredData> filteredData;
+    std::shared_ptr<KalmanFilter1D> kalmanFilter; // Needs to be initialized!!!
     SemaphoreHandle_t sensorDataMutex;
-    SemaphoreHandle_t filteredDataMutex;
     
 public:
     TaskManager(std::shared_ptr<SharedSensorData> sensorData, 
-            std::shared_ptr<SharedFilteredData> filteredData, 
-            SemaphoreHandle_t sensorMutex, 
-            SemaphoreHandle_t filteredMutex);
+            std::shared_ptr<KalmanFilter1D> kalmanFilter, 
+            SemaphoreHandle_t sensorMutex);
     ~TaskManager();
     
     void initializeTasks();
