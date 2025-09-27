@@ -40,5 +40,10 @@ json RocketLogger::getJSONAll() const {
 
 // Clear logged sensor data
 void RocketLogger::clearData() {
+    // Delete all dynamically allocated LogSensorData objects
+    for (auto& logData : this->logDataList) {
+        delete logData.getData();
+    }
+
     this->logDataList.clear();
 }

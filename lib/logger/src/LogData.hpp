@@ -36,6 +36,13 @@ public:
     std::string getSource() const { return this->source; }
 
     /**
+     * @brief Get the Data pointer.
+     * 
+     * @return A pointer to the ILoggable data.
+     */
+    const ILoggable* getData() const { return this->data; }
+
+    /**
      * @brief Return a JSON representation of the log data.
      * 
      * @return A json object.

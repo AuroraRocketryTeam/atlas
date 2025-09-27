@@ -5,16 +5,26 @@
 #include <memory>
 #include <map>
 #include <string>
+#include <KalmanFilter1D.hpp>
 #include "TaskConfig.hpp"
+
+#include "SensorTask.hpp"
+#include "EkfTask.hpp"
+#include "GpsTask.hpp"
+//#include "TelemetryTask.hpp"
+//#include "LoggingTask.hpp"
 
 class TaskManager {
 private:
     std::map<TaskType, std::unique_ptr<ITask>> tasks;
-    std::shared_ptr<SharedSensorData> sharedData;
-    SemaphoreHandle_t* dataMutex;
+    std::shared_ptr<SharedSensorData> sensorData;
+    std::shared_ptr<KalmanFilter1D> kalmanFilter; // Needs to be initialized!!!
+    SemaphoreHandle_t sensorDataMutex;
     
 public:
-    TaskManager(std::shared_ptr<SharedSensorData> data, SemaphoreHandle_t* mutex);
+    TaskManager(std::shared_ptr<SharedSensorData> sensorData, 
+            std::shared_ptr<KalmanFilter1D> kalmanFilter, 
+            SemaphoreHandle_t sensorMutex);
     ~TaskManager();
     
     void initializeTasks();

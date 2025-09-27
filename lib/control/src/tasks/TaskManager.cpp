@@ -1,14 +1,10 @@
 #include "TaskManager.hpp"
-#include "SensorTask.hpp"
-#include "TelemetryTask.hpp"
-#include "LoggingTask.hpp"
-#include "EkfTask.hpp"
-// #include "tasks/GpsTask.hpp"
-// ... include other specific task headers
 
-TaskManager::TaskManager(std::shared_ptr<SharedSensorData> data, SemaphoreHandle_t *mutex)
-    : sharedData(data), dataMutex(mutex)
-{
+TaskManager::TaskManager(std::shared_ptr<SharedSensorData> sensorData, 
+                        std::shared_ptr<KalmanFilter1D> kalmanFilter, 
+                        SemaphoreHandle_t sensorMutex)
+    : sensorData(sensorData), kalmanFilter(kalmanFilter), 
+    sensorDataMutex(sensorMutex) {
     Serial.println("[TaskManager] Initialized");
 }
 
@@ -23,11 +19,15 @@ void TaskManager::initializeTasks()
     Serial.println("[TaskManager] Creating task instances...");
 
     // Create all task instances but don't start them yet
-    tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(sharedData.get(), dataMutex);
-    tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(sharedData.get(), dataMutex);
-    tasks[TaskType::LOGGING] = std::make_unique<LoggingTask>(sharedData.get(), dataMutex);
-    tasks[TaskType::EKF] = std::make_unique<EkfTask>(sharedData.get(), dataMutex);
-
+    tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(sensorData, sensorDataMutex);
+    //tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(sensorData, sensorDataMutex);
+    //tasks[TaskType::LOGGING] = std::make_unique<LoggingTask>(sensorData, sensorDataMutex);
+    tasks[TaskType::GPS] = std::make_unique<GpsTask>(sensorData, sensorDataMutex);
+    tasks[TaskType::EKF] = std::make_unique<EkfTask>(sensorData, sensorDataMutex, kalmanFilter);
+    // tasks[TaskType::APOGEE_DETECTION] = std::make_unique<ApogeeDetectionTask>(filteredData, filteredDataMutex);
+    // tasks[TaskType::RECOVERY] = std::make_unique<RecoveryTask>(sharedData.get(), dataMutex);
+    // tasks[TaskType::DATA_COLLECTION] = std::make_unique<DataCollectionTask>(sharedData.get(), dataMutex);
+    
     Serial.printf("[TaskManager] Created %d task instances\n", tasks.size());
 }
 
