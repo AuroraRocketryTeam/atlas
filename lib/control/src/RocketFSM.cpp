@@ -30,7 +30,9 @@ static const size_t EVENT_QUEUE_SIZE = 10;
 RocketFSM::RocketFSM(std::shared_ptr<ISensor> imu,
                      std::shared_ptr<ISensor> barometer1,
                      std::shared_ptr<ISensor> barometer2,
-                     std::shared_ptr<ISensor> gpsModule)
+                     std::shared_ptr<ISensor> accelerometer,
+                     std::shared_ptr<ISensor> gpsModule,
+                     std::shared_ptr<KalmanFilter1D> kf)
     : fsmTaskHandle(nullptr), eventQueue(nullptr), stateMutex(nullptr),
       currentState(RocketState::INACTIVE), previousState(RocketState::INACTIVE),
       stateStartTime(0), isRunning(false), isTransitioning(false),
@@ -311,27 +313,20 @@ void RocketFSM::setupStateActions()
     stateActions[RocketState::READY_FOR_LAUNCH]
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH"); })
-        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::GPS, "Gps_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true));
+        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true));
 
     // LAUNCH state
     stateActions[RocketState::LAUNCH] = std::make_unique<StateAction>(RocketState::LAUNCH);
     stateActions[RocketState::LAUNCH]
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LAUNCH"); })
-        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
-        .addTask(TaskConfig(TaskType::GPS, "Gps_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true));
+        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true));
     ;
     stateActions[RocketState::ACCELERATED_FLIGHT] = std::make_unique<StateAction>(RocketState::ACCELERATED_FLIGHT);
     stateActions[RocketState::ACCELERATED_FLIGHT]
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT"); })
-        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::GPS, "Gps_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::EKF, "Ekf_Calib", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true));
-    ;
-    ;
-    // BALLISTIC_FLIGHT state
+        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true));    // BALLISTIC_FLIGHT state
     stateActions[RocketState::BALLISTIC_FLIGHT] = std::make_unique<StateAction>(RocketState::BALLISTIC_FLIGHT);
     stateActions[RocketState::BALLISTIC_FLIGHT]
         ->setEntryAction([this]()
@@ -537,8 +532,8 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::CALIBRATING:
-        // Check for calibration timeout (example: 5 seconds)
-        if (millis() - stateStartTime > 5000)
+        // Check for calibration timeout (example: 10 seconds)
+        if (millis() - stateStartTime > 10000)
         {
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
