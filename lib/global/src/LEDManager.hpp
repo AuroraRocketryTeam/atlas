@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 
-// Colori disponibili
+// Available colors
 enum LEDColor
 {
     ART_LED_OFF,
