@@ -1,28 +1,25 @@
 #include "GpsTask.hpp"
 
-GpsTask::~GpsTask()
-{
-    stop();
-}
-
 void GpsTask::taskFunction()
 {
-    esp_task_wdt_add(NULL);
-
     while (running)
     {
-        esp_task_wdt_reset();
+        esp_task_wdt_reset(); // Reset watchdog created in BaseTask
         if (gps)
         {
             auto gpsData = gps->getData();
             // Write to shared data
             if (gpsData)
             {
-                LOG_INFO("GpsTask", "Got GPS data");
-                if (dataMutex && xSemaphoreTake(dataMutex, pdMS_TO_TICKS(5)) == pdTRUE)
+                if (dataMutex && xSemaphoreTake(dataMutex, pdMS_TO_TICKS(10)) == pdTRUE)
                 {
                     sensorData->gpsData = *gpsData;
+                    LOG_INFO("GpsTask", "Got GPS data");
                     xSemaphoreGive(dataMutex);
+                }
+                else
+                {
+                    LOG_WARNING("GpsTask", "Failed to take data mutex");
                 }
             }
             else
@@ -34,10 +31,8 @@ void GpsTask::taskFunction()
         {
             LOG_WARNING("GpsTask", "No GPS sensor available");
         }
-        vTaskDelay(pdMS_TO_TICKS(20)); // 50 Hz
+        vTaskDelay(pdMS_TO_TICKS(200)); // 5 Hz
     }
-
-    esp_task_wdt_delete(NULL);
     LOG_INFO("GpsTask", "Task exiting");
 }
 

@@ -12,15 +12,28 @@ class GpsTask : public BaseTask
 {
 public:
     GpsTask(std::shared_ptr<SharedSensorData> sensorData,
-            SemaphoreHandle_t sensorDataMutex, std::shared_ptr<ISensor> gps) : BaseTask("GpsTask"),
-                                                                               sensorData(sensorData),
-                                                                               dataMutex(sensorDataMutex),
-                                                                               gps(gps)
+            SemaphoreHandle_t sensorDataMutex,
+            std::shared_ptr<ISensor> gps)
+        : BaseTask("GpsTask"),
+          sensorData(sensorData),
+          dataMutex(sensorDataMutex),
+          gps(gps ? gps.get() : nullptr)
     {
+        Serial.printf("GpsTask: Initialized with GPS: %p\n",
+                      static_cast<void *>(this->gps));
         LOG_INFO("GpsTask", "Initialized with GPS: %s", gps ? "OK" : "NULL");
-        
     }
-    ~GpsTask() override;
+
+    ~GpsTask() override
+    {
+        stop();
+    }
+
+    void setGps(std::shared_ptr<ISensor> gps)
+    {
+        this->gps = gps.get();
+        LOG_INFO("GpsTask", "Updated GPS: %s", gps ? "OK" : "NULL");
+    }
 
 protected:
     void taskFunction() override;
@@ -29,5 +42,5 @@ protected:
 private:
     std::shared_ptr<SharedSensorData> sensorData;
     SemaphoreHandle_t dataMutex;
-    std::shared_ptr<ISensor> gps;
+    ISensor *gps;
 };
