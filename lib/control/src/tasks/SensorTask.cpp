@@ -29,16 +29,16 @@ void SensorTask::setSensors(std::shared_ptr<ISensor> imu,
 
 void SensorTask::onTaskStart()
 {
-    Serial.printf("Sensor: Task started with stack: %u bytes\n", config.stackSize);
-    Serial.printf("Sensor: Sensors: IMU=%s, Baro1=%s, Baro2=%s\n",
-                  bno055 ? "OK" : "NULL",
-                  baro1 ? "OK" : "NULL",
-                  baro2 ? "OK" : "NULL");
+    LOG_INFO("Sensor", "Task started with stack: %u bytes\n", config.stackSize);
+    LOG_INFO("Sensor", "Sensors: IMU=%s, Baro1=%s, Baro2=%s\n",
+             bno055 ? "OK" : "NULL",
+             baro1 ? "OK" : "NULL",
+             baro2 ? "OK" : "NULL");
 }
 
 void SensorTask::onTaskStop()
 {
-    Serial.printf("Sensor: Task stopped\n");
+    LOG_INFO("Sensor", "Task stopped");
 }
 
 void SensorTask::taskFunction()
@@ -110,7 +110,7 @@ void SensorTask::taskFunction()
         // Log memory usage every 10 loops
         if (loopCount % 10 == 0)
         {
-            Serial.printf("Sensor: L%lu: Stack HwM:%u, Heap=%u, Memory=%u\n",
+            LOG_INFO("Sensor", "L%lu: Stack HwM:%u, Heap=%u, Memory=%u\n",
                           loopCount, uxTaskGetStackHighWaterMark(NULL), ESP.getFreeHeap(),
                           heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
         }

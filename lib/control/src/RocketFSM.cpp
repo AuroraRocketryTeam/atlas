@@ -3,27 +3,6 @@
 #include "esp_heap_caps.h"
 #include <Arduino.h>
 
-#define __DEBUG__
-
-// Debug macro that only prints when __DEBUG__ is defined
-#ifdef __DEBUG__
-#define DEBUG_PRINT(x) Serial.println(x)
-#define DEBUG_PRINTF(format, ...) Serial.printf(format, ##__VA_ARGS__)
-#else
-#define DEBUG_PRINT(x)
-#define DEBUG_PRINTF(format, ...)
-#endif
-
-// Add this utility method to RocketFSM class header
-void debugMemory(const char *location)
-{
-    DEBUG_PRINTF("\n=== MEMORY DEBUG [%s] ===\n", location);
-    DEBUG_PRINTF("Free heap: %u bytes\n", ESP.getFreeHeap());
-    DEBUG_PRINTF("Min free heap: %u bytes\n", ESP.getMinFreeHeap());
-    DEBUG_PRINTF("Max alloc heap: %u bytes\n", ESP.getMaxAllocHeap());
-    DEBUG_PRINTF("Largest free block: %u bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-    DEBUG_PRINTF("==========================\n\n");
-}
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
 
@@ -315,8 +294,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LAUNCH"); })
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::GPS, "Gps_Launch", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
-    ;
+        .addTask(TaskConfig(TaskType::GPS, "Gps_Launch", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true));
     stateActions[RocketState::ACCELERATED_FLIGHT] = std::make_unique<StateAction>(RocketState::ACCELERATED_FLIGHT);
     stateActions[RocketState::ACCELERATED_FLIGHT]
         ->setEntryAction([this]()

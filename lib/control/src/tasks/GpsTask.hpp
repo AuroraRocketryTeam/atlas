@@ -19,8 +19,6 @@ public:
           dataMutex(sensorDataMutex),
           gps(gps ? gps.get() : nullptr)
     {
-        Serial.printf("GpsTask: Initialized with GPS: %p\n",
-                      static_cast<void *>(this->gps));
         LOG_INFO("GpsTask", "Initialized with GPS: %s", gps ? "OK" : "NULL");
     }
 
