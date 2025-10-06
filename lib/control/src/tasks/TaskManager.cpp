@@ -1,53 +1,68 @@
 #include "TaskManager.hpp"
 
-TaskManager::TaskManager(std::shared_ptr<SharedSensorData> sensorData, 
-                        std::shared_ptr<KalmanFilter1D> kalmanFilter, 
-                        SemaphoreHandle_t sensorMutex)
-    : sensorData(sensorData), kalmanFilter(kalmanFilter), 
-    sensorDataMutex(sensorMutex) {
-    Serial.println("[TaskManager] Initialized");
+TaskManager::TaskManager(std::shared_ptr<SharedSensorData> sensorData,
+                         std::shared_ptr<KalmanFilter1D> kalmanFilter,
+                         std::shared_ptr<ISensor> imu,
+                         std::shared_ptr<ISensor> barometer1,
+                         std::shared_ptr<ISensor> barometer2,
+                         std::shared_ptr<ISensor> gps,
+                         SemaphoreHandle_t sensorMutex) : sensorData(sensorData), kalmanFilter(kalmanFilter),
+                                                          bno055(imu), baro1(barometer1), baro2(barometer2), gps(gps), sensorDataMutex(sensorMutex)
+{
+    LOG_INFO("TaskMgr", "Initialized with sensors: IMU=%s, Baro1=%s, Baro2=%s, GPS=%s",
+             imu ? "OK" : "NULL",
+             barometer1 ? "OK" : "NULL",
+             barometer2 ? "OK" : "NULL",
+             gps ? "OK" : "NULL");
 }
 
 TaskManager::~TaskManager()
 {
     stopAllTasks();
-    Serial.println("[TaskManager] Destroyed");
+    LOG_INFO("TaskManager", "Destroyed");
 }
 
 void TaskManager::initializeTasks()
 {
-    Serial.println("[TaskManager] Creating task instances...");
+    LOG_INFO("TaskManager", "Creating task instances...");
 
     // Create all task instances but don't start them yet
-    tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(sensorData, sensorDataMutex);
-    //tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(sensorData, sensorDataMutex);
-    //tasks[TaskType::LOGGING] = std::make_unique<LoggingTask>(sensorData, sensorDataMutex);
-    tasks[TaskType::GPS] = std::make_unique<GpsTask>(sensorData, sensorDataMutex);
+    // Create SensorTask with shared pointers
+    tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
+        sensorData,
+        sensorDataMutex,
+        bno055, // Pass the shared pointers
+        baro1,
+        baro2);
+    tasks[TaskType::GPS] = std::make_unique<GpsTask>(sensorData, sensorDataMutex, gps);
     tasks[TaskType::EKF] = std::make_unique<EkfTask>(sensorData, sensorDataMutex, kalmanFilter);
+
+    // tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(sensorData, sensorDataMutex);
+    // tasks[TaskType::LOGGING] = std::make_unique<LoggingTask>(sensorData, sensorDataMutex);
     // tasks[TaskType::APOGEE_DETECTION] = std::make_unique<ApogeeDetectionTask>(filteredData, filteredDataMutex);
     // tasks[TaskType::RECOVERY] = std::make_unique<RecoveryTask>(sharedData.get(), dataMutex);
     // tasks[TaskType::DATA_COLLECTION] = std::make_unique<DataCollectionTask>(sharedData.get(), dataMutex);
-    
-    Serial.printf("[TaskManager] Created %d task instances\n", tasks.size());
+
+    LOG_INFO("TaskManager", "Created %d task instances", tasks.size());
 }
 
 bool TaskManager::startTask(TaskType type, const TaskConfig &config)
 {
-    Serial.printf("[TaskManager] Starting task type %d with config: %s\n",
-                  static_cast<int>(type), config.name);
+    LOG_INFO("TaskManager", "Starting task type %d with config: %s",
+             static_cast<int>(type), config.name);
 
     // Check if task exists
     auto it = tasks.find(type);
     if (it == tasks.end())
     {
-        Serial.printf("[TaskManager] ERROR: Task type %d not found\n", static_cast<int>(type));
+        LOG_ERROR("TaskManager", "ERROR: Task type %d not found", static_cast<int>(type));
         return false;
     }
 
     // Check if already running
     if (it->second->isRunning())
     {
-        Serial.printf("[TaskManager] WARNING: Task %s already running\n", config.name);
+        LOG_WARNING("TaskManager", "WARNING: Task %s already running", config.name);
         return true; // Not an error, just already running
     }
 
@@ -55,8 +70,8 @@ bool TaskManager::startTask(TaskType type, const TaskConfig &config)
     uint32_t freeHeap = ESP.getFreeHeap();
     if (freeHeap < config.stackSize + 1024)
     { // Reserve 1KB buffer
-        Serial.printf("[TaskManager] ERROR: Insufficient memory. Free: %u, Need: %u\n",
-                      freeHeap, config.stackSize + 1024);
+        LOG_ERROR("TaskManager", "ERROR: Insufficient memory. Free: %u, Need: %u",
+                  freeHeap, config.stackSize + 1024);
         return false;
     }
 
@@ -64,11 +79,11 @@ bool TaskManager::startTask(TaskType type, const TaskConfig &config)
     bool result = it->second->start(config);
     if (result)
     {
-        Serial.printf("[TaskManager] Successfully started task: %s\n", config.name);
+        LOG_INFO("TaskManager", "Successfully started task: %s", config.name);
     }
     else
     {
-        Serial.printf("[TaskManager] FAILED to start task: %s\n", config.name);
+        LOG_ERROR("TaskManager", "FAILED to start task: %s", config.name);
     }
 
     return result;
@@ -76,75 +91,58 @@ bool TaskManager::startTask(TaskType type, const TaskConfig &config)
 
 void TaskManager::stopTask(TaskType type)
 {
-    auto it = tasks.find(type);
-    if (it != tasks.end() && it->second->isRunning())
+    if (tasks.find(type) == tasks.end())
     {
-        Serial.printf("[TaskManager] Stopping task: %s\n", it->second->getName());
-        it->second->stop();
+        LOG_WARNING("TaskManager", "Task type %d not found", static_cast<int>(type));
+        return;
+    }
 
-        // Add delay to ensure FreeRTOS has time to clean up task resources
-        // This is especially important when switching cores
-        vTaskDelay(pdMS_TO_TICKS(50));
+    auto &task = tasks[type];
+    if (task && task->isRunning())
+    {
+        LOG_INFO("TaskManager", "Stopping task: %s", task->getName());
 
-        // Optional: Second verification that task is fully stopped
-        for (int i = 0; i < 5 && it->second->isRunning(); i++)
+        // FIXED: Stop task and wait longer for watchdog cleanup
+        task->stop();
+
+        // Give task time to properly exit and clean up watchdog
+        vTaskDelay(pdMS_TO_TICKS(200)); // Increased from 100ms
+
+        // Verify task actually stopped
+        int attempts = 0;
+        while (task->isRunning() && attempts < 10)
         {
-            Serial.printf("[TaskManager] Waiting for %s to fully stop...\n", it->second->getName());
-            vTaskDelay(pdMS_TO_TICKS(10));
+            vTaskDelay(pdMS_TO_TICKS(50));
+            attempts++;
+        }
+
+        if (task->isRunning())
+        {
+            LOG_ERROR("TaskManager", "Task failed to stop after %d attempts", attempts);
+        }
+        else
+        {
+            LOG_INFO("TaskManager", "Task %s stopped safely", task->getName());
         }
     }
 }
 
 void TaskManager::stopAllTasks()
 {
-    Serial.println("[TaskManager] Stopping all tasks...");
+    LOG_INFO("TaskManager", "Stopping all tasks...");
 
-    // First pass: Request all tasks to stop
     for (auto &[type, task] : tasks)
     {
         if (task && task->isRunning())
         {
-            Serial.printf("[TaskManager] Stopping task: %s\n", task->getName());
-            task->stop();
+            stopTask(type);
         }
     }
 
-    // Wait a bit for tasks to finish initial shutdown
-    vTaskDelay(pdMS_TO_TICKS(100));
+    // ADDED: Extra delay to ensure all watchdog entries are cleaned up
+    vTaskDelay(pdMS_TO_TICKS(300));
 
-    // Second pass: Verify all tasks have stopped with extra wait time if needed
-    bool allTasksStopped = false;
-    for (int attempt = 0; attempt < 5 && !allTasksStopped; attempt++)
-    {
-        allTasksStopped = true;
-
-        for (auto &[type, task] : tasks)
-        {
-            if (task && task->isRunning())
-            {
-                allTasksStopped = false;
-                Serial.printf("[TaskManager] Still waiting for %s to stop (attempt %d)...\n",
-                              task->getName(), attempt + 1);
-            }
-        }
-
-        if (!allTasksStopped)
-        {
-            // Additional wait time for stubborn tasks
-            vTaskDelay(pdMS_TO_TICKS(50));
-        }
-    }
-
-    // Final verification
-    for (auto &[type, task] : tasks)
-    {
-        if (task && task->isRunning())
-        {
-            Serial.printf("[TaskManager] WARNING: %s failed to stop properly\n", task->getName());
-        }
-    }
-
-    Serial.println("[TaskManager] All tasks stopped");
+    LOG_INFO("TaskManager", "All tasks stopped");
 }
 
 bool TaskManager::isTaskRunning(TaskType type) const
@@ -165,9 +163,9 @@ uint32_t TaskManager::getTaskStackUsage(TaskType type) const
 
 void TaskManager::printTaskStatus() const
 {
-    Serial.println("\n=== TASK STATUS ===");
-    Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
-    Serial.println("Task Status:");
+    LOG_INFO("TaskManager", "\n=== TASK STATUS ===");
+    LOG_INFO("TaskManager", "Free heap: %u bytes", ESP.getFreeHeap());
+    LOG_INFO("TaskManager", "Task Status:");
 
     const char *taskNames[] = {
         "SENSOR", "EKF", "APOGEE_DETECTION", "RECOVERY",
@@ -178,12 +176,12 @@ void TaskManager::printTaskStatus() const
     {
         if (task)
         {
-            Serial.printf("  %s: %s (Stack HWM: %u)\n",
-                          taskNames[index],
-                          task->isRunning() ? "RUNNING" : "STOPPED",
-                          task->getStackHighWaterMark());
+            LOG_INFO("TaskManager", "  %s: %s (Stack HWM: %u)",
+                     taskNames[index],
+                     task->isRunning() ? "RUNNING" : "STOPPED",
+                     task->getStackHighWaterMark());
         }
         index++;
     }
-    Serial.println("==================\n");
+    LOG_INFO("TaskManager", "=================");
 }

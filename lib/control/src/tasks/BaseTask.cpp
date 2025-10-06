@@ -1,5 +1,6 @@
 #include "BaseTask.hpp"
 #include "esp_heap_caps.h"
+#include <Logger.hpp>
 
 BaseTask::BaseTask(const char *name)
     : taskHandle(nullptr), running(false), taskName(name)
@@ -44,11 +45,11 @@ bool BaseTask::start(const TaskConfig &config)
     if (result == pdPASS)
     {
         running = true;
-        Serial.printf("[TASK] %s started on core %d\n", taskName, static_cast<int>(config.coreId));
+        LOG_INFO("BaseTask", "%s started on core %d", taskName, static_cast<int>(config.coreId));
         return true;
     }
 
-    Serial.printf("[ERROR] Failed to create task %s\n", taskName);
+    LOG_ERROR("BaseTask", "Failed to create task %s", taskName);
     return false;
 }
 
@@ -57,15 +58,27 @@ void BaseTask::stop()
     if (!running)
         return;
 
+    // Set flag first
     running = false;
 
-    if (taskHandle)
+    // Give task time to see the flag change
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Verify task handle is still valid
+    if (taskHandle != nullptr)
     {
-        vTaskDelete(taskHandle);
+        // Check if task actually exists
+        eTaskState taskState = eTaskGetState(taskHandle);
+        if (taskState != eDeleted)
+        {
+            vTaskSuspend(taskHandle);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelete(taskHandle);
+        }
         taskHandle = nullptr;
     }
 
-    Serial.printf("[TASK] %s stopped\n", taskName);
+    LOG_INFO("BaseTask", "Task %s stopped safely", taskName);
 }
 
 void BaseTask::taskWrapper(void *parameter)
@@ -83,7 +96,7 @@ void BaseTask::internalTaskFunction()
     // Register with watchdog
     esp_task_wdt_add(NULL);
 
-    Serial.printf("[TASK] %s starting on core %d\n", taskName, xPortGetCoreID());
+    LOG_INFO("BaseTask", "[TASK] %s starting on core %d", taskName, xPortGetCoreID());
 
     onTaskStart();
 
@@ -93,7 +106,7 @@ void BaseTask::internalTaskFunction()
     }
     catch (...)
     {
-        Serial.printf("[ERROR] Exception in task %s\n", taskName);
+        LOG_ERROR("BaseTask", "Exception in task %s", taskName);
     }
 
     onTaskStop();
@@ -101,7 +114,7 @@ void BaseTask::internalTaskFunction()
     // Cleanup watchdog
     esp_task_wdt_delete(NULL);
 
-    Serial.printf("[TASK] %s ended\n", taskName);
+    LOG_INFO("BaseTask", "[TASK] %s ended", taskName);
 }
 
 uint32_t BaseTask::getStackHighWaterMark() const

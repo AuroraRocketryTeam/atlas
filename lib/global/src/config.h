@@ -1,4 +1,7 @@
 #pragma once
+
+#include <cstdint>
+
 #define __DEBUG__
 
 #define SUFFICIENT_SENSOR_CALIBRATION 2
@@ -23,14 +26,14 @@
 
 #define LORA_SERIAL 1 // Serial port for LoRa (1 = Serial1, 2 = Serial2)
 
-/* Transmitter antenna address */
+/* Legacy Transmitter antenna address */
 #define LORA_ADDH 0x00
 #define LORA_ADDL 0x03
-/* Receiver antenna address */
+/* Legacy Receiver antenna address */
 #define LORA_RECEIVER_ADDH 0x00
 #define LORA_RECEIVER_ADDL 0x05
 
-#define LORA_CHANNEL 23 // Communication channel
+#define LORA_CHANNEL 23 // Legacy Communication channel
 
 /* Uncomment the following line to enable RSSI */
 #define ENABLE_RSSI
@@ -54,5 +57,15 @@
 #define H_BIAS_PRESSURE_SENSOR 2.0f
 #define GPS_BIAS 3.0f
 
+// GPS Configuration
+#define GPS_FIX_TIMEOUT_MS 180000      // 3 minutes
+#define GPS_MIN_FIX 3                  // Minimum fix type for valid GPS data (2 = 2D fix, 3 = 3D fix)
+#define GPS_FIX_LOOKUP_INTERVAL_MS 500 // Interval between GPS fix status checks during initialization
+
+// IMU Calibration
+#define IMU_MINIMUM_CALIBRATION 3 // Minimum calibration level for IMU sensors (0-3)
 // Important math constants
 #define GRAVITY 9.80665f
+
+// Telemetry configuration
+constexpr uint8_t receiverAddress[] = { 0x34, 0xCD, 0xB0, 0x3C, 0x54, 0xB4 };  // MAC dell'ESP32 ricevente: // 34:CD:B0:3C:54:B4

@@ -1,126 +1,171 @@
+// Standard libraries
 #include <Arduino.h>
 #include <Wire.h>
 #include <HardwareSerial.h>
+#include <variant>
+
+// FreeRTOS
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <variant>
+
+// WiFi and communication
+#include <WiFi.h>
+#include <esp_now.h>
+
+// Configuration and pins
 #include <config.h>
 #include <pins.h>
 
-// Include your interfaces and implementations
+// Interfaces
 #include <ISensor.hpp>
 #include <ILogger.hpp>
 #include <ITransmitter.hpp>
+
+// Sensors
 #include <BNO055Sensor.hpp>
 #include <MS561101BA03.hpp>
 #include <LIS3DHTRSensor.hpp>
 #include <GPS.hpp>
+
+// Storage and logging
+#include <SD-master.hpp>
 #include <RocketLogger.hpp>
-#include <E220LoRaTransmitter.hpp>
+#include <Logger.hpp>
+
+// Transmitters
+
+// Controllers and filters
+#include <LEDController.hpp>
+#include <BuzzerController.hpp>
+#include <StatusManager.hpp>
+
+// Main system
 #include <KalmanFilter1D.hpp>
 #include <RocketFSM.hpp>
+
+/**
+ * @brief Uncomment to enable sensor calibration routine at startup.
+ * Useful for fast testing without needing precise sensor reads.
+ *
+ */
+#define CALIBRATE_SENSORS
+#define ENABLE_PRE_FLIGHT_MODE
+#define TEST_FILE "/test.txt"
+
+// Create controller instances
+LEDController ledController(LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN);
+BuzzerController buzzerController(BUZZER_PIN);
+StatusManager statusManager(ledController, buzzerController);
 
 // Type definitions
 using TransmitDataType = std::variant<char *, String, std::string, nlohmann::json>;
 
 // Global component instances - these match the extern declarations in RocketFSM.cpp
-ISensor *bno055 = nullptr;
-ISensor *baro1 = nullptr;
-ISensor *baro2 = nullptr;
-ISensor *accl = nullptr;
-ISensor *gps = nullptr;
-ILogger *rocketLogger = nullptr;
-ITransmitter<TransmitDataType> *loraTransmitter = nullptr;
-KalmanFilter1D *ekf = nullptr;
+std::shared_ptr<ISensor> bno055 = nullptr;
+std::shared_ptr<ISensor> baro1 = nullptr;
+std::shared_ptr<ISensor> baro2 = nullptr;
+std::shared_ptr<ISensor> gps = nullptr;
+std::shared_ptr<ISensor> accl = nullptr;
 
-// Hardware serial for LoRa
-HardwareSerial loraSerial(LORA_SERIAL);
+std::shared_ptr<SD> sdCard = nullptr;
+
+ILogger *rocketLogger = nullptr;
+std::shared_ptr<KalmanFilter1D> ekf = nullptr;
 
 // FSM instance
-RocketFSM rocketFSM;
+std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
 void testFSMTransitions(RocketFSM &fsm);
-void tcaSelect(uint8_t bus);
 void initializeComponents();
 void sensorsCalibration();
 void initializeKalman();
 void printSystemInfo();
 void monitorTasks();
+void testRoutine();
 
 void setup()
 {
     // Initialize basic hardware
     Serial.begin(SERIAL_BAUD_RATE);
-    while (!Serial && millis() < 5000)
-    {
-        delay(10); // Wait for serial or timeout after 5 seconds
-    }
 
-    Serial.println("\n=== Aurora Rocketry Flight Software ===");
-    Serial.println("Initializing system...");
+    // Initialize controllers
+    ledController.init();
+    buzzerController.init();
 
-    // Initialize pins
+    // Initialize status patterns
+    statusManager.init();
+
+    // Set initial status with PRE_FLIGHT_MODE
+    statusManager.setSystemCode(PRE_FLIGHT_MODE);
+
+    LOG_INFO("Main", "\n=== Aurora Rocketry Flight Software ===");
+    LOG_INFO("Main", "Initializing system...");
+
+    // Initialize pins (only those not handled by controllers)
     pinMode(LED_RED, OUTPUT);
     pinMode(LED_GREEN, OUTPUT);
     pinMode(LED_BLUE, OUTPUT);
     pinMode(LED_BUILTIN, OUTPUT);
+    pinMode(MAIN_ACTUATOR_PIN, OUTPUT);
+    pinMode(DROGUE_ACTUATOR_PIN, OUTPUT);
 
     // Signal initialization start
     digitalWrite(LED_RED, HIGH);
 
+    // Deactivate actuators
+    digitalWrite(MAIN_ACTUATOR_PIN, LOW);
+    digitalWrite(DROGUE_ACTUATOR_PIN, LOW);
+
+    // Turn off internal LED
+    digitalWrite(LED_BUILTIN, LOW);
+
     // Initialize I2C
     Wire.begin();
-    Serial.println("I2C initialized");
+    LOG_INFO("Main", "I2C initialized");
 
     // Initialize components
     initializeComponents();
 
+#ifdef ENABLE_PRE_FLIGHT_MODE
+    delay(10000);
+    // Start test routine if in test mode
+    LOG_INFO("Main", "=== TEST MODE ENABLED ===");
+    testRoutine();
+#endif
+
+#ifdef CALIBRATE_SENSORS
     // Checking sensors calibration
+    statusManager.setSystemCode(CALIBRATING);
     sensorsCalibration();
+    statusManager.setSystemCode(SYSTEM_OK);
+#endif
 
     // Initialize kalman
+    statusManager.setSystemCode(CALIBRATING);
     initializeKalman();
 
     // Print system information
     printSystemInfo();
 
     // Initialize and start FSM
-    Serial.println("\n=== Initializing Flight State Machine ===");
-    rocketFSM.init();
+    LOG_INFO("Main", "=== System initialization complete ===");
+    LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
+    rocketFSM = std::make_unique<RocketFSM>(bno055, baro1, baro2, accl, gps, ekf);
+    rocketFSM->init();
+    statusManager.setSystemCode(FLIGHT_MODE);
 
     // Give system a moment to stabilize
     delay(1000);
-    testFSMTransitions(rocketFSM);
+    testFSMTransitions(*rocketFSM);
     delay(1000);
     // Start FSM tasks
-    rocketFSM.start();
+    statusManager.setSystemCode(FLIGHT_MODE);
+    rocketFSM->start();
 
     // Signal successful initialization
     digitalWrite(LED_RED, LOW);
     digitalWrite(LED_GREEN, HIGH);
-
-    Serial.println("=== System initialization complete ===");
-    Serial.println("FSM is now running with FreeRTOS tasks");
-    Serial.println("Monitor output for task execution and state transitions\n");
-
-    // Create a task to monitor system status
-    xTaskCreatePinnedToCore(
-        [](void *param)
-        {
-            while (true)
-            {
-                monitorTasks();
-                vTaskDelay(pdMS_TO_TICKS(1000));
-            }
-        },
-        "SystemMonitor",
-        2048,
-        nullptr,
-        1,
-        nullptr,
-        1 // Run on Core 1
-    );
 }
 
 void loop()
@@ -138,12 +183,12 @@ void loop()
 
         // Optional: Print current state periodically
         static RocketState lastLoggedState = RocketState::INACTIVE;
-        RocketState currentState = rocketFSM.getCurrentState();
+        RocketState currentState = rocketFSM->getCurrentState();
 
         if (currentState != lastLoggedState)
         {
-            Serial.printf("\n[MAIN] Current FSM State: %s (Runtime: %lu ms)\n",
-                          rocketFSM.getStateString(currentState).c_str(), millis());
+            LOG_INFO("Main", "Current FSM State: %s (Runtime: %lu ms)",
+                     rocketFSM->getStateString(currentState), millis());
             lastLoggedState = currentState;
         }
     }
@@ -154,246 +199,327 @@ void loop()
 
 void testFSMTransitions(RocketFSM &fsm)
 {
-    Serial.println("\n\n=== STARTING AUTOMATED FSM TEST ===");
-    Serial.println("Testing all state transitions with automatic timeouts");
-    Serial.println("Will cycle through all states, observing task execution\n");
+    LOG_INFO("Test", "\n\n=== STARTING AUTOMATED FSM TEST ===");
+    LOG_INFO("Test", "Testing all state transitions with automatic timeouts");
+    LOG_INFO("Test", "Will cycle through all states, observing task execution\n");
 
     // Il test inizia automaticamente quando fsm.start() viene chiamato
-    // Le transizioni sono tutte temporizzate nei metodi is*() modificati
+    // Le transizioni sono tutte temporizzate nei metodi di transizione definiti nella classe RocketFSM
 
-    // Rendi i log più visibili
     fsm.start();
+    // Use FreeRTOS timing for more reliable 1-second intervals
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(1000); // 1 second
 
-    // Mostra lo stato ogni secondo
-    for (int i = 0; i < 50; i++)
+    RocketState lastLoggedState = RocketState::INACTIVE;
+    unsigned long testStartTime = millis();
+    while (true)
     {
         RocketState currentState = fsm.getCurrentState();
-        Serial.printf("[TEST] Current state: %s (runtime: %lu ms)\n",
-                      fsm.getStateString(currentState).c_str(), millis());
+
+        // Only log when state changes or every 10 seconds
+        static unsigned long lastPeriodicLog = 0;
+        bool stateChanged = (currentState != lastLoggedState);
+        bool periodicLog = (millis() - lastPeriodicLog > 10000);
+
+        if (stateChanged || periodicLog)
+        {
+            LOG_INFO("Test", "State: %s (runtime: %lu ms, uptime: %.1f sec)",
+                     fsm.getStateString(currentState),
+                     millis(),
+                     (millis() - testStartTime) / 1000.0);
+
+            if (periodicLog)
+                lastPeriodicLog = millis();
+
+            lastLoggedState = currentState;
+        }
 
         // Termina il test quando raggiungiamo lo stato RECOVERED
         if (currentState == RocketState::RECOVERED)
         {
-            Serial.println("\n=== FSM TEST COMPLETED SUCCESSFULLY ===");
-            Serial.println("All states were visited in the correct order!");
-            break;
+            LOG_INFO("Test", "=== FSM TEST COMPLETED SUCCESSFULLY ===");
+            LOG_INFO("Test", "All states were visited in the correct order!");
+            LOG_INFO("Test", "Total test duration: %.1f seconds", (millis() - testStartTime) / 1000.0);
+            while (true)
+            {
+                Serial.readString();
+            }
         }
-
-        delay(1000);
+        // Use FreeRTOS delay for precise timing
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
 void initializeComponents()
 {
-    Serial.println("\n--- Initializing Components ---");
-
-    // Initialize logger first
-    rocketLogger = new RocketLogger();
-    if (rocketLogger)
-    {
-        rocketLogger->logInfo("RocketLogger initialized");
-        Serial.println("✓ Logger initialized");
-    }
-    else
-    {
-        Serial.println("✗ Failed to initialize logger");
-    }
+    LOG_INFO("Init", "\n--- Initializing Components ---");
 
     // Initialize sensors
-    Serial.println("Initializing sensors...");
+    LOG_INFO("Init", "Initializing sensors...");
 
     // Initialize BNO055 (IMU)
-    bno055 = new BNO055Sensor();
+    bno055 = std::make_shared<BNO055Sensor>();
     if (bno055 && bno055->init())
     {
-        Serial.println("✓ BNO055 (IMU) initialized");
-        if (rocketLogger)
-            rocketLogger->logInfo("BNO055 sensor initialized");
+        LOG_INFO("Init", "✓ BNO055 (IMU) initialized");
     }
     else
     {
-        Serial.println("✗ Failed to initialize BNO055");
-        if (rocketLogger)
-            rocketLogger->logError("Failed to initialize BNO055");
+        LOG_ERROR("Init", "✗ Failed to initialize BNO055");
     }
 
     // Initialize barometers
-    // tcaSelect(I2C_MULTIPLEXER_MPRLS1);
-    baro1 = new MS561101BA03(0x76);
+    baro1 = std::make_shared<MS561101BA03>(MS56_I2C_ADDR_1);
     if (baro1 && baro1->init())
     {
-        Serial.println("✓ MPRLS1 (Barometer 1) initialized");
-        if (rocketLogger)
-            rocketLogger->logInfo("MPRLS1 sensor initialized");
+        LOG_INFO("Init", "✓ Barometer 1 initialized");
     }
     else
     {
-        Serial.println("✗ Failed to initialize MPRLS1");
-        if (rocketLogger)
-            rocketLogger->logError("Failed to initialize MPRLS1");
+        LOG_ERROR("Init", "✗ Failed to initialize Barometer 1");
     }
 
-    // tcaSelect(I2C_MULTIPLEXER_MPRLS2);
-    baro2 = new MS561101BA03(0x77);
+    baro2 = std::make_shared<MS561101BA03>(MS56_I2C_ADDR_2);
     if (baro2 && baro2->init())
     {
-        Serial.println("✓ MPRLS2 (Barometer 2) initialized");
-        if (rocketLogger)
-            rocketLogger->logInfo("MPRLS2 sensor initialized");
+        LOG_INFO("Init", "✓ Barometer 2 initialized");
     }
     else
     {
-        Serial.println("✗ Failed to initialize MPRLS2");
-        if (rocketLogger)
-            rocketLogger->logError("Failed to initialize MPRLS2");
+        LOG_ERROR("Init", "✗ Failed to initialize Barometer 2");
     }
 
     // Initialize accelerometer
-    accl = new LIS3DHTRSensor();
+    accl = std::make_shared<LIS3DHTRSensor>();
     if (accl && accl->init())
     {
-        Serial.println("✓ LIS3DHTR (Accelerometer) initialized");
-        if (rocketLogger)
-            rocketLogger->logInfo("LIS3DHTR sensor initialized");
+        LOG_INFO("Init", "✓ LIS3DHTR (Accelerometer) initialized");
     }
     else
     {
-        Serial.println("✗ Failed to initialize LIS3DHTR");
-        if (rocketLogger)
-            rocketLogger->logError("Failed to initialize LIS3DHTR");
+        LOG_ERROR("Init", "✗ Failed to initialize LIS3DHTR");
     }
 
     // Initialize GPS
-    gps = new GPS();
-    if (gps && gps->init()) {
-        Serial.println("✓ GPS initialized");
-        if (rocketLogger) rocketLogger->logInfo("GPS sensor initialized");
-    } else {
-        Serial.println("✗ Failed to initialize GPS");
-        if (rocketLogger) rocketLogger->logError("Failed to initialize GPS");
-    }
+    gps = std::make_shared<GPS>();
 
-    // Initialize LoRa transmitter
-    Serial.println("Initializing LoRa transmitter...");
-    loraSerial.begin(SERIAL_BAUD_RATE, SERIAL_8N1, LORA_RX, LORA_TX);
-
-    loraTransmitter = new E220LoRaTransmitter(loraSerial, LORA_AUX, LORA_M0, LORA_M1);
-    if (loraTransmitter)
+    if (gps && gps->init())
     {
-        auto transmitterStatus = loraTransmitter->init();
-        // Log transmitter status based on your implementation
-        Serial.println("✓ LoRa transmitter initialized");
-        if (rocketLogger)
-            rocketLogger->logInfo("LoRa transmitter initialized");
+        LOG_INFO("Init", "✓ GPS initialized");
     }
     else
     {
-        Serial.println("✗ Failed to initialize LoRa transmitter");
-        if (rocketLogger)
-            rocketLogger->logError("Failed to initialize LoRa transmitter");
+        LOG_ERROR("Init", "✗ Failed to initialize GPS");
     }
+
+    // Inizializza la scheda SD
+    LOG_INFO("Init", "Initializing SD card for logging...");
+    sdCard = std::make_shared<SD>();
+    if (sdCard && sdCard->init())
+    {
+        LOG_INFO("Init", "✓ SD card initialized");
+        sdCard->openFile("test.txt");
+        LOG_INFO("Init", "Testing SD card write...");
+        std::string content = "SD card write test successful! Timestamp: " + std::to_string(millis()) + " ms";
+        if (sdCard->writeFile("test.txt", content))
+        {
+            LOG_INFO("Init", "✓ SD card write test successful");
+            char *readContent = sdCard->readFile("test.txt");
+            if (readContent)
+            {
+                LOG_INFO("Init", "Read from SD card: %s", readContent);
+            }
+            else
+            {
+                LOG_ERROR("Init", "✗ Failed to read back from SD card");
+            }
+        }
+        else
+        {
+            LOG_ERROR("Init", "✗ SD card write test failed");
+        }
+        sdCard->closeFile();
+    }
+    else
+    {
+        LOG_ERROR("Init", "✗ Failed to initialize SD card");
+    }
+
+    // Initializa ESP-NOW connection for telemetry
+    LOG_INFO("Init", "Initializing ESP-NOW for telemetry...");
+    if (WiFi.begin())
+    {
+        // Disattiva Wi-Fi STA/AP
+        WiFi.mode(WIFI_STA);
+        WiFi.disconnect();
+
+        if (esp_now_init() == ESP_OK)
+        {
+            LOG_INFO("Init", "✓ ESP-NOW initialized");
+            esp_now_peer_info_t peerInfo = {};
+            memcpy(peerInfo.peer_addr, receiverAddress, 6);
+            peerInfo.channel = 0;
+            peerInfo.encrypt = false;
+
+            if (esp_now_add_peer(&peerInfo) == ESP_OK)
+            {
+                LOG_INFO("Init", "✓ ESP-NOW peer added");
+            }
+            else
+            {
+                LOG_ERROR("Init", "✗ Failed to add ESP-NOW peer");
+            }
+        }
+        else
+        {
+            LOG_ERROR("Init", "✗ Failed to initialize ESP-NOW");
+        }
+    }
+    else
+    {
+        LOG_ERROR("Init", "✗ Failed to initialize Wi-Fi");
+    }
+
+    // We don't need to initialize LEDManager anymore - StatusManager handles it
+    LOG_INFO("Init", "✓ Status indicators initialized");
 }
 
 // Function to check sensors calibration
 void sensorsCalibration()
 {
-    Serial.println("Calibrating BNO055 sensors...");
-    
+    LOG_INFO("BNO055", "Calibrating BNO055 sensors...");
     if (bno055)
     {
         auto bnoData = bno055->getData();
-        
-        if (!bnoData.has_value()) {
-            Serial.println("BNO055 not initialized, skipping calibration.");
+
+        if (!bnoData.has_value())
+        {
+            LOG_WARNING("BNO055", "BNO055 not initialized, skipping calibration.");
             return;
         }
-        
+
         auto sensorData = bnoData.value();
         auto gyro_cal_opt = sensorData.getData("gyro_calibration");
         auto accel_cal_opt = sensorData.getData("accel_calibration");
         auto mag_cal_opt = sensorData.getData("mag_calibration");
-        
-        if (!gyro_cal_opt.has_value() || 
-            !accel_cal_opt.has_value() || !mag_cal_opt.has_value()) {
-            Serial.println("Could not read calibration status, skipping calibration.");
+
+        if (!gyro_cal_opt.has_value() ||
+            !accel_cal_opt.has_value() || !mag_cal_opt.has_value())
+        {
+            LOG_WARNING("BNO055", "Could not read calibration status, skipping calibration.");
             return;
         }
-        
+
         auto gyro_cal = std::get<uint8_t>(gyro_cal_opt.value());
         auto accel_cal = std::get<uint8_t>(accel_cal_opt.value());
         auto mag_cal = std::get<uint8_t>(mag_cal_opt.value());
-        
+
         // Find minimum calibration status
         uint8_t min_calibration = std::min({gyro_cal, accel_cal, mag_cal});
-        
-        if (min_calibration < 3)
+
+        if (min_calibration < IMU_MINIMUM_CALIBRATION)
         {
-            Serial.println("Calibrating BNO055's gyro...");
-            if (rocketLogger)
-                rocketLogger->logInfo("Calibrating BNO055's gyro...");
+            LOG_INFO("BNO055", "Calibrating BNO055's gyro...");
             do
             {
                 sensorData = bno055->getData().value();
                 gyro_cal_opt = sensorData.getData("gyro_calibration");
                 gyro_cal = std::get<uint8_t>(gyro_cal_opt.value());
 
-                Serial.printf("Current Gyro calibration status: %d/3\n", gyro_cal);
-                Serial.println("1. Move the sensor in a figure-8 pattern for few seconds.");
-                Serial.println("2. Rotate the sensor around all axes.");
-                Serial.println("3. Keep the sensor still on a flat surface.");
-            } while(gyro_cal < 3);
+                LOG_INFO("BNO055", "Current Gyro calibration status: %d/3", gyro_cal);
+                LOG_INFO("BNO055", "Keep the sensor still on a flat surface.");
+            } while (gyro_cal < IMU_MINIMUM_CALIBRATION);
 
-            Serial.println("Calibrating BNO055's accel...");
-            if (rocketLogger)
-                rocketLogger->logInfo("Calibrating BNO055's accel...");
+            LOG_INFO("BNO055", "Calibrating BNO055's accel...");
             do
             {
                 sensorData = bno055->getData().value();
+                auto accel_opt = sensorData.getData("accelerometer");
+                auto accelMap = std::get<std::map<std::string, float>>(accel_opt.value());
+                auto acceleration_x = accelMap["x"];
+                auto acceleration_y = accelMap["y"];
+                auto acceleration_z = accelMap["z"];
+                LOG_INFO("BNO055", "Acceleration: x=%.2f, y=%.2f, z=%.2f m/s^2",
+                         (double)acceleration_x,
+                         (double)acceleration_y,
+                         (double)acceleration_z);
+
                 accel_cal_opt = sensorData.getData("accel_calibration");
                 accel_cal = std::get<uint8_t>(accel_cal_opt.value());
 
-                Serial.printf("Current Accel calibration status: %d/3\n", accel_cal);
-                Serial.println("1. Move the sensor in a figure-8 pattern for few seconds.");
-                Serial.println("2. Rotate the sensor around all axes.");
-                Serial.println("3. Keep the sensor still on a flat surface.");
-            } while(accel_cal < 3);
+                LOG_INFO("BNO055", "Current Accel calibration status: %d/3", accel_cal);
+                LOG_INFO("BNO055", "Place the sensor in these 6 standing positions for about 5 seconds each\n(Positive = +9.8 m/s^2, Negative = -9.8 m/s^2):\n1. +X\n2. -X\n3. +Y\n4. -Y\n5. +Z\n6. -Z\n");
+                delay(100);
+            } while (accel_cal < IMU_MINIMUM_CALIBRATION);
 
-            Serial.println("Calibrating BNO055's mag...");
-            if (rocketLogger)
-                rocketLogger->logInfo("Calibrating BNO055's mag...");
+            LOG_INFO("BNO055", "Calibrating BNO055's mag...");
             do
             {
                 sensorData = bno055->getData().value();
                 mag_cal_opt = sensorData.getData("mag_calibration");
                 mag_cal = std::get<uint8_t>(mag_cal_opt.value());
 
-                Serial.printf("Current Mag calibration status: %d/3\n", mag_cal);
-                Serial.println("1. Move the sensor in a figure-8 pattern for few seconds.");
-                Serial.println("2. Rotate the sensor around all axes.");
-                Serial.println("3. Keep the sensor still on a flat surface.");
-            } while(mag_cal < 3);
-
-            Serial.println("BNO055 calibration complete.");
-            if (rocketLogger)
-                rocketLogger->logInfo("BNO055 calibration complete");
+                LOG_INFO("BNO055", "Current Mag calibration status: %d/3", mag_cal);
+                LOG_INFO("BNO055", "Move the sensor in a figure-8 pattern for few seconds.");
+            } while (mag_cal < IMU_MINIMUM_CALIBRATION);
+            LOG_INFO("BNO055", "BNO055 calibration complete.");
         }
         else
         {
-            Serial.println("BNO055 already calibrated.");
+            LOG_INFO("BNO055", "BNO055 already calibrated.");
         }
     }
     else
     {
-        Serial.println("BNO055 not initialized, skipping calibration.");
+        LOG_WARNING("BNO055", "BNO055 not initialized, skipping calibration.");
+    }
+    if (gps)
+    {
+        LOG_INFO("GPS", "Checking GPS lock...");
+
+        bool gpsLocked = false;
+        unsigned long startTime = millis();
+
+        while (!gpsLocked && (millis() - startTime < GPS_FIX_TIMEOUT_MS))
+        {
+            auto gpsDataOpt = gps->getData();
+            if (gpsDataOpt.has_value())
+            {
+                LOG_INFO("GPS", "Getting GPS data...");
+                auto gpsData = gpsDataOpt.value();
+                auto fix_opt = gpsData.getData("fix");
+                auto satellites_opt = gpsData.getData("satellites");
+                if (fix_opt.has_value())
+                {
+                    uint8_t fix = std::get<uint8_t>(fix_opt.value());
+                    LOG_INFO("GPS", "Fix value: %d", fix);
+                    if (fix >= GPS_MIN_FIX)
+                    {
+                        gpsLocked = true;
+                        LOG_INFO("GPS", "GPS lock acquired. Satellites: %d", std::get<uint8_t>(satellites_opt.value()));
+                    }
+                }
+            }
+            delay(GPS_FIX_LOOKUP_INTERVAL_MS);
+        }
+
+        if (!gpsLocked)
+        {
+            LOG_ERROR("GPS", "GPS lock not acquired within timeout period.");
+        }
     }
 
-    Serial.println("Sensor calibration complete.");
+    LOG_INFO("Calibration", "Sensor calibration complete.");
+    statusManager.setSystemCode(SYSTEM_OK);
 }
 
 // Utility function to calculate mean sensor readings
-Eigen::Vector3f calculateMean(const std::vector<Eigen::Vector3f>& readings) {
+Eigen::Vector3f calculateMean(const std::vector<Eigen::Vector3f> &readings)
+{
     Eigen::Vector3f mean = Eigen::Vector3f::Zero();
-    for (const auto& reading : readings) {
+    for (const auto &reading : readings)
+    {
         mean += reading;
     }
     mean /= readings.size();
@@ -401,10 +527,12 @@ Eigen::Vector3f calculateMean(const std::vector<Eigen::Vector3f>& readings) {
 }
 
 // Utility function to calculate standard deviation of sensor readings
-Eigen::Vector3f calculateStandardDeviation(const std::vector<Eigen::Vector3f>& readings) {
+Eigen::Vector3f calculateStandardDeviation(const std::vector<Eigen::Vector3f> &readings)
+{
     Eigen::Vector3f mean = calculateMean(readings);
     Eigen::Vector3f variance = Eigen::Vector3f::Zero();
-    for (const auto& reading : readings) {
+    for (const auto &reading : readings)
+    {
         Eigen::Vector3f diff = reading - mean;
         variance += diff.cwiseProduct(diff);
     }
@@ -418,9 +546,7 @@ void initializeKalman()
     // Store calibration samples
     std::vector<Eigen::Vector3f> accelSamples;
     std::vector<Eigen::Vector3f> magSamples;
-    Serial.println("Collecting calibration samples for Kalman Filter...");
-    if (rocketLogger)
-        rocketLogger->logInfo("Collecting calibration samples for Kalman Filter...");
+    LOG_INFO("EKF", "Collecting calibration samples for Kalman Filter...");
 
     for (int i = 0; i < NUM_CALIBRATION_SAMPLES; i++)
     {
@@ -434,7 +560,7 @@ void initializeKalman()
                 auto x_opt = acclData.getData("accel_x");
                 auto y_opt = acclData.getData("accel_y");
                 auto z_opt = acclData.getData("accel_z");
-                
+
                 if (x_opt.has_value() && y_opt.has_value() && z_opt.has_value())
                 {
                     float x = std::get<float>(x_opt.value());
@@ -469,34 +595,465 @@ void initializeKalman()
     auto accelStdDev = calculateStandardDeviation(accelSamples);
     auto magStdDev = calculateStandardDeviation(magSamples);
 
-    if (accelStdDev.norm() > STD_THRESHOLD) {
-        rocketLogger->logWarning("High accelerometer noise during calibration: " + std::to_string(accelStdDev.norm()));
+    if (accelStdDev.norm() > STD_THRESHOLD)
+    {
+        LOG_WARNING("EKF", "High accelerometer noise during calibration: %.3f", static_cast<double>(accelStdDev.norm()));
     }
 
-    if (magStdDev.norm() > STD_THRESHOLD) {
-        rocketLogger->logWarning("High magnetometer noise during calibration: " + std::to_string(magStdDev.norm()));
+    if (magStdDev.norm() > STD_THRESHOLD)
+    {
+        LOG_WARNING("EKF", "High magnetometer noise during calibration: %.3f", static_cast<double>(magStdDev.norm()));
     }
 
     auto accelMean = calculateMean(accelSamples);
     auto magMean = calculateMean(magSamples);
 
     // Initialize Kalman Filter
-    Serial.println("Initializing Kalman Filter...");
-    ekf = new KalmanFilter1D(accelMean, magMean);
+    LOG_INFO("Init", "Initializing Kalman Filter...");
+    ekf = std::make_shared<KalmanFilter1D>(accelMean, magMean);
     if (ekf)
     {
-        Serial.println("✓ Kalman Filter initialized");
-        if (rocketLogger)
-            rocketLogger->logInfo("Kalman Filter initialized");
+        LOG_INFO("Init", "✓ Kalman Filter initialized");
     }
     else
     {
-        Serial.println("✗ Failed to initialize Kalman Filter");
-        if (rocketLogger)
-            rocketLogger->logError("Failed to initialize Kalman Filter");
+        LOG_ERROR("Init", "✗ Failed to initialize Kalman Filter");
     }
 
-    Serial.println("--- Component initialization complete ---");
+    LOG_INFO("Init", "--- Component initialization complete ---");
+}
+
+// Helper function to show a pattern for a specific test
+void showTestPattern(int testNumber, StatusManager &statusManager)
+{
+    switch (testNumber)
+    {
+    case 1:
+        statusManager.playBlockingPattern(TEST_POWER, 1000);
+        break;
+    case 2:
+        statusManager.playBlockingPattern(TEST_SENSORS, 1000);
+        break;
+    case 3:
+        statusManager.playBlockingPattern(TEST_ACTUATORS, 1000);
+        break;
+    case 4:
+        statusManager.playBlockingPattern(TEST_SD, 1000);
+        break;
+    case 5:
+        statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+        break;
+    case 6:
+        statusManager.playBlockingPattern(TEST_ALL, 2000);
+        break;
+    default:
+        break;
+    }
+}
+
+// Modified waitForUserInput with buzzer patterns
+bool waitForUserInput(const char *message)
+{
+    String full_message = String(message) + "\n Or type REBOOT to restart the system.";
+    Serial.println(full_message);
+    statusManager.setSystemCode(WAITING_INPUT);
+
+    while (true)
+    {
+        if (Serial.available())
+        {
+            String input = Serial.readStringUntil('\n');
+            input.trim();
+            input.toUpperCase();
+            if (input == "PASSED")
+            {
+                statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+                return true;
+            }
+            if (input == "FAILED")
+            {
+                statusManager.playBlockingPattern(TEST_FAILURE, 1000);
+                return false;
+            }
+            if (input == "REBOOT")
+            {
+                LOG_WARNING("Test", "System is going to reboot, are you sure?");
+                LOG_WARNING("Test", "Type REBOOT to confirm reboot, or anything else to cancel.");
+
+                // Clear any existing serial input
+                while (Serial.available())
+                {
+                    Serial.read();
+                }
+
+                unsigned long waitStart = millis();
+                String confirm = "";
+                while (millis() - waitStart < 10000) // Wait up to 10 seconds
+                {
+                    if (Serial.available())
+                    {
+                        confirm = Serial.readStringUntil('\n');
+                        break;
+                    }
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                }
+
+                if (confirm.length() == 0)
+                {
+                    LOG_INFO("Test", "Reboot timeout - continuing normal operation.");
+                    continue;
+                }
+                confirm.trim();
+                confirm.toUpperCase();
+                if (confirm == "REBOOT")
+                {
+                    LOG_WARNING("Test", "Rebooting system...");
+                    ESP.restart();
+                }
+            }
+            else
+            {
+                LOG_INFO("Test", "Reboot cancelled.");
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+// Test routine subroutines with proper pattern handling
+bool testPowerAndLEDs()
+{
+    LOG_INFO("Test", "\n[STEP 1] Verifica alimentazione e LED di stato");
+    LOG_INFO("Test", "Controllare manualmente:");
+    LOG_INFO("Test", " - LED di alimentazione componenti accesi");
+    LOG_INFO("Test", " - LED presenza SD acceso");
+    LOG_INFO("Test", " - LED attuatori visibili");
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
+bool testSensors()
+{
+    LOG_INFO("Test", "\n[STEP 2] Test sensori");
+    bool testFailed = false;
+    bool imu_ok = bno055->init();
+    bool baro1_ok = baro1->init();
+    bool baro2_ok = baro2->init();
+    bool accl_ok = accl->init();
+
+    if (!imu_ok)
+    {
+        testFailed = true;
+        statusManager.playBlockingPattern(IMU_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: IMU non inizializzata.");
+    }
+    if (!baro1_ok)
+    {
+        statusManager.playBlockingPattern(BARO1_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
+    }
+    if (!baro2_ok)
+    {
+        statusManager.playBlockingPattern(BARO2_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
+    }
+    if (!accl_ok)
+    {
+        statusManager.playBlockingPattern(IMU_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
+    }
+
+    if (!testFailed)
+    {
+        LOG_INFO("Test", "Verifica output dei sensori...");
+
+        auto imuDataOpt = bno055->getData();
+        if (imuDataOpt.has_value())
+        {
+            auto imuData = imuDataOpt.value();
+            auto accelerometer_opt = imuData.getData("accelerometer");
+            if (accelerometer_opt.has_value())
+            {
+                auto accelMap = std::get<std::map<std::string, float>>(accelerometer_opt.value());
+                LOG_INFO("Test", "IMU Accelerometer: x=%.2f, y=%.2f, z=%.2f m/s^2",
+                         (double)accelMap["x"],
+                         (double)accelMap["y"],
+                         (double)accelMap["z"]);
+            }
+            else
+            {
+                statusManager.playBlockingPattern(IMU_FAIL, 2000);
+                LOG_ERROR("Test", "Errore: Impossibile leggere dati accelerometro dall'IMU.");
+            }
+        }
+        else
+        {
+            statusManager.playBlockingPattern(IMU_FAIL, 2000);
+            LOG_ERROR("Test", "Errore: Impossibile leggere dati dall'IMU.");
+        }
+        auto baro1DataOpt = baro1->getData();
+        if (baro1DataOpt.has_value())
+        {
+            auto baro1Data = baro1DataOpt.value();
+            auto pressure_opt = baro1Data.getData("pressure");
+            if (pressure_opt.has_value())
+            {
+                float pressure = std::get<float>(pressure_opt.value());
+                LOG_INFO("Test", "Barometer 1 Pressure: %.2f hPa", (double)pressure);
+            }
+            else
+            {
+                statusManager.playBlockingPattern(BARO1_FAIL, 2000);
+                LOG_ERROR("Test", "Errore: Impossibile leggere dati pressione dal Barometro 1.");
+            }
+        }
+        else
+        {
+            statusManager.playBlockingPattern(BARO1_FAIL, 2000);
+            LOG_ERROR("Test", "Errore: Impossibile leggere dati dal Barometro 1.");
+        }
+        auto baro2DataOpt = baro2->getData();
+        if (baro2DataOpt.has_value())
+        {
+            auto baro2Data = baro2DataOpt.value();
+            auto pressure_opt = baro2Data.getData("pressure");
+            if (pressure_opt.has_value())
+            {
+                float pressure = std::get<float>(pressure_opt.value());
+                LOG_INFO("Test", "Barometer 2 Pressure: %.2f hPa", (double)pressure);
+            }
+            else
+            {
+                statusManager.playBlockingPattern(BARO2_FAIL, 2000);
+                LOG_ERROR("Test", "Errore: Impossibile leggere dati pressione dal Barometro 2.");
+            }
+        }
+        else
+        {
+            statusManager.playBlockingPattern(BARO2_FAIL, 2000);
+            LOG_ERROR("Test", "Errore: Impossibile leggere dati dal Barometro 2.");
+        }
+        auto acclDataOpt = accl->getData();
+        if (acclDataOpt.has_value())
+        {
+            auto acclData = acclDataOpt.value();
+            auto x_opt = acclData.getData("accel_x");
+            auto y_opt = acclData.getData("accel_y");
+            auto z_opt = acclData.getData("accel_z");
+            if (x_opt.has_value() && y_opt.has_value() && z_opt.has_value())
+            {
+                float x = std::get<float>(x_opt.value());
+                float y = std::get<float>(y_opt.value());
+                float z = std::get<float>(z_opt.value());
+                LOG_INFO("Test", "Accelerometer: x=%.2f, y=%.2f, z=%.2f m/s^2",
+                         (double)x,
+                         (double)y,
+                         (double)z);
+            }
+            else
+            {
+                statusManager.playBlockingPattern(IMU_FAIL, 2000);
+                LOG_ERROR("Test", "Errore: Impossibile leggere dati dall'accelerometro.");
+            }
+        }
+        else
+        {
+            statusManager.playBlockingPattern(IMU_FAIL, 2000);
+            LOG_ERROR("Test", "Errore: Impossibile leggere dati dall'accelerometro.");
+        }
+    }
+    // After all tests, go to user input
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
+bool testActuators()
+{
+    LOG_INFO("Test", "\n[STEP 3] Test attuatori");
+
+    pinMode(DROGUE_ACTUATOR_PIN, OUTPUT);
+    pinMode(MAIN_ACTUATOR_PIN, OUTPUT);
+
+    LOG_INFO("Test", "Accensione attuatori uno per volta...");
+
+    // DROGUE test
+    statusManager.playBlockingPattern(TEST_ACTUATORS, 500); // Show test pattern first
+    digitalWrite(DROGUE_ACTUATOR_PIN, HIGH);
+    buzzerController.playTone(TONE_MID, 1000);
+    digitalWrite(DROGUE_ACTUATOR_PIN, LOW);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    // MAIN test
+    statusManager.playBlockingPattern(TEST_ACTUATORS, 500); // Show test pattern first
+    digitalWrite(MAIN_ACTUATOR_PIN, HIGH);
+    buzzerController.playTone(TONE_MID, 1000);
+    digitalWrite(MAIN_ACTUATOR_PIN, LOW);
+
+    return waitForUserInput("Verificare accensione LED e tensione in uscita da DROGUE e MAIN, verificare funzionamento Buzzer. Scrivi PASSED o FAILED");
+}
+
+bool testSDCard()
+{
+    LOG_INFO("Test", "[STEP 4] Test SD Card");
+    LOG_INFO("Test", "Inizializzazione scheda SD e verifica scrittura/lettura...");
+
+    if (sdCard->openFile(TEST_FILE))
+    {
+        std::string content = "SD card write test successful! Timestamp: " + std::to_string(millis()) + " ms\n";
+        if (sdCard->writeFile(TEST_FILE, content))
+        {
+            LOG_INFO("Test", "✓ SD card write test successful");
+            char *readContent = sdCard->readFile(TEST_FILE);
+            if (readContent)
+            {
+                LOG_INFO("Test", "Read from SD card: %s", readContent);
+            }
+            else
+            {
+                statusManager.playBlockingPattern(SD_READ_FAIL, 2000);
+                LOG_ERROR("Test", "✗ Failed to read back from SD card");
+            }
+        }
+        else
+        {
+            statusManager.playBlockingPattern(SD_WRITE_FAIL, 2000);
+            LOG_ERROR("Test", "✗ SD card write test failed");
+        }
+        sdCard->closeFile();
+    }
+    else
+    {
+        statusManager.playBlockingPattern(SD_MOUNT_FAIL, 2000);
+        LOG_ERROR("Test", "✗ Failed to open test file on SD card");
+    }
+
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
+bool testTelemetry()
+{
+    LOG_INFO("Test", "\n[STEP 5] Test telemetria");
+    LOG_INFO("Test", "Inizializzazione antenne e verifica collegamento...");
+    LOG_INFO("Test", "Verificare sul monitor ricezione pacchetti LORA.");
+
+    // Test LORA patterns
+    statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
+// Main test routine
+void testRoutine()
+{
+    LOG_INFO("Test", "=== SYSTEM TEST ROUTINE INITIATED ===");
+
+    // Menu di selezione test
+    while (true)
+    {
+        // Menu is BLUE with no buzzer
+        statusManager.setSystemCode(TEST_MENU);
+
+        Serial.println("\n=== MENU TEST ===");
+        Serial.println("1 - Test alimentazione e LED");
+        Serial.println("2 - Test sensori");
+        Serial.println("3 - Test attuatori");
+        Serial.println("4 - Test SD Card");
+        Serial.println("5 - Test telemetria");
+        Serial.println("6 - Esegui tutti i test in sequenza");
+        Serial.println("7 - Esci dal menu test");
+        Serial.println("Inserisci il numero del test da eseguire:");
+
+        while (!Serial.available())
+        {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+
+        String input = Serial.readStringUntil('\n');
+        input.trim();
+        int choice = input.toInt();
+        bool testPassed = false;
+
+        // Show specific pattern for this test
+        showTestPattern(choice, statusManager);
+
+        switch (choice)
+        {
+        case 1:
+            do
+            {
+                testPassed = testPowerAndLEDs();
+            } while (!testPassed);
+            break;
+        case 2:
+            do
+            {
+                testPassed = testSensors();
+            } while (!testPassed);
+            break;
+        case 3:
+            do
+            {
+                testPassed = testActuators();
+            } while (!testPassed);
+            break;
+        case 4:
+            do
+            {
+                testPassed = testSDCard();
+            } while (!testPassed);
+            break;
+        case 5:
+            do
+            {
+                testPassed = testTelemetry();
+            } while (!testPassed);
+            break;
+        case 6:
+            // Show all tests pattern
+            statusManager.playBlockingPattern(TEST_ALL, 2000);
+
+            // Execute all tests in sequence
+            do
+            {
+                testPassed = testPowerAndLEDs();
+            } while (!testPassed);
+            do
+            {
+                testPassed = testSensors();
+            } while (!testPassed);
+            do
+            {
+                testPassed = testActuators();
+            } while (!testPassed);
+            do
+            {
+                testPassed = testSDCard();
+            } while (!testPassed);
+            do
+            {
+                testPassed = testTelemetry();
+            } while (!testPassed);
+
+            // All tests successful
+            statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
+            LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
+            break;
+        case 7:
+            // Exit test mode with success pattern
+            statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
+            LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
+            statusManager.setSystemCode(SYSTEM_OK);
+            return;
+        default:
+            Serial.println("Scelta non valida. Riprova.");
+            continue;
+        }
+
+        if (choice >= 1 && choice <= 6)
+        {
+            LOG_INFO("Test", "Test completato con successo!");
+            // Show success pattern before returning to menu
+            statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+        }
+    }
 }
 
 void printSystemInfo()
@@ -515,104 +1072,4 @@ void printSystemInfo()
     Serial.printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
     Serial.printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
     Serial.println("--- End System Information ---");
-}
-
-void monitorTasks()
-{
-    TickType_t xLastWakeTime = xTaskGetTickCount();
-
-    while (true)
-    {
-        // Print system status every 10 seconds
-        static unsigned long lastStatusPrint = 0;
-        if (millis() - lastStatusPrint > 10000)
-        {
-            lastStatusPrint = millis();
-
-            Serial.println("\n--- System Status ---");
-            Serial.printf("Runtime: %lu ms\n", millis());
-            Serial.printf("Free Heap: %u bytes\n", ESP.getFreeHeap());
-            Serial.printf("Min Free Heap: %u bytes\n", ESP.getMinFreeHeap());
-            Serial.printf("Current State: %s\n", rocketFSM.getStateString(rocketFSM.getCurrentState()).c_str());
-            Serial.printf("Current Phase: %d\n", static_cast<int>(rocketFSM.getCurrentPhase()));
-
-            // Task information
-            UBaseType_t taskCount = uxTaskGetNumberOfTasks();
-            Serial.printf("Active tasks: %u\n", taskCount);
-
-            Serial.println("--- End Status ---\n");
-        }
-
-        // Check for emergency conditions
-        if (ESP.getFreeHeap() < 10000)
-        { // Less than 10KB free
-            Serial.println("[WARNING] Low memory condition detected!");
-            if (rocketLogger)
-            {
-                rocketLogger->logWarning("Low memory condition");
-            }
-        }
-
-        // Monitor for manual commands via Serial
-        if (Serial.available())
-        {
-            String command = Serial.readStringUntil('\n');
-            command.trim();
-
-            if (command == "stop")
-            {
-                Serial.println("Manual FSM stop requested");
-                rocketFSM.stop();
-            }
-            else if (command == "start")
-            {
-                Serial.println("Manual FSM start requested");
-                rocketFSM.start();
-            }
-            else if (command.startsWith("force "))
-            {
-                // Example: "force LAUNCH" to force transition to LAUNCH state
-                String stateName = command.substring(6);
-                stateName.toUpperCase();
-
-                // Map string to state (add more as needed)
-                if (stateName == "LAUNCH")
-                {
-                    rocketFSM.forceTransition(RocketState::LAUNCH);
-                }
-                else if (stateName == "APOGEE")
-                {
-                    rocketFSM.forceTransition(RocketState::APOGEE);
-                }
-                else if (stateName == "RECOVERED")
-                {
-                    rocketFSM.forceTransition(RocketState::RECOVERED);
-                }
-                else
-                {
-                    Serial.println("Unknown state: " + stateName);
-                }
-            }
-            else if (command == "help")
-            {
-                Serial.println("Available commands:");
-                Serial.println("  stop - Stop FSM");
-                Serial.println("  start - Start FSM");
-                Serial.println("  force <STATE> - Force transition to state");
-                Serial.println("  help - Show this help");
-            }
-        }
-
-        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000)); // 1Hz monitoring
-    }
-}
-
-void tcaSelect(uint8_t bus)
-{
-    if (bus > 7)
-        return;
-
-    Wire.beginTransmission(0x70); // TCA9548A address
-    Wire.write(1 << bus);
-    Wire.endTransmission();
 }

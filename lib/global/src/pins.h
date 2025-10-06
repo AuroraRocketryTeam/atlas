@@ -29,14 +29,15 @@
 #define SD_CS D10
 #define SD_DET -1
 
-#define LORA_RX 2
-#define LORA_TX 3
-#define LORA_AUX 4
-#define LORA_M0 5
-#define LORA_M1 6
-// Add here some other pin.
+// Actuators
+#define DROGUE_ACTUATOR_PIN D0
+#define MAIN_ACTUATOR_PIN D1
+#define BUZZER_PIN D2
 
-static constexpr int LORA_NSS_PIN = 5;   // Chip Select
-static constexpr int LORA_DIO1_PIN = 2;  // DIO1 (interrupt)
-static constexpr int LORA_NRST_PIN = 14; // Reset
-static constexpr int LORA_BUSY_PIN = 4;  // Busy
+// LED
+#define LED_RED_PIN A2
+#define LED_GREEN_PIN A3
+#define LED_BLUE_PIN A1
+
+#define GPS_LED D6
+
