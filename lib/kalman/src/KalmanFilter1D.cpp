@@ -240,7 +240,7 @@ void KalmanFilter1D::computeJacobianF_tinyEKF(
 }
 
 /**
- * @brief Get the current state vector
+ * @brief Get the current state vector [altitude, z-vel, q_w, q_x, q_y, q_z]
  * 
  * @return float* 6 values [altitude, z-vel, q_w, q_x, q_y, q_z]
  */
