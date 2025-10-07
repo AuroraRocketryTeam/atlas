@@ -8,22 +8,28 @@
 #include <KalmanFilter1D.hpp>
 #include "TaskConfig.hpp"
 #include "Logger.hpp"
+#include "SD-master.hpp"
+
 #include "SensorTask.hpp"
+#include "SDLoggingTask.hpp"
 #include "EkfTask.hpp"
 #include "GpsTask.hpp"
 //#include "TelemetryTask.hpp"
-//#include "LoggingTask.hpp"
 
 class TaskManager {
 private:
     std::map<TaskType, std::unique_ptr<ITask>> tasks;
     std::shared_ptr<SharedSensorData> sensorData;
-    std::shared_ptr<KalmanFilter1D> kalmanFilter; // Needs to be initialized!!!
+    std::shared_ptr<KalmanFilter1D> kalmanFilter;
     std::shared_ptr<ISensor> bno055;
     std::shared_ptr<ISensor> baro1;
     std::shared_ptr<ISensor> baro2;
     std::shared_ptr<ISensor> gps;
+    std::shared_ptr<RocketLogger> rocketLogger;
     SemaphoreHandle_t sensorDataMutex;
+    SemaphoreHandle_t loggerMutex;
+
+    std::shared_ptr<SD> sdCard;
     
 public:
     TaskManager(std::shared_ptr<SharedSensorData> sensorData,
