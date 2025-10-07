@@ -42,6 +42,9 @@
 
 // #define TRANSMITTER_CONFIG_MODE_ENABLE // Enable configuration mode for the transmitter (needs to be tested on new hardware)
 
+// Number of log entries to batch before writing to SD card
+#define BATCH_SIZE 20
+
 /* Flight parameters configuration */
 #define LIFTOFF_TIMEOUT_MS 100    // Threshold for the detection of liftoff when relative_acceleration is > gravity in any direction (relative_acceleration = acceleration - gravity)
 #define DROGUE_APOGEE_TIMEOUT 300 // Threshold for opening the drogue parachute after apogee is detected
