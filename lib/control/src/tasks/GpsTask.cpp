@@ -2,6 +2,8 @@
 
 void GpsTask::taskFunction()
 {
+    const TickType_t mutexTimeout = pdMS_TO_TICKS(10);
+    unsigned long loopCounter = 0;
     while (running)
     {
         esp_task_wdt_reset();
@@ -11,15 +13,18 @@ void GpsTask::taskFunction()
             // Write to shared data
             if (gpsData.has_value())
             {
-                if (dataMutex && xSemaphoreTake(dataMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+                if (dataMutex && xSemaphoreTake(dataMutex, mutexTimeout) == pdTRUE)
                 {
                     sensorData->gpsData = gpsData.value();
                     LOG_INFO("GpsTask", "Got GPS data");
                     xSemaphoreGive(dataMutex);
+                    if ((loopCounter & 0x0F) == 0)
+                        LOG_INFO("GpsTask", "GPS update stored");
                 }
                 else
                 {
-                    LOG_WARNING("GpsTask", "Failed to take data mutex");
+                    if ((loopCounter & 0x0F) == 0)
+                        LOG_WARNING("GpsTask", "Failed to take data mutex");
                 }
                 
                 if (xSemaphoreTake(loggerMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -36,13 +41,19 @@ void GpsTask::taskFunction()
             }
             else
             {
-                LOG_WARNING("GpsTask", "No GPS data available");
+                // GPS fix or data might be temporarily unavailable; log sparsely
+                if ((loopCounter & 0x3F) == 0)
+                    LOG_WARNING("GpsTask", "No GPS data available");
             }
         }
         else
         {
-            LOG_WARNING("GpsTask", "No GPS sensor available");
+            // Sensor missing - this is likely a configuration issue; log less frequently
+            if ((loopCounter & 0x3F) == 0)
+                LOG_WARNING("GpsTask", "No GPS sensor available");
         }
+
+        loopCounter++;
         vTaskDelay(pdMS_TO_TICKS(200)); // 5 Hz
     }
     LOG_INFO("GpsTask", "Task exiting");

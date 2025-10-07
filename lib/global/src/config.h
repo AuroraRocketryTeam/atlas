@@ -46,19 +46,24 @@
 #define BATCH_SIZE 20
 
 /* Flight parameters configuration */
-#define LIFTOFF_TIMEOUT_MS 100    // Threshold for the detection of liftoff when relative_acceleration is > gravity in any direction (relative_acceleration = acceleration - gravity)
+#define LIFTOFF_ACCELERATION_THRESHOLD GRAVITY * 2.0f // Threshold for the detection of liftoff when relative_acceleration is > 2G in any direction (relative_acceleration = acceleration - gravity)
+#define LIFTOFF_TIMEOUT_MS 100    // Threshold for the detection of liftoff
 #define DROGUE_APOGEE_TIMEOUT 300 // Threshold for opening the drogue parachute after apogee is detected
-
-/* Flight parameters configuration */
-#define LIFTOFF_TIMEOUT_MS 100    // Threshold for the detection of liftoff when relative_acceleration is > gravity in any direction (relative_acceleration = acceleration - gravity)
-#define DROGUE_APOGEE_TIMEOUT 300 // Threshold for opening the drogue parachute after apogee is detected
-
+#define MAIN_ALTITUDE_THRESHOLD 450.0f // Altitude threshold for the deployment of the main parachute (in meters)
+#define TOUCHDOWN_VELOCITY_THRESHOLD 2.0f // Vertical velocity threshold for touchdown detection (in m/s)
+#define TOUCHDOWN_ALTITUDE_THRESHOLD 5.0f // Altitude threshold for touchdown detection (in meters)
 // Kalman Constants
 #define NUM_CALIBRATION_SAMPLES 200
 #define STD_THRESHOLD 0.1f
 #define SEA_LEVEL 165.0f
 #define H_BIAS_PRESSURE_SENSOR 2.0f
 #define GPS_BIAS 3.0f
+#define STATE_INDEX_ALTITUDE 0
+#define STATE_INDEX_VELOCITY 1
+#define STATE_INDEX_QUAT_W 2
+#define STATE_INDEX_QUAT_X 3
+#define STATE_INDEX_QUAT_Y 4
+#define STATE_INDEX_QUAT_Z 5
 
 // GPS Configuration
 #define GPS_FIX_TIMEOUT_MS 180000      // 3 minutes
@@ -71,4 +76,4 @@
 #define GRAVITY 9.80665f
 
 // Telemetry configuration
-constexpr uint8_t receiverAddress[] = { 0x34, 0xCD, 0xB0, 0x3C, 0x54, 0xB4 };  // MAC dell'ESP32 ricevente: // 34:CD:B0:3C:54:B4
+constexpr uint8_t RECEIVER_MAC_ADDRESS[] = { 0x34, 0xCD, 0xB0, 0x3D, 0x97, 0xFC };  // MAC dell'ESP32 ricevente: // 34:CD:B0:3D:97:FC

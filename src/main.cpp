@@ -160,11 +160,11 @@ void setup()
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
     rocketFSM = std::make_unique<RocketFSM>(bno055, baro1, baro2, accl, gps, ekf, rocketLogger);
     rocketFSM->init();
-    statusManager.setSystemCode(FLIGHT_MODE);
+    // statusManager.setSystemCode(FLIGHT_MODE);
 
     // Give system a moment to stabilize
-    delay(1000);
-    testFSMTransitions(*rocketFSM);
+    // delay(1000);
+    //testFSMTransitions(*rocketFSM);
     delay(1000);
     // Start FSM tasks
     statusManager.setSystemCode(FLIGHT_MODE);
@@ -248,10 +248,7 @@ void testFSMTransitions(RocketFSM &fsm)
             LOG_INFO("Test", "=== FSM TEST COMPLETED SUCCESSFULLY ===");
             LOG_INFO("Test", "All states were visited in the correct order!");
             LOG_INFO("Test", "Total test duration: %.1f seconds", (millis() - testStartTime) / 1000.0);
-            while (true)
-            {
-                Serial.readString();
-            }
+            vTaskDelete(NULL);
         }
         // Use FreeRTOS delay for precise timing
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -365,7 +362,7 @@ void initializeComponents()
         {
             LOG_INFO("Init", "✓ ESP-NOW initialized");
             esp_now_peer_info_t peerInfo = {};
-            memcpy(peerInfo.peer_addr, receiverAddress, 6);
+            memcpy(peerInfo.peer_addr, RECEIVER_MAC_ADDRESS, 6);
             peerInfo.channel = 0;
             peerInfo.encrypt = false;
 
