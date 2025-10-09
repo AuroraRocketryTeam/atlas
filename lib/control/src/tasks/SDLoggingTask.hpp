@@ -7,6 +7,7 @@
 #include "RocketLogger.hpp"
 #include <config.h>
 #include <SD-master.hpp>
+#include <Logger.hpp>
 
 class SDLoggingTask : public BaseTask {
 public:

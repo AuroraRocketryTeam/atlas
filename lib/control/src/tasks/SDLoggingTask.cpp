@@ -8,12 +8,24 @@ SDLoggingTask::SDLoggingTask(std::shared_ptr<RocketLogger> rocketLogger,
       loggerMutex(loggerMutex),
       sdCard(sdCard)
 {
-    sdInitialized = sdCard->init();
-
+    sdInitialized = static_cast<bool>(sdCard);
+    
     if (!sdInitialized) {
-        rocketLogger->logError("SD card initialization failed!");
+        LOG_INFO("SDLoggingTask", "SD card Failed!");
+        if (xSemaphoreTake(loggerMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            rocketLogger->logError("SD card initialization failed!");
+            xSemaphoreGive(loggerMutex);
+        } else {
+            LOG_ERROR("SDLoggingTask", "Failed to acquire mutex for logging SD error");
+        }
     } else {
-        rocketLogger->logInfo("SD card initialized successfully.");
+        LOG_INFO("SDLoggingTask", "SD card initialized successfully.");
+        if (xSemaphoreTake(loggerMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            rocketLogger->logInfo("SD card initialized successfully.");
+            xSemaphoreGive(loggerMutex);
+        } else {
+            LOG_ERROR("SDLoggingTask", "Failed to acquire mutex for logging SD success");
+        }
     }
 }
 
