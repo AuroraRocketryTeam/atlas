@@ -15,11 +15,11 @@ TaskManager::TaskManager(std::shared_ptr<SharedSensorData> sensorData,
              barometer1 ? "OK" : "NULL",
              barometer2 ? "OK" : "NULL",
              gps ? "OK" : "NULL");
-    
+
     // Initialize ESP-NOW transmitter
     uint8_t peerMac[] = ESPNOW_PEER_MAC;
     espNowTransmitter = std::make_shared<EspNowTransmitter>(peerMac, ESPNOW_CHANNEL);
-    
+
     // Initialize transmitter
     ResponseStatusContainer initResult = espNowTransmitter->init();
     if (initResult.getCode() != 0)
@@ -52,13 +52,19 @@ void TaskManager::initializeTasks()
         baro2);
     tasks[TaskType::GPS] = std::make_unique<GpsTask>(sensorData, sensorDataMutex, gps);
     tasks[TaskType::EKF] = std::make_unique<EkfTask>(sensorData, sensorDataMutex, kalmanFilter);
-    
+
     // Create TelemetryTask with ESP-NOW transmitter
     tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(
         sensorData,
         sensorDataMutex,
         espNowTransmitter,
         TELEMETRY_INTERVAL_MS);
+
+    tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
+        sensorData,
+        sensorDataMutex,
+        baro1,
+        baro2);
 
     // tasks[TaskType::LOGGING] = std::make_unique<LoggingTask>(sensorData, sensorDataMutex);
     // tasks[TaskType::APOGEE_DETECTION] = std::make_unique<ApogeeDetectionTask>(filteredData, filteredDataMutex);
