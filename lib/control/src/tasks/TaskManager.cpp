@@ -1,4 +1,5 @@
 #include "TaskManager.hpp"
+#include <config.h>
 
 TaskManager::TaskManager(std::shared_ptr<SharedSensorData> sensorData,
                          std::shared_ptr<KalmanFilter1D> kalmanFilter,
@@ -14,6 +15,21 @@ TaskManager::TaskManager(std::shared_ptr<SharedSensorData> sensorData,
              barometer1 ? "OK" : "NULL",
              barometer2 ? "OK" : "NULL",
              gps ? "OK" : "NULL");
+    
+    // Initialize ESP-NOW transmitter
+    uint8_t peerMac[] = ESPNOW_PEER_MAC;
+    espNowTransmitter = std::make_shared<EspNowTransmitter>(peerMac, ESPNOW_CHANNEL);
+    
+    // Initialize transmitter
+    ResponseStatusContainer initResult = espNowTransmitter->init();
+    if (initResult.getCode() != 0)
+    {
+        LOG_ERROR("TaskMgr", "Failed to initialize ESP-NOW: %s", initResult.getDescription().c_str());
+    }
+    else
+    {
+        LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
+    }
 }
 
 TaskManager::~TaskManager()
@@ -36,8 +52,14 @@ void TaskManager::initializeTasks()
         baro2);
     tasks[TaskType::GPS] = std::make_unique<GpsTask>(sensorData, sensorDataMutex, gps);
     tasks[TaskType::EKF] = std::make_unique<EkfTask>(sensorData, sensorDataMutex, kalmanFilter);
+    
+    // Create TelemetryTask with ESP-NOW transmitter
+    tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(
+        sensorData,
+        sensorDataMutex,
+        espNowTransmitter,
+        TELEMETRY_INTERVAL_MS);
 
-    // tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(sensorData, sensorDataMutex);
     // tasks[TaskType::LOGGING] = std::make_unique<LoggingTask>(sensorData, sensorDataMutex);
     // tasks[TaskType::APOGEE_DETECTION] = std::make_unique<ApogeeDetectionTask>(filteredData, filteredDataMutex);
     // tasks[TaskType::RECOVERY] = std::make_unique<RecoveryTask>(sharedData.get(), dataMutex);
