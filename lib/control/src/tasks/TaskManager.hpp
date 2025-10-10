@@ -12,6 +12,7 @@
 #include "EkfTask.hpp"
 #include "GpsTask.hpp"
 #include "TelemetryTask.hpp"
+#include "BarometerTask.hpp"
 #include <EspNowTransmitter.hpp>
 //#include "LoggingTask.hpp"
 
