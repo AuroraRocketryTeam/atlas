@@ -11,7 +11,9 @@
 #include "SensorTask.hpp"
 #include "EkfTask.hpp"
 #include "GpsTask.hpp"
-//#include "TelemetryTask.hpp"
+#include "TelemetryTask.hpp"
+#include "BarometerTask.hpp"
+#include <EspNowTransmitter.hpp>
 //#include "LoggingTask.hpp"
 
 class TaskManager {
@@ -24,6 +26,9 @@ private:
     std::shared_ptr<ISensor> baro2;
     std::shared_ptr<ISensor> gps;
     SemaphoreHandle_t sensorDataMutex;
+    
+    // Telemetry
+    std::shared_ptr<EspNowTransmitter> espNowTransmitter;
     
 public:
     TaskManager(std::shared_ptr<SharedSensorData> sensorData,

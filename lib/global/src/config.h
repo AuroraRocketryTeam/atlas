@@ -48,13 +48,37 @@
 #define DROGUE_APOGEE_TIMEOUT 300 // Threshold for opening the drogue parachute after apogee is detected
 #define MAIN_ALTITUDE_THRESHOLD 450.0f // Altitude threshold for the deployment of the main parachute (in meters)
 #define TOUCHDOWN_VELOCITY_THRESHOLD 2.0f // Vertical velocity threshold for touchdown detection (in m/s)
+
+/* ESP-NOW Telemetry Configuration */
+// MAC address of the peer receiver (ESP32 that will relay to LoRa)
+// Replace with your actual receiver MAC address
+#define ESPNOW_PEER_MAC { 0x34, 0xCD, 0xB0, 0x3C, 0x54, 0xB4 }
+#define ESPNOW_CHANNEL 1 // WiFi channel (1-13)
+#define TELEMETRY_INTERVAL_MS 700
 #define TOUCHDOWN_ALTITUDE_THRESHOLD 5.0f // Altitude threshold for touchdown detection (in meters)
 // Kalman Constants
 #define NUM_CALIBRATION_SAMPLES 200
 #define STD_THRESHOLD 0.1f
-#define SEA_LEVEL 165.0f
+#define SEA_LEVEL 63.0f  // Your launch site altitude above sea level (meters)
+
+// Sea level pressure reference for barometric altitude calculation
+// IMPORTANT: This must match your local atmospheric conditions!
+// Option 1: Check local weather station for "sea level pressure" (QNH in aviation)
+// Option 2: Calculate from known altitude: If at SEA_LEVEL meters reading P hPa,
+//           then SEA_LEVEL_PRESSURE_HPA ≈ P / (1 - 0.0065 * SEA_LEVEL / 288.15)^5.255
+// Example: At 63m reading 1010.28 hPa → sea level pressure ≈ 1017.5 hPa
+#define SEA_LEVEL_PRESSURE_HPA 1017.5f  // Local sea level pressure in hPa
+
 #define H_BIAS_PRESSURE_SENSOR 2.0f
 #define GPS_BIAS 3.0f
+
+// Barometer noise filtering
+// BAROMETER_FILTER_WINDOW: Size of median filter window for pressure/altitude smoothing
+// Smaller = faster response but more noise (1 = no filtering)
+// Larger = smoother but more lag (recommended: 3-7)
+// At 10Hz sampling: window=5 adds 50ms lag
+#define BAROMETER_FILTER_WINDOW 5
+
 #define STATE_INDEX_ALTITUDE 0
 #define STATE_INDEX_VELOCITY 1
 #define STATE_INDEX_QUAT_W 2
@@ -69,8 +93,9 @@
 
 // IMU Calibration
 #define IMU_MINIMUM_CALIBRATION 3 // Minimum calibration level for IMU sensors (0-3)
-// Important math constants
+
 #define GRAVITY 9.80665f
+
 
 // Telemetry configuration
 constexpr uint8_t RECEIVER_MAC_ADDRESS[] = { 0x34, 0xCD, 0xB0, 0x3D, 0x97, 0xFC };  // MAC dell'ESP32 ricevente: // 34:CD:B0:3D:97:FC

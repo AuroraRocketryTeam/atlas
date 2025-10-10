@@ -73,43 +73,43 @@ void SensorTask::taskFunction()
         
         if (!running) break; // Check between sensors
         
-        if (baro1)
-        {
-            auto baroData1 = baro1->getData();
-            if (baroData1 && running)
-            {
-                if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(10)) == pdTRUE)
-                {
-                    sensorData->baroData1 = *baroData1;
-                    LOG_DEBUG("Sensor", "Read Baro1 data");
-                    xSemaphoreGive(dataMutex);
-                }
-                else
-                {
-                    LOG_WARNING("Sensor", "Failed to take data mutex for Baro1");
-                }
-            }
-        }
+        // if (baro1)
+        // {
+        //     auto baroData1 = baro1->getData();
+        //     if (baroData1 && running)
+        //     {
+        //         if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        //         {
+        //             sensorData->baroData1 = *baroData1;
+        //             LOG_DEBUG("Sensor", "Read Baro1 data");
+        //             xSemaphoreGive(dataMutex);
+        //         }
+        //         else
+        //         {
+        //             LOG_WARNING("Sensor", "Failed to take data mutex for Baro1");
+        //         }
+        //     }
+        // }
         
-        if (!running) break;
+        // if (!running) break;
         
-        if (baro2)
-        {
-            auto baroData2 = baro2->getData();
-            if (baroData2 && running)
-            {
-                if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(10)) == pdTRUE)
-                {
-                    sensorData->baroData2 = *baroData2;
-                    LOG_DEBUG("Sensor", "Read Baro2 data");
-                    xSemaphoreGive(dataMutex);
-                }
-                else
-                {
-                    LOG_WARNING("Sensor", "Failed to take data mutex for Baro2");
-                }
-            }
-        }
+        // if (baro2)
+        // {
+        //     auto baroData2 = baro2->getData();
+        //     if (baroData2 && running)
+        //     {
+        //         if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        //         {
+        //             sensorData->baroData2 = *baroData2;
+        //             LOG_DEBUG("Sensor", "Read Baro2 data");
+        //             xSemaphoreGive(dataMutex);
+        //         }
+        //         else
+        //         {
+        //             LOG_WARNING("Sensor", "Failed to take data mutex for Baro2");
+        //         }
+        //     }
+        // }
         
         if (!running) break;
         

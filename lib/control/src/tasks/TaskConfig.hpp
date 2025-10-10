@@ -7,11 +7,10 @@ enum class TaskType
 {
     SENSOR,
     EKF,
-    APOGEE_DETECTION,
     RECOVERY,
-    DATA_COLLECTION,        // This might be removed if SharedData are used in the corresponding tasks
     TELEMETRY,
     GPS,
+    BAROMETER,
     LOGGING
 };
 

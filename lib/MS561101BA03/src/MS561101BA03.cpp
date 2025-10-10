@@ -100,7 +100,7 @@ uint32_t MS561101BA03::readADC()
 
 uint32_t MS561101BA03::readRawPressure()
 {
-    writeCommand(MS5611_CMD_CONV_D1_4096);
+    writeCommand(MS5611_CMD_CONV_D1_2048);
     delay(10); // Wait for conversion
     return readADC();
 }
@@ -153,5 +153,5 @@ void MS561101BA03::calculatePressureAndTemperature(uint32_t D1, uint32_t D2, flo
     int32_t P = (((D1 * SENS) >> 21) - OFF) >> 15;
     
     temperature = TEMP / 100.0f;
-    pressure = P / 100.0f; // Convert to hPa/mbar
+    pressure = P; // Convert to hPa/mbar
 }
