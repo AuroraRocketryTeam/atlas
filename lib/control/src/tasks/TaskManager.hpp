@@ -49,6 +49,7 @@ public:
     bool startTask(TaskType type, const TaskConfig& config);
     void stopTask(TaskType type);
     void stopAllTasks();
+    int getRunningTaskCount();
     
     bool isTaskRunning(TaskType type) const;
     uint32_t getTaskStackUsage(TaskType type) const;

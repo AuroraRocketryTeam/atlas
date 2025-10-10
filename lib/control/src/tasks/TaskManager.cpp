@@ -207,3 +207,16 @@ void TaskManager::printTaskStatus() const
     }
     LOG_INFO("TaskManager", "=================");
 }
+
+int TaskManager::getRunningTaskCount()
+{
+    int count = 0;
+    for (const auto &[type, task] : tasks)
+    {
+        if (task && task->isRunning())
+        {
+            count++;
+        }
+    }
+    return count;
+}

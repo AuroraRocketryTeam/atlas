@@ -43,10 +43,10 @@
 // #define TRANSMITTER_CONFIG_MODE_ENABLE // Enable configuration mode for the transmitter (needs to be tested on new hardware)
 
 // Number of log entries to batch before writing to SD card
-#define BATCH_SIZE 20
+#define BATCH_SIZE 10
 
 // Maximum log entries before forcing a clear (emergency protection)
-#define MAX_LOG_ENTRIES 100
+#define MAX_LOG_ENTRIES 20
 
 /* Flight parameters configuration */
 #define LIFTOFF_ACCELERATION_THRESHOLD GRAVITY * 2.0f // Threshold for the detection of liftoff when relative_acceleration is > 2G in any direction (relative_acceleration = acceleration - gravity)

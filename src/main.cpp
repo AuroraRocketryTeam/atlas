@@ -179,8 +179,8 @@ void setup()
 
 void loop()
 {
-    LOG_INFO("Main", "Entering main loop...");
-    // Main loop is kept minimal since everything runs in FreeRTOS tasks
+    LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
+    
     static unsigned long lastHeartbeat = 0;
     static bool ledState = false;
 
@@ -191,6 +191,17 @@ void loop()
         lastHeartbeat = millis();
         ledState = !ledState;
         digitalWrite(LED_BUILTIN, ledState);
+        
+        // Monitor RocketLogger memory usage
+        if (rocketLogger) {
+            int logCount = rocketLogger->getLogCount();
+            LOG_INFO("Main", "RocketLogger entries: %d", logCount);
+            
+            // If log count is high, warn about memory usage
+            if (logCount > 800) {
+                LOG_WARNING("Main", "RocketLogger approaching memory limit (%d entries)", logCount);
+            }
+        }
         
         // Optional: Print current state periodically
         static RocketState lastLoggedState = RocketState::INACTIVE;

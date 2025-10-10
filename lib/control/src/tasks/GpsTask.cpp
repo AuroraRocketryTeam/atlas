@@ -28,11 +28,19 @@ void GpsTask::taskFunction()
                 }
                 
                 if (xSemaphoreTake(loggerMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                    auto timestampData = SensorData("Timestamp");
-                    timestampData.setData("timestamp", static_cast<int>(millis()));
-                    rocketLogger->logSensorData(timestampData);
-                    
-                    rocketLogger->logSensorData("GPS", gpsData.value());
+                    // Only log GPS data every 10 loops (every ~2 seconds) to reduce memory pressure
+                    if ((loopCounter % 10) == 0) {
+                        auto timestampData = SensorData("Timestamp");
+                        timestampData.setData("timestamp", static_cast<int>(millis()));
+                        rocketLogger->logSensorData(timestampData);
+                        
+                        rocketLogger->logSensorData("GPS", gpsData.value());
+                        
+                        // Log current RocketLogger memory usage for monitoring
+                        if ((loopCounter % 50) == 0) {
+                            LOG_INFO("GpsTask", "RocketLogger entries: %d", rocketLogger->getLogCount());
+                        }
+                    }
                     xSemaphoreGive(loggerMutex);
                 } else {
                     LOG_WARNING("GpsTask", "Failed to take logger mutex");
