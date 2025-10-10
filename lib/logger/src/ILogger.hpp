@@ -75,7 +75,12 @@ public:
      */
     virtual void clearData() {
         logDataList.clear();
-    };
+    }
+
+    /**
+     * @brief Virtual destructor to ensure proper cleanup in derived classes.
+     */
+    virtual ~ILogger() = default;
 };
 
 

@@ -45,6 +45,9 @@
 // Number of log entries to batch before writing to SD card
 #define BATCH_SIZE 20
 
+// Maximum log entries before forcing a clear (emergency protection)
+#define MAX_LOG_ENTRIES 100
+
 /* Flight parameters configuration */
 #define LIFTOFF_ACCELERATION_THRESHOLD GRAVITY * 2.0f // Threshold for the detection of liftoff when relative_acceleration is > 2G in any direction (relative_acceleration = acceleration - gravity)
 #define LIFTOFF_TIMEOUT_MS 100    // Threshold for the detection of liftoff

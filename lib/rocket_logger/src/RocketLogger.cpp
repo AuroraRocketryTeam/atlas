@@ -1,5 +1,10 @@
 #include "RocketLogger.hpp"
 
+// Destructor - clean up all dynamically allocated memory
+RocketLogger::~RocketLogger() {
+    clearData();
+}
+
 // Override logInfo to log informational messages
 void RocketLogger::logInfo(const std::string& message) {
     ILoggable* logMessage = new LogMessage("RocketLogger", message);
@@ -40,10 +45,18 @@ json RocketLogger::getJSONAll() const {
 
 // Clear logged sensor data
 void RocketLogger::clearData() {
+    size_t initialCount = this->getLogCount();
+    
+    // Print deleting n elements
+    LOG_INFO("RocketLogger", "Clearing %zu log entries...", initialCount);
+
     // Delete all dynamically allocated LogSensorData objects
     for (auto& logData : this->logDataList) {
         delete logData.getData();
     }
 
     this->logDataList.clear();
+    
+    size_t finalCount = this->getLogCount();
+    LOG_INFO("RocketLogger", "Clear complete. Before: %zu, After: %zu entries", initialCount, finalCount);
 }
