@@ -98,7 +98,8 @@ void RocketFSM::init()
         baro1,          // barometer1
         baro2,          // barometer2
         gps,            // gpsModule
-        sensorDataMutex // sensorMutex
+        sensorDataMutex, // sensorMutex
+        isRising        // barometer Rising flag
     );
     taskManager->initializeTasks();
 
@@ -702,29 +703,40 @@ void RocketFSM::checkTransitions()
     case RocketState::BALLISTIC_FLIGHT:
     {
         {
-            static unsigned long apogeeSince = 0;
+            /*static unsigned long apogeeSince = 0;
 
-            if (kalmanFilter)
+            LOG_INFO("RocketFSM", "BALLISTIC_FLIGHT: vertical_velocity=%.3f", );
+            if (vertical_velocity <= 0.0f)
             {
-                auto vertical_velocity = kalmanFilter->state()[STATE_INDEX_VELOCITY];
-                LOG_INFO("RocketFSM", "BALLISTIC_FLIGHT: vertical_velocity=%.3f", vertical_velocity);
-                if (vertical_velocity <= 0.0f)
+                if (apogeeSince == 0)
                 {
-                    if (apogeeSince == 0)
-                    {
-                        apogeeSince = millis();
-                    }
-                    else if (millis() - apogeeSince > 500U)
-                    {
-                        sendEvent(FSMEvent::APOGEE_REACHED);
-                        apogeeSince = 0;
-                    }
+                    apogeeSince = millis();
                 }
-                else
+                else if (millis() - apogeeSince > 500U)
                 {
+                    sendEvent(FSMEvent::APOGEE_REACHED);
                     apogeeSince = 0;
                 }
             }
+            else
+            {
+                apogeeSince = 0;
+            }*/
+
+            LOG_INFO("RocketFSM", "BALLISTIC_FLIGHT: is rising = %s", isRising.get());
+            static unsigned long apogeeSince = 0;
+            if(isRising.get()){
+                if (apogeeSince == 0)
+                {
+                    apogeeSince = millis();
+                }
+                else if (millis() - apogeeSince > 500U)
+                {
+                    sendEvent(FSMEvent::APOGEE_REACHED);
+                    apogeeSince = 0;
+                }
+            }
+
             break;
         }
     }

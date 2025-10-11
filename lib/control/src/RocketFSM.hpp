@@ -39,6 +39,8 @@ private:
     std::shared_ptr<ISensor> baro2;
     std::shared_ptr<ISensor> accl;
     std::shared_ptr<ISensor> gps;
+    // Rising Flag
+    std::shared_ptr<bool> isRising=std::make_shared<bool>(true);
 
 public:
     RocketFSM(std::shared_ptr<ISensor> imu,
