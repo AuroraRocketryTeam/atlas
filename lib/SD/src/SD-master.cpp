@@ -27,6 +27,9 @@ bool SD::openFile(std::string filename)
     {
         this->file->open(filename.c_str(), O_RDWR | O_CREAT | O_AT_END);
     }
+
+    this->file->seekSet(0);
+
     return this->file->isOpen();
 }
 
@@ -216,19 +219,30 @@ bool SD::fileExists(std::string filename)
  * @return String containing the next line, or empty String if EOF or error
  */
 String SD::readLine() {
-    if (this->file == nullptr || !this->file->isOpen()) {
+    if (this->file == nullptr) {
+        LOG_INFO("SD-Task", "File pointer null");
         return String("");
     }
-    String line = "";
+    if (!this->file->isOpen()) {
+        LOG_INFO("SD-Task", "File not open");
+        return String("");
+    }
+
+    // Read a whole line inside of a String
+    String str = "";    
     char ch;
+    int bytesRead = 0;
+    
     while (this->file->read(&ch, 1) == 1) {
-        if (ch == '\n') {
+        bytesRead++;
+        
+        if (ch == '|') {
             break;
         }
-        if (ch != '\r') {
-            line += ch;
+        if (ch != '\r') {  // Skip carriage return characters
+            str += ch;
         }
     }
-    // If nothing was read and file is at EOF, return empty
-    return line;
+    
+    return str;
 }

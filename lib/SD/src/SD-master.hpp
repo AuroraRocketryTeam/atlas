@@ -5,6 +5,7 @@
 #include "SdFat.h"
 #include <pins.h>
 #include <string>
+#include <Logger.hpp>
 
 class SD
 {
