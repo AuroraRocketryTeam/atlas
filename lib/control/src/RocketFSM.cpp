@@ -752,16 +752,14 @@ void RocketFSM::checkTransitions()
 
     case RocketState::STABILIZATION:
         static unsigned long stableSince = 0;
-        if (kalmanFilter)
+        //To be checked !!!
+        LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight.get());
+        if (currentHeight.get() < MAIN_ALTITUDE_THRESHOLD)
         {
-            auto altitude = kalmanFilter->state()[STATE_INDEX_ALTITUDE];
-            LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", altitude);
-            if (altitude < MAIN_ALTITUDE_THRESHOLD)
-            {
-                LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", altitude, millis() - stateStartTime);
-                sendEvent(FSMEvent::STABILIZATION_COMPLETE);
-            }
+            LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", currentHeight.get(), millis() - stateStartTime);
+            sendEvent(FSMEvent::STABILIZATION_COMPLETE);
         }
+    
         break;
 
     case RocketState::DECELERATION:
