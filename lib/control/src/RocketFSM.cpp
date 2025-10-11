@@ -753,26 +753,25 @@ void RocketFSM::checkTransitions()
     case RocketState::STABILIZATION:
         static unsigned long stableSince = 0;
         //To be checked !!!
-        LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight.get());
-        if (currentHeight.get() < MAIN_ALTITUDE_THRESHOLD)
+        LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", *currentHeight);
+        if (*currentHeight < MAIN_ALTITUDE_THRESHOLD)
         {
-            LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", currentHeight.get(), millis() - stateStartTime);
+            LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", *currentHeight, millis() - stateStartTime);
             sendEvent(FSMEvent::STABILIZATION_COMPLETE);
         }
     
         break;
 
     case RocketState::DECELERATION:
-        if (kalmanFilter)
+        // In DECELERATION state, vertical velocity in heightGainSpeed will still be tracked, but it should be negative (falling)
+        // !!! choose if chenge the control to be with negative values or to invert the value here
+        
+        LOG_INFO("RocketFSM", "DECELERATION: vertical_velocity=%.3f, altitude=%.3f", *heightGainSpeed, *currentHeight);
+        if (*heightGainSpeed < TOUCHDOWN_VELOCITY_THRESHOLD && *currentHeight < TOUCHDOWN_ALTITUDE_THRESHOLD)
         {
-            auto vertical_velocity = kalmanFilter->state()[STATE_INDEX_VELOCITY];
-            auto altitude = kalmanFilter->state()[STATE_INDEX_ALTITUDE];
-            LOG_INFO("RocketFSM", "DECELERATION: vertical_velocity=%.3f, altitude=%.3f", vertical_velocity, altitude);
-            if (vertical_velocity < TOUCHDOWN_VELOCITY_THRESHOLD && altitude < TOUCHDOWN_ALTITUDE_THRESHOLD)
-            {
-                sendEvent(FSMEvent::DECELERATION_COMPLETE);
-            }
+            sendEvent(FSMEvent::DECELERATION_COMPLETE);
         }
+        
         break;
 
     case RocketState::LANDING:
