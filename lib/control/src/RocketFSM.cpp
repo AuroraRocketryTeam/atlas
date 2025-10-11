@@ -345,7 +345,8 @@ void RocketFSM::setupStateActions()
         .setExitAction([this]()
                        { LOG_INFO("RocketFSM", "Exiting CALIBRATING"); })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        // This state should be deleted eventually, also commenting out the simulation part, as it would just burn samples from the file
+        //.addTask(TaskConfig(TaskType::SIMULATION, "Simulation_1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -357,7 +358,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH"); })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_2", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -370,7 +371,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LAUNCH"); })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_3", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -382,7 +383,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT"); })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_4", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -395,7 +396,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering BALLISTIC_FLIGHT"); })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_5", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -412,7 +413,7 @@ void RocketFSM::setupStateActions()
                              tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
                          })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_6", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -429,7 +430,7 @@ void RocketFSM::setupStateActions()
                              tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
                          })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_7", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -442,7 +443,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering DECELERATION"); })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_8", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -455,7 +456,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LANDING"); })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_9", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -467,7 +468,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering RECOVERED"); })
         #ifdef SIMULATION_DATA
-        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_10", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -658,72 +659,58 @@ void RocketFSM::checkTransitions()
     static unsigned long launchHighSince = 0;
     static unsigned long decelSince = 0;
 
-    // Helper to safely and quickly read accel.z into accelZ. Returns true if a new value was read.
-    auto tryReadAccelZ = [&](unsigned int timeoutMs = 2) -> bool
-    {
-        bool read = false;
-        if (sensorDataMutex)
-        {
-            if (xSemaphoreTake(sensorDataMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE)
-            {
-                auto opt = sharedData->imuData.getData("accelerometer");
-                if (opt.has_value() && std::holds_alternative<std::map<std::string, float>>(opt.value()))
-                {
-                    const auto &accelMap = std::get<std::map<std::string, float>>(opt.value());
-                    auto it = accelMap.find("z");
-                    if (it != accelMap.end())
-                    {
-                        accelZ = it->second;
-                        haveAccel = true;
-                        read = true;
-                    }
-                }
-                xSemaphoreGive(sensorDataMutex);
-            } else {
-                LOG_WARNING("RocketFSM", "tryReadAccelZ: Failed to acquire sensor data mutex");
-            }
-        }
-        return read;
-    };
+    // Get accelerometer data before switch statement
+    auto accOpt = sharedData->imuData.getData("accelerometer");
 
     // Fast state-based checks
     switch (currentState)
     {
     case RocketState::INACTIVE:
         // Kick off calibration immediately
-        // DOES THIS MAKE SENSE ???
         sendEvent(FSMEvent::START_CALIBRATION);
         break;
 
     case RocketState::CALIBRATING:
+        // Calibration state should be removed (no time now though)!!!
+        sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         // Calibration timeout fallback
-        if (millis() - stateStartTime > 10000U)
-        {
-            sendEvent(FSMEvent::CALIBRATION_COMPLETE);
-        }
+        //if (millis() - stateStartTime > 10000U)
+        //{
+        //    sendEvent(FSMEvent::CALIBRATION_COMPLETE);
+        //}
         break;
-
     case RocketState::READY_FOR_LAUNCH:
-        tryReadAccelZ(5);
-        if (haveAccel)
-        {
-            if (accelZ > LIFTOFF_ACCELERATION_THRESHOLD)
+        try {
+            if (accOpt.has_value() && std::holds_alternative<std::map<std::string, float>>(accOpt.value()))
             {
-                if (launchHighSince == 0)
+                const auto &accMap = std::get<std::map<std::string, float>>(accOpt.value());
+                auto accVal = accMap.at("magnitude");
+            
+                if (accVal > LIFTOFF_ACCELERATION_THRESHOLD)
                 {
-                    launchHighSince = millis();
+                    if (launchHighSince == 0)
+                    {
+                        launchHighSince = millis();
+                    }
+                    else if (millis() - launchHighSince > static_cast<unsigned long>(LIFTOFF_TIMEOUT_MS))
+                    {
+                        sendEvent(FSMEvent::LAUNCH_DETECTED);
+                        launchHighSince = 0;
+                    }
                 }
-                else if (millis() - launchHighSince > static_cast<unsigned long>(LIFTOFF_TIMEOUT_MS))
+                else
                 {
-                    sendEvent(FSMEvent::LAUNCH_DETECTED);
                     launchHighSince = 0;
                 }
+            } else {
+                LOG_INFO("RocketFSM", "READY_FOR_LAUNCH: No accelerometer data available");
             }
-            else
-            {
-                launchHighSince = 0;
+        } catch (const std::exception& e) {
+            while(1){
+                LOG_ERROR("RocketFSM", "READY_FOR_LAUNCH: Exception occurred: %s", e.what());
             }
         }
+        
         break;
 
     case RocketState::LAUNCH:
@@ -736,12 +723,14 @@ void RocketFSM::checkTransitions()
 
     case RocketState::ACCELERATED_FLIGHT:
         LOG_INFO("ACC_FLIGHT", "Checking condition");
-        tryReadAccelZ(5);
-        if (haveAccel)
+        if (accOpt.has_value() && std::holds_alternative<std::map<std::string, float>>(accOpt.value()))
         {
-            LOG_INFO("RocketFSM", "ACCELERATED_FLIGHT: accelZ=%.3f", accelZ);
+            const auto &accMap = std::get<std::map<std::string, float>>(accOpt.value());
+            auto accVal = accMap.at("magnitude");
+
+            LOG_INFO("RocketFSM", "ACCELERATED_FLIGHT: accelZ=%.3f", accVal);
             // Detect sustained deceleration to switch to ballistic
-            if (accelZ <= GRAVITY)
+            if (accVal <= GRAVITY)
             {
                 if (decelSince == 0)
                 {
