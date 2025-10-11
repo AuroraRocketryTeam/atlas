@@ -83,14 +83,16 @@ class BarometerTask : public BaseTask
 {
 public:
     BarometerTask(std::shared_ptr<SharedSensorData> sensorData,
-                  SemaphoreHandle_t sensorDataMutex,
-                  std::shared_ptr<ISensor> baro1,
-                  std::shared_ptr<ISensor> baro2)
+                    SemaphoreHandle_t sensorDataMutex,
+                    std::shared_ptr<ISensor> baro1,
+                    std::shared_ptr<ISensor> baro2,
+                    std::shared_ptr<bool> isRising)
         : BaseTask("BarometerTask"),
           sensorData(sensorData),
           dataMutex(sensorDataMutex),
           baro1(baro1 ? baro1.get() : nullptr),
-          baro2(baro2 ? baro2.get() : nullptr)
+          baro2(baro2 ? baro2.get() : nullptr),
+          isRising(isRising)
     {
         LOG_INFO("BarometerTask", "Initialized with Barometers: %s, %s",
                  baro1 ? "OK" : "NULL",
@@ -109,6 +111,7 @@ private:
     SemaphoreHandle_t dataMutex;
     ISensor *baro1;
     ISensor *baro2;
+    std::shared_ptr<bool> isRising;
 
     // Maximum altitude reached for easy access in BarometerTask
     static float max_altitude_read;
@@ -121,6 +124,7 @@ private:
     // Buffer for tendency filtering, used in isStillRising()
     std::vector<float> pressureTrendBuffer;
     size_t trendBufferSize = 10; // Apogee detection window size
+    size_t mainDeploymentAltitude = 450; // Altitude for main deployment in meters
 
     // Called in update to add new values to the filter and remove old ones
     void addPressureTrendValue(float value) {
@@ -134,4 +138,9 @@ private:
 
     // If max altitude reached is needed to be retrived
     float getMaxAltitudeReached() { return max_altitude_read; }
+
+    /*float checkAltitudeForMainDeployment(){
+        
+
+    }*/
 };

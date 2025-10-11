@@ -26,6 +26,8 @@ private:
     std::shared_ptr<ISensor> baro2;
     std::shared_ptr<ISensor> gps;
     SemaphoreHandle_t sensorDataMutex;
+
+    std::shared_ptr<bool> isRising;
     
     // Telemetry
     std::shared_ptr<EspNowTransmitter> espNowTransmitter;
@@ -37,7 +39,8 @@ public:
             std::shared_ptr<ISensor> barometer1,
             std::shared_ptr<ISensor> barometer2,
             std::shared_ptr<ISensor> gps,
-            SemaphoreHandle_t sensorMutex);
+            SemaphoreHandle_t sensorMutex,
+            std::shared_ptr<bool> isRising);
     ~TaskManager();
     
     void initializeTasks();

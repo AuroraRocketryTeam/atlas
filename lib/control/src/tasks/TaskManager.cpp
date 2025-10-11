@@ -7,8 +7,10 @@ TaskManager::TaskManager(std::shared_ptr<SharedSensorData> sensorData,
                          std::shared_ptr<ISensor> barometer1,
                          std::shared_ptr<ISensor> barometer2,
                          std::shared_ptr<ISensor> gps,
-                         SemaphoreHandle_t sensorMutex) : sensorData(sensorData), kalmanFilter(kalmanFilter),
-                                                          bno055(imu), baro1(barometer1), baro2(barometer2), gps(gps), sensorDataMutex(sensorMutex)
+                         SemaphoreHandle_t sensorMutex,
+                        std::shared_ptr<bool> isRising) : sensorData(sensorData), kalmanFilter(kalmanFilter),
+                                                          bno055(imu), baro1(barometer1), baro2(barometer2), 
+                                                          gps(gps), sensorDataMutex(sensorMutex), isRising(isRising)
 {
     LOG_INFO("TaskMgr", "Initialized with sensors: IMU=%s, Baro1=%s, Baro2=%s, GPS=%s",
              imu ? "OK" : "NULL",
@@ -64,7 +66,8 @@ void TaskManager::initializeTasks()
         sensorData,
         sensorDataMutex,
         baro1,
-        baro2);
+        baro2,
+        isRising);
 
     // tasks[TaskType::LOGGING] = std::make_unique<LoggingTask>(sensorData, sensorDataMutex);
     // tasks[TaskType::APOGEE_DETECTION] = std::make_unique<ApogeeDetectionTask>(filteredData, filteredDataMutex);
