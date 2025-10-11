@@ -38,8 +38,8 @@ SDLoggingTask::~SDLoggingTask() {
 void SDLoggingTask::taskFunction() {
     LOG_INFO("SDLoggingTask", "Task started, batch size: %d", BATCH_SIZE);
     
-    while (running) { // CRITICAL FIX: Check running flag
-        esp_task_wdt_reset(); // Reset watchdog timer
+    while (running) {
+        esp_task_wdt_reset();
         
         // Early exit check
         if (!running) break;
