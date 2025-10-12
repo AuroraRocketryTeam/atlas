@@ -84,24 +84,16 @@ class BarometerTask : public BaseTask
 public:
     BarometerTask(std::shared_ptr<SharedSensorData> sensorData,
                     SemaphoreHandle_t sensorDataMutex,
-                    std::shared_ptr<ISensor> baro1,
-                    std::shared_ptr<ISensor> baro2,
                     std::shared_ptr<bool> isRising,
                     std::shared_ptr<float> heightGainSpeed,
                     std::shared_ptr<float> currentHeight)
         : BaseTask("BarometerTask"),
           sensorData(sensorData),
           dataMutex(sensorDataMutex),
-          baro1(baro1 ? baro1.get() : nullptr),
-          baro2(baro2 ? baro2.get() : nullptr),
           isRising(isRising),
           heightGainSpeed(heightGainSpeed),
           currentHeight(currentHeight)
-    {
-        LOG_INFO("BarometerTask", "Initialized with Barometers: %s, %s",
-                 baro1 ? "OK" : "NULL",
-                 baro2 ? "OK" : "NULL");
-    }
+    {}
 
     void taskFunction() override;
 
@@ -113,8 +105,6 @@ public:
 private:
     std::shared_ptr<SharedSensorData> sensorData;
     SemaphoreHandle_t dataMutex;
-    ISensor *baro1;
-    ISensor *baro2;
     std::shared_ptr<bool> isRising;
     std::shared_ptr<float> heightGainSpeed;
     std::shared_ptr<float> currentHeight;

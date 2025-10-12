@@ -99,29 +99,9 @@ void TaskManager::initializeTasks()
     tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
         sensorData,
         sensorDataMutex,
-        baro1,
-        baro2);
-
-    // Create TelemetryTask with ESP-NOW transmitter
-    tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(
-        sensorData,
-        sensorDataMutex,
-        espNowTransmitter,
-        TELEMETRY_INTERVAL_MS);
-
-    tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
-        sensorData,
-        sensorDataMutex,
-        baro1,
-        baro2,
         isRising,
         heightGainSpeed,
         currentHeight);
-
-    // tasks[TaskType::LOGGING] = std::make_unique<LoggingTask>(sensorData, sensorDataMutex);
-    // tasks[TaskType::APOGEE_DETECTION] = std::make_unique<ApogeeDetectionTask>(filteredData, filteredDataMutex);
-    // tasks[TaskType::RECOVERY] = std::make_unique<RecoveryTask>(sharedData.get(), dataMutex);
-    // tasks[TaskType::DATA_COLLECTION] = std::make_unique<DataCollectionTask>(sharedData.get(), dataMutex);
 
     LOG_INFO("TaskManager", "Created %d task instances", tasks.size());
 }

@@ -14,7 +14,7 @@ constexpr float R = 287.05f;                  // Air gas constant [J/Kg/K]
 #define n (GRAVITY / (R * a))
 #define nInv ((R * a) / GRAVITY)
 
-float relAltitude(float pressure, float pressureRef = 101070.0f,
+float relAltitude(float pressure, float pressureRef = 99323.79032f,
                   float temperatureRef = 299.15f)
 {
     return temperatureRef / a * (1 - powf(pressure / pressureRef, nInv));
@@ -22,133 +22,70 @@ float relAltitude(float pressure, float pressureRef = 101070.0f,
 
 void BarometerTask::taskFunction()
 {
-    float altitude1 = -1000.0f;
-    float altitude2 = -1000.0f;
-    float pressure1 = -1.0f;
-    float pressure2 = -1.0f;
-    float temperature1 = -100.0f;
-    float temperature2 = -100.0f;
+    float altitude1, altitude2;
+    float pressure1, pressure2;
 
     // Filtered values
-    float filtered_pressure1 = -1.0f;
-    float filtered_pressure2 = -1.0f;
-    float filtered_altitude1 = -1000.0f;
-    float filtered_altitude2 = -1000.0f;
+    float filtered_pressure1, filtered_pressure2;
+    float filtered_altitude1, filtered_altitude2;
 
     vTaskDelay(pdMS_TO_TICKS(100)); // Initial delay to allow sensors to stabilize
 
-    LOG_INFO("BarometerTask", "Starting with median filter (window=%d)", BAROMETER_FILTER_WINDOW);
+    //LOG_INFO("BarometerTask", "Starting with median filter (window=%d)", BAROMETER_FILTER_WINDOW);
 
     while (running)
     {
         esp_task_wdt_reset();
 
-        if (baro1)
-        {
-            auto baroData1 = baro1->getData();
-            if (baroData1.has_value())
-            {
-                // Read raw values
-                pressure1 = std::get<float>(baroData1.value().getData("pressure").value());
-                temperature1 = std::get<float>(baroData1.value().getData("temperature").value());
+        // Read raw data from barometers
+        auto presOpt1 = sensorData->baroData1.getData("pressure");
+        auto presVal1 = std::get<float>(presOpt1.value());
+        auto presOpt2 = sensorData->baroData2.getData("pressure");
+        auto presVal2 = std::get<float>(presOpt2.value());
 
-                // Apply pressure filter, then calculate altitude from filtered pressure
-                filtered_pressure1 = pressureFilter1.update(pressure1);
-                //Da cambiare quando si sceglie il barometro da usare
-                addPressureTrendValue(filtered_pressure1);
+        // Apply filters and compute altitudes
+        filtered_pressure1 = pressureFilter1.update(pressure1);
+        filtered_pressure2 = pressureFilter2.update(pressure2);
 
-                // Calculate altitudes for comparison
-                altitude1 = relAltitude(pressure1);              // Raw altitude
-                filtered_altitude1 = relAltitude(filtered_pressure1);  // Filtered altitude
-
-                // Store filtered values in shared data
-                if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(10)) == pdTRUE)
-                {
-                    // Create new SensorData with filtered values
-                    SensorData filteredData("MS561101BA03_Filtered");
-                    filteredData.setData("pressure", filtered_pressure1);
-                    filteredData.setData("temperature", temperature1); // Temperature doesn't need filtering
-
-                    sensorData->baroData1 = filteredData;
-                    sensorData->timestamp = millis();
-                    sensorData->dataValid = true;
-                    xSemaphoreGive(dataMutex);
-                }
-            }
-            else
-            {
-                LOG_WARNING("BarometerTask", "Failed to read data from Barometer 1");
-            }
-        }
-
-        if (baro2)
-        {
-            auto baroData2 = baro2->getData();
-            if (baroData2.has_value())
-            {
-                // Read raw values
-                pressure2 = std::get<float>(baroData2.value().getData("pressure").value());
-                temperature2 = std::get<float>(baroData2.value().getData("temperature").value());
-
-                // Apply pressure filter, then calculate altitude from filtered pressure
-                filtered_pressure2 = pressureFilter2.update(pressure2);
-
-                //Da cambiare quando si sceglie il barometro da usare
-                addPressureTrendValue(filtered_pressure2);
-                
-                // Calculate altitudes for comparison
-                altitude2 = relAltitude(pressure2);              // Raw altitude
-                filtered_altitude2 = relAltitude(filtered_pressure2);  // Filtered altitude
-
-                // Store filtered values in shared data
-                if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(10)) == pdTRUE)
-                {
-                    // Create new SensorData with filtered values
-                    SensorData filteredData("MS561101BA03_Filtered");
-                    filteredData.setData("pressure", filtered_pressure2);
-                    filteredData.setData("temperature", temperature2); // Temperature doesn't need filtering
-
-                    sensorData->baroData2 = filteredData;
-                    sensorData->timestamp = millis();
-                    sensorData->dataValid = true;
-                    xSemaphoreGive(dataMutex);
-                }
-            }
-            else
-            {
-                LOG_WARNING("BarometerTask", "Failed to read data from Barometer 2");
-            }
-        }
+        //Da cambiare quando si sceglie il barometro da usare
+        addPressureTrendValue(filtered_pressure1);
+        //addPressureTrendValue(filtered_pressure2);
+        
+        // Calculate altitudes for comparison
+        altitude1 = relAltitude(pressure1);              // Raw altitude
+        filtered_altitude1 = relAltitude(filtered_pressure1);  // Filtered altitude
+        altitude2 = relAltitude(pressure2);              // Raw altitude
+        filtered_altitude2 = relAltitude(filtered_pressure2);  // Filtered altitude
 
         // Da confermare se questa operazione è da fare in questo punto del ciclo
         if (pressureTrendBuffer.size() < trendBufferSize){
-            isRising = std::make_shared<bool>(true); // Assume rising until we have enough data
+            *isRising = true; // Assume rising until we have enough data
         } else {
             for (size_t i = 0; i < pressureTrendBuffer.size(); ++i) {
                 if (relAltitude(pressureTrendBuffer[i]) > max_altitude_read) {
-                    isRising = std::make_shared<bool>(true);
+                    *isRising = true;
                 }
             }
-            isRising = std::make_shared<bool>(false);
+            *isRising = false;
         }
-
         
         // True se l'ultima lettura del buffer è inferiore alla quota di deploy
-        //Da cambiare quando si sceglie il barometro da usare
-        currentHeight = std::make_shared<float>( (filtered_altitude1 + filtered_altitude2) / 2.0f );
+        // Da cambiare quando si sceglie il barometro da usare
+        *currentHeight = filtered_altitude1;
+        // *currentHeight = filtered_altitude2;
 
         if (filtered_altitude1 > max_altitude_read)
             max_altitude_read = filtered_altitude1;
         if (filtered_altitude2 > max_altitude_read)
             max_altitude_read = filtered_altitude2;
 
-        LOG_INFO("BarometerTask", "Temperatures: Baro1=%.2f K, Baro2=%.2f K",
+        /*LOG_INFO("BarometerTask", "Temperatures: Baro1=%.2f K, Baro2=%.2f K",
                  temperature1, temperature2);
         LOG_INFO("BarometerTask", "Pressures (raw→filtered): Baro1=%.2f→%.2f hPa, Baro2=%.2f→%.2f hPa",
                  pressure1, filtered_pressure1, pressure2, filtered_pressure2);
         LOG_INFO("BarometerTask", "Altitudes (raw→filtered): Baro1=%.2f→%.2f m, Baro2=%.2f→%.2f m, Max=%.2f m",
                  altitude1, filtered_altitude1, altitude2, filtered_altitude2, max_altitude_read);
-
+        */
         vTaskDelay(pdMS_TO_TICKS(5)); // 200Hz
     }
 

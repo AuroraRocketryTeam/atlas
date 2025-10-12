@@ -39,14 +39,10 @@ private:
     // Telemetry
     std::shared_ptr<EspNowTransmitter> espNowTransmitter;
 
-    //
+    // Flight state
     std::shared_ptr<bool> isRising;
     std::shared_ptr<float> heightGainSpeed;
     std::shared_ptr<float> currentHeight;
-
-    
-    // Telemetry
-    std::shared_ptr<EspNowTransmitter> espNowTransmitter;
     
 public:
     TaskManager(std::shared_ptr<SharedSensorData> sensorData,

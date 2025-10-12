@@ -122,10 +122,10 @@ void RocketFSM::init()
         baro1,          // barometer1
         baro2,          // barometer2
         gps,            // gpsModule
-        sensorDataMutex,,// sensorMutex
+        sensorDataMutex,// sensorMutex
         sd,             // sdCard
         logger,         // logger
-        loggerMutex     // loggerMutex
+        loggerMutex,   // loggerMutex
         isRising,       // barometer Rising flag
         heightGainSpeed, // height gain speed in m/s
         currentHeight   // height which the rocket is at
@@ -571,6 +571,8 @@ void RocketFSM::setupTransitions()
 
 void RocketFSM::transitionTo(RocketState newState)
 {
+    //play buzzer
+    tone(BUZZER_PIN, 2000, 100);
     if (isTransitioning)
     {
         LOG_WARNING("RocketFSM", "Already transitioning, ignoring");
@@ -694,6 +696,7 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::CALIBRATING:
+        sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         // Calibration timeout fallback
         //if (millis() - stateStartTime > 10000U)
         //{
@@ -719,10 +722,6 @@ void RocketFSM::checkTransitions()
                         launchHighSince = 0;
                     }
                 }
-                else
-                {
-                    launchHighSince = 0;
-                }
             } else {
                 LOG_INFO("RocketFSM", "READY_FOR_LAUNCH: No accelerometer data available");
             }
@@ -736,9 +735,11 @@ void RocketFSM::checkTransitions()
 
     case RocketState::LAUNCH:
         // After a short delay consider liftoff started (rocket left the launch pad and is accelerating)
-        if (millis() - stateStartTime > 5000)
+        LOG_INFO("RocketFSM", "Now: %lu, stateStartTime: %lu, LAUNCH: elapsed=%lu ms", millis(), stateStartTime, millis() - stateStartTime);
+        if (millis() - stateStartTime > 5000) // !!! 5000 IS ALREADY BALISTIC
         {
             sendEvent(FSMEvent::LIFTOFF_STARTED);
+
         }
         break;
 
@@ -772,38 +773,15 @@ void RocketFSM::checkTransitions()
 
     case RocketState::BALLISTIC_FLIGHT:
     {
-        {
-            /*static unsigned long apogeeSince = 0;
-
-            if (kalmanFilter)
+        LOG_INFO("RocketFSM", "BALLISTIC_FLIGHT: is rising = %s", isRising.get());
+        if(isRising.get()){
+            if (millis() - stateStartTime > 500U)
             {
-                auto vertical_velocity = kalmanFilter->state()[STATE_INDEX_VELOCITY];
-                if (vertical_velocity > MIN_ACCECTABLE_VELOCITY && vertical_velocity < MAX_ACCECTABLE_VELOCITY)
-                {
-                    LOG_INFO("RocketFSM", "BALLISTIC_FLIGHT: vertical_velocity=%.3f", vertical_velocity);
-                    if (vertical_velocity <= 0.0f)
-                    {
-                        if (apogeeSince == 0)
-                        {
-                            apogeeSince = millis();
-                        }
-                        else if (millis() - apogeeSince > 500U)
-                        {
-                            sendEvent(FSMEvent::APOGEE_REACHED);
-                            apogeeSince = 0;
-                        }
-                    }
-                    else
-                    {
-                        apogeeSince = 0;
-                    }
-                } else {
-                    LOG_ERROR("VerticalVelocity", "The vertical velocity is is out of scale, not activating the drouge");
-                }                
+                sendEvent(FSMEvent::APOGEE_REACHED);
             }
-
-            break;
         }
+
+        break;
     }
 
     case RocketState::APOGEE:
@@ -814,8 +792,6 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::STABILIZATION:
-        static unsigned long stableSince = 0;
-        //To be checked !!!
         LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", *currentHeight);
         if (*currentHeight < MAIN_ALTITUDE_THRESHOLD)
         {
