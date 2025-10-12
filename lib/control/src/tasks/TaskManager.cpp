@@ -1,20 +1,26 @@
 #include "TaskManager.hpp"
 #include <config.h>
+#include <config.h>
 
 TaskManager::TaskManager(std::shared_ptr<SharedSensorData> sensorData,
-                         std::shared_ptr<KalmanFilter1D> kalmanFilter,
-                         std::shared_ptr<ISensor> imu,
-                         std::shared_ptr<ISensor> barometer1,
-                         std::shared_ptr<ISensor> barometer2,
-                         std::shared_ptr<ISensor> gps,
-                         SemaphoreHandle_t sensorMutex,
+                            std::shared_ptr<KalmanFilter1D> kalmanFilter,
+                            std::shared_ptr<ISensor> imu,
+                            std::shared_ptr<ISensor> barometer1,
+                            std::shared_ptr<ISensor> barometer2,
+                            std::shared_ptr<ISensor> gps,
+                            SemaphoreHandle_t sensorMutex,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> rocketLogger,
-                         SemaphoreHandle_t loggerMutex) : 
+                         SemaphoreHandle_t loggerMutex,
+                            std::shared_ptr<bool> isRising,
+                            std::shared_ptr<float> heightGainSpeed,
+                            std::shared_ptr<float> currentHeight) : 
                             sensorData(sensorData), kalmanFilter(kalmanFilter),
-                            bno055(imu), baro1(barometer1), baro2(barometer2), gps(gps), 
+                            bno055(imu), baro1(barometer1), baro2(barometer2), 
+                                                          gps(gps), 
                             sensorDataMutex(sensorMutex), sd(sd), rocketLogger(rocketLogger),
-                            loggerMutex(loggerMutex)
+                            loggerMutex(loggerMutex), isRising(isRising),
+                                                          heightGainSpeed(heightGainSpeed), currentHeight(currentHeight)
 {
     LOG_INFO("TaskMgr", "Initialized with sensors: IMU=%s, Baro1=%s, Baro2=%s, GPS=%s, SD=%s",
              imu ? "OK" : "NULL",
@@ -95,6 +101,22 @@ void TaskManager::initializeTasks()
         sensorDataMutex,
         baro1,
         baro2);
+
+    // Create TelemetryTask with ESP-NOW transmitter
+    tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(
+        sensorData,
+        sensorDataMutex,
+        espNowTransmitter,
+        TELEMETRY_INTERVAL_MS);
+
+    tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
+        sensorData,
+        sensorDataMutex,
+        baro1,
+        baro2,
+        isRising,
+        heightGainSpeed,
+        currentHeight);
 
     // tasks[TaskType::LOGGING] = std::make_unique<LoggingTask>(sensorData, sensorDataMutex);
     // tasks[TaskType::APOGEE_DETECTION] = std::make_unique<ApogeeDetectionTask>(filteredData, filteredDataMutex);

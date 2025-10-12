@@ -122,10 +122,13 @@ void RocketFSM::init()
         baro1,          // barometer1
         baro2,          // barometer2
         gps,            // gpsModule
-        sensorDataMutex,// sensorMutex
+        sensorDataMutex,,// sensorMutex
         sd,             // sdCard
         logger,         // logger
         loggerMutex     // loggerMutex
+        isRising,       // barometer Rising flag
+        heightGainSpeed, // height gain speed in m/s
+        currentHeight   // height which the rocket is at
     );
     LOG_INFO("RocketFSM", "INITIALIZING TASKS...");
     taskManager->initializeTasks();
@@ -203,13 +206,16 @@ void RocketFSM::stop()
     {
         LOG_DEBUG("RocketFSM", "Waiting for FSM task to exit cooperatively...");
 
+
         TaskHandle_t localHandle = fsmTaskHandle;
         int maxWaits = 60; // 60 * 50ms = 3000ms
         int waits = 0;
 
+
         while (waits < maxWaits)
         {
             eTaskState taskState = eTaskGetState(localHandle);
+
 
             // Task has self-deleted or is invalid
             if (taskState == eDeleted || taskState == eInvalid)
@@ -218,9 +224,11 @@ void RocketFSM::stop()
                 break;
             }
 
+
             vTaskDelay(pdMS_TO_TICKS(50));
             waits++;
         }
+
 
         // Check final state
         eTaskState finalState = eTaskGetState(localHandle);
@@ -232,6 +240,7 @@ void RocketFSM::stop()
             // Leave handle as-is for debugging
             return;
         }
+
 
         fsmTaskHandle = nullptr;
     }
@@ -764,7 +773,7 @@ void RocketFSM::checkTransitions()
     case RocketState::BALLISTIC_FLIGHT:
     {
         {
-            static unsigned long apogeeSince = 0;
+            /*static unsigned long apogeeSince = 0;
 
             if (kalmanFilter)
             {
@@ -792,6 +801,7 @@ void RocketFSM::checkTransitions()
                     LOG_ERROR("VerticalVelocity", "The vertical velocity is is out of scale, not activating the drouge");
                 }                
             }
+
             break;
         }
     }
@@ -804,30 +814,27 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::STABILIZATION:
-        if (kalmanFilter)
+        static unsigned long stableSince = 0;
+        //To be checked !!!
+        LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", *currentHeight);
+        if (*currentHeight < MAIN_ALTITUDE_THRESHOLD)
         {
-            auto altitude = kalmanFilter->state()[STATE_INDEX_ALTITUDE];
-            LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", altitude);
-            if (altitude < MAIN_ALTITUDE_THRESHOLD ||
-                (millis() - stateStartTime > 5000UL))
-            {
-                LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", altitude, millis() - stateStartTime);
-                sendEvent(FSMEvent::STABILIZATION_COMPLETE);
-            }
+            LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", *currentHeight, millis() - stateStartTime);
+            sendEvent(FSMEvent::STABILIZATION_COMPLETE);
         }
+    
         break;
 
     case RocketState::DECELERATION:
-        if (kalmanFilter)
+        // In DECELERATION state, vertical velocity in heightGainSpeed will still be tracked, but it should be negative (falling)
+        // !!! choose if chenge the control to be with negative values or to invert the value here
+        
+        LOG_INFO("RocketFSM", "DECELERATION: vertical_velocity=%.3f, altitude=%.3f", *heightGainSpeed, *currentHeight);
+        if (*heightGainSpeed < TOUCHDOWN_VELOCITY_THRESHOLD && *currentHeight < TOUCHDOWN_ALTITUDE_THRESHOLD)
         {
-            auto vertical_velocity = kalmanFilter->state()[STATE_INDEX_VELOCITY];
-            auto altitude = kalmanFilter->state()[STATE_INDEX_ALTITUDE];
-            LOG_INFO("RocketFSM", "DECELERATION: vertical_velocity=%.3f, altitude=%.3f", vertical_velocity, altitude);
-            if (vertical_velocity < TOUCHDOWN_VELOCITY_THRESHOLD && altitude < TOUCHDOWN_ALTITUDE_THRESHOLD)
-            {
-                sendEvent(FSMEvent::DECELERATION_COMPLETE);
-            }
+            sendEvent(FSMEvent::DECELERATION_COMPLETE);
         }
+        
         break;
 
     case RocketState::LANDING:

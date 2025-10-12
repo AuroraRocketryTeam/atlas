@@ -83,14 +83,20 @@ class BarometerTask : public BaseTask
 {
 public:
     BarometerTask(std::shared_ptr<SharedSensorData> sensorData,
-                  SemaphoreHandle_t sensorDataMutex,
-                  std::shared_ptr<ISensor> baro1,
-                  std::shared_ptr<ISensor> baro2)
+                    SemaphoreHandle_t sensorDataMutex,
+                    std::shared_ptr<ISensor> baro1,
+                    std::shared_ptr<ISensor> baro2,
+                    std::shared_ptr<bool> isRising,
+                    std::shared_ptr<float> heightGainSpeed,
+                    std::shared_ptr<float> currentHeight)
         : BaseTask("BarometerTask"),
           sensorData(sensorData),
           dataMutex(sensorDataMutex),
           baro1(baro1 ? baro1.get() : nullptr),
-          baro2(baro2 ? baro2.get() : nullptr)
+          baro2(baro2 ? baro2.get() : nullptr),
+          isRising(isRising),
+          heightGainSpeed(heightGainSpeed),
+          currentHeight(currentHeight)
     {
         LOG_INFO("BarometerTask", "Initialized with Barometers: %s, %s",
                  baro1 ? "OK" : "NULL",
@@ -103,15 +109,37 @@ public:
     {
         stop();
     }
-
+ 
 private:
     std::shared_ptr<SharedSensorData> sensorData;
     SemaphoreHandle_t dataMutex;
     ISensor *baro1;
     ISensor *baro2;
+    std::shared_ptr<bool> isRising;
+    std::shared_ptr<float> heightGainSpeed;
+    std::shared_ptr<float> currentHeight;
+
+    // Maximum altitude reached for easy access in BarometerTask
+    static float max_altitude_read;
     
     // Noise reduction: Median filters reject spikes better than moving average
     // Window size from config.h - tune BAROMETER_FILTER_WINDOW for your needs
     MedianFilter pressureFilter1{BAROMETER_FILTER_WINDOW};
     MedianFilter pressureFilter2{BAROMETER_FILTER_WINDOW};
+
+    // Buffer for tendency filtering, used in isStillRising()
+    std::vector<float> pressureTrendBuffer;
+    size_t trendBufferSize = 10; // Apogee detection window size
+    size_t mainDeploymentAltitude = 450; // Altitude for main deployment in meters
+
+    // Called in update to add new values to the filter and remove old ones
+    void addPressureTrendValue(float value) {
+        if (pressureTrendBuffer.size() >= trendBufferSize)
+            pressureTrendBuffer.erase(pressureTrendBuffer.begin());
+        pressureTrendBuffer.push_back(value);
+    }
+
+    // If max altitude reached is needed to be retrived
+    float getMaxAltitudeReached() { return max_altitude_read; }
+
 };

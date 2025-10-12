@@ -38,6 +38,15 @@ private:
     
     // Telemetry
     std::shared_ptr<EspNowTransmitter> espNowTransmitter;
+
+    //
+    std::shared_ptr<bool> isRising;
+    std::shared_ptr<float> heightGainSpeed;
+    std::shared_ptr<float> currentHeight;
+
+    
+    // Telemetry
+    std::shared_ptr<EspNowTransmitter> espNowTransmitter;
     
 public:
     TaskManager(std::shared_ptr<SharedSensorData> sensorData,
@@ -49,7 +58,10 @@ public:
             SemaphoreHandle_t sensorMutex,
             std::shared_ptr<SD> sd,
             std::shared_ptr<RocketLogger> rocketLogger,
-            SemaphoreHandle_t loggerMutex);
+            SemaphoreHandle_t loggerMutex,
+            std::shared_ptr<bool> isRising,
+            std::shared_ptr<float> heightGainSpeed,
+            std::shared_ptr<float> currentHeight);
     
     ~TaskManager();
     
