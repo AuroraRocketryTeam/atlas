@@ -51,6 +51,11 @@ private:
 
     std::shared_ptr<SD> sd;
 
+    // Important timers and tresholds
+    const unsigned long ACCELLERATED_TO_BALLISTIC_TRESHOLD = 5300;
+    const unsigned long BALLISTIC_TO_APOGEE_TRESHOLD = 25350; //24850 + 500 = 25350
+    unsigned long launchDetectionTime = 0;
+
 
 public:
     RocketFSM(std::shared_ptr<ISensor> imu,

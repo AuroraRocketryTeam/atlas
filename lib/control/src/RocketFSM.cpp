@@ -739,11 +739,16 @@ void RocketFSM::checkTransitions()
         if (millis() - stateStartTime > 5000) // !!! 5000 IS ALREADY BALISTIC
         {
             sendEvent(FSMEvent::LIFTOFF_STARTED);
-
+            launchDetectionTime = millis();
         }
         break;
 
     case RocketState::ACCELERATED_FLIGHT:
+        if (millis() - launchDetectionTime < ACCELLERATED_TO_BALLISTIC_TRESHOLD)
+        {
+            sendEvent(FSMEvent::ACCELERATION_COMPLETE);
+        }
+
         LOG_INFO("ACC_FLIGHT", "Checking condition");
         if (accOpt.has_value() && std::holds_alternative<std::map<std::string, float>>(accOpt.value()))
         {
@@ -774,11 +779,8 @@ void RocketFSM::checkTransitions()
     case RocketState::BALLISTIC_FLIGHT:
     {
         LOG_INFO("RocketFSM", "BALLISTIC_FLIGHT: is rising = %s", isRising.get());
-        if(isRising.get()){
-            if (millis() - stateStartTime > 500U)
-            {
-                sendEvent(FSMEvent::APOGEE_REACHED);
-            }
+        if(isRising.get() || millis() - stateStartTime < BALLISTIC_TO_APOGEE_TRESHOLD) { // wait at least 3 seconds before checking for apogee
+            sendEvent(FSMEvent::APOGEE_REACHED);
         }
 
         break;
