@@ -14,8 +14,8 @@ constexpr float R = 287.05f;                  // Air gas constant [J/Kg/K]
 #define n (GRAVITY / (R * a))
 #define nInv ((R * a) / GRAVITY)
 
-float relAltitude(float pressure, float pressureRef = 99696.0f,
-                  float temperatureRef = 301.41f)
+float relAltitude(float pressure, float pressureRef = 99725.0f,
+                  float temperatureRef = 291.41f)
 {
     return temperatureRef / a * (1 - powf(pressure / pressureRef, nInv));
 }
