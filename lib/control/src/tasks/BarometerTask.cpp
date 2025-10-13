@@ -60,7 +60,7 @@ void BarometerTask::taskFunction()
         } else {
             bool rised  = false;
             for (size_t i = 0; i < pressureTrendBuffer.size(); i++) {
-                if (relAltitude(pressureTrendBuffer[i]) > max_altitude_read) {
+                if (relAltitude(pressureTrendBuffer[i]) >= max_altitude_read) {
                     rised = true;
                     break;
                 }
