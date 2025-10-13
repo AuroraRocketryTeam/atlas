@@ -17,6 +17,7 @@ void StatusManager::init()
         {CALIBRATING, {{ART_LED_YELLOW, ART_LED_OFF, 800, 400, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
         {WAITING_INPUT, {{ART_LED_CYAN, ART_LED_OFF, 200, 200, 0, 0}, BUZZER_SHORT_BEEP, TONE_MID, false}},
         {FLIGHT_MODE, {{ART_LED_GREEN, ART_LED_OFF, 0, 0, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
+        {FSM_STARTED, {{ART_LED_ORANGE, ART_LED_OFF, 500, 500, 0, 0}, BUZZER_CONTINUOUS, TONE_MID, true}},
 
         // Sensor hardware failures
         {IMU_FAIL, {{ART_LED_RED, ART_LED_OFF, 200, 200, 0, 0}, BUZZER_SHORT_BEEP, TONE_ERROR, true}},

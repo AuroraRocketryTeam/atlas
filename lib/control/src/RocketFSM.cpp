@@ -12,14 +12,12 @@ RocketFSM::RocketFSM(std::shared_ptr<ISensor> imu,
                      std::shared_ptr<ISensor> barometer2,
                      std::shared_ptr<ISensor> accelerometer,
                      std::shared_ptr<ISensor> gpsModule,
-                     std::shared_ptr<KalmanFilter1D> kf,
                      std::shared_ptr<SD> sd,
                     std::shared_ptr<RocketLogger> logger)
     : fsmTaskHandle(nullptr), eventQueue(nullptr), stateMutex(nullptr),
       currentState(RocketState::INACTIVE), previousState(RocketState::INACTIVE),
       stateStartTime(0), isRunning(false), isTransitioning(false),
-      bno055(imu), baro1(barometer1), baro2(barometer2), accl(accelerometer), gps(gpsModule),
-      kalmanFilter(kf), sd(sd), logger(logger)
+      bno055(imu), baro1(barometer1), baro2(barometer2), accl(accelerometer), gps(gpsModule), sd(sd), logger(logger)
 {
     LOG_INFO("FSM", "Constructor called");
     LOG_INFO("FSM", "Sensors received: IMU=%s, Baro1=%s, Baro2=%s, GPS=%s, SD=%s",
@@ -117,7 +115,6 @@ void RocketFSM::init()
     LOG_INFO("RocketFSM", "Initializing TaskManager...");
     taskManager = std::make_unique<TaskManager>(
         sharedData,     // sensorData
-        kalmanFilter,   // kalmanFilter
         bno055,         // imu
         baro1,          // barometer1
         baro2,          // barometer2
