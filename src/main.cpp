@@ -48,7 +48,7 @@
  *
  */
 #define CALIBRATE_SENSORS
-#define ENABLE_PRE_FLIGHT_MODE
+#define ENABLE_TEST_ROUTINE
 #define TEST_FILE "/test.txt"
 
 // Create controller instances
@@ -114,6 +114,7 @@ void setup()
 
     // Initialize basic hardware
     Serial.begin(SERIAL_BAUD_RATE);
+    
     // Initialize controllers
     ledController.init();
     buzzerController.init();
@@ -134,7 +135,7 @@ void setup()
     // Initialize components
     initializeComponents();
 
-#ifdef ENABLE_PRE_FLIGHT_MODE
+#ifdef ENABLE_TEST_ROUTINE
     delay(5000);
     // Start test routine if in test mode
     LOG_INFO("Main", "=== TEST MODE ENABLED ===");
@@ -170,6 +171,7 @@ void setup()
         LOG_WARNING("Main", "System not armed! Waiting for arming signal on pin %d...", ARMING_PIN);
         delay(1000);
     }
+
     // Start FSM tasks
     LOG_INFO("Main", "Starting Flight State Machine...");
     statusManager.setSystemCode(FSM_STARTED);
@@ -189,8 +191,8 @@ void loop()
     LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
     LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
 
-    static unsigned long lastHeartbeat = 0;
-    static bool ledState = false;
+    unsigned long lastHeartbeat = 0;
+    bool ledState = false;
 
     // Heartbeat every 2 seconds
     if (millis() - lastHeartbeat > 2000)
@@ -214,7 +216,7 @@ void loop()
         }
 
         // Optional: Print current state periodically
-        static RocketState lastLoggedState = RocketState::INACTIVE;
+        RocketState lastLoggedState = RocketState::INACTIVE;
         RocketState currentState = rocketFSM->getCurrentState();
 
         if (currentState != lastLoggedState)
