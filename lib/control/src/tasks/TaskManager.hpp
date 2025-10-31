@@ -8,6 +8,7 @@
 #include "TaskConfig.hpp"
 #include "Logger.hpp"
 #include "SD-master.hpp"
+#include "Nemesis.hpp"
 
 #include "SensorTask.hpp"
 #include "SDLoggingTask.hpp"
@@ -22,39 +23,23 @@
 
 class TaskManager {
 private:
-    std::map<TaskType, std::unique_ptr<ITask>> tasks;
-    std::shared_ptr<SharedSensorData> sensorData;
-    std::shared_ptr<ISensor> bno055;
-    std::shared_ptr<ISensor> baro1;
-    std::shared_ptr<ISensor> baro2;
-    std::shared_ptr<ISensor> gps;
-    std::shared_ptr<RocketLogger> rocketLogger;
-    SemaphoreHandle_t sensorDataMutex;
-    SemaphoreHandle_t loggerMutex;
+    std::map<TaskType, std::unique_ptr<ITask>> _tasks;
+    std::shared_ptr<Nemesis> _model;
+    std::shared_ptr<RocketLogger> _logger;
+    SemaphoreHandle_t _modelMutex;
+    SemaphoreHandle_t _loggerMutex;
 
-    std::shared_ptr<SD> sd;
+    std::shared_ptr<SD> _sd;
     
     // Telemetry
-    std::shared_ptr<EspNowTransmitter> espNowTransmitter;
-
-    // Flight state
-    std::shared_ptr<bool> isRising;
-    std::shared_ptr<float> heightGainSpeed;
-    std::shared_ptr<float> currentHeight;
+    std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
     
 public:
-    TaskManager(std::shared_ptr<SharedSensorData> sensorData,
-            std::shared_ptr<ISensor> imu,
-            std::shared_ptr<ISensor> barometer1,
-            std::shared_ptr<ISensor> barometer2,
-            std::shared_ptr<ISensor> gps,
-            SemaphoreHandle_t sensorMutex,
+    TaskManager(std::shared_ptr<Nemesis> model,
+            SemaphoreHandle_t modelMutex,
             std::shared_ptr<SD> sd,
-            std::shared_ptr<RocketLogger> rocketLogger,
-            SemaphoreHandle_t loggerMutex,
-            std::shared_ptr<bool> isRising,
-            std::shared_ptr<float> heightGainSpeed,
-            std::shared_ptr<float> currentHeight);
+            std::shared_ptr<RocketLogger> logger,
+            SemaphoreHandle_t loggerMutex);
     
     ~TaskManager();
     
