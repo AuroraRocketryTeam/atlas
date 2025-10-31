@@ -52,15 +52,7 @@ public:
      * 
      * @param sensorData The sensor data to log.
      */
-    virtual void logSensorData(const SensorData sensorData) = 0;
-
-    /**
-     * @brief Log sensor data with a specific sensor name.
-     * 
-     * @param sensorName The name of the sensor.
-     * @param sensorData The sensor data to log.
-     */
-    virtual void logSensorData(const std::string& sensorName, const SensorData sensorData) = 0;
+    virtual void logSensorData(std::shared_ptr<SensorData> sensorData) = 0;
 
     /**
      * @brief Get all logged sensor data as a JSON list.
