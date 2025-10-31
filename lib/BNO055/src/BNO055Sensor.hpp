@@ -4,6 +4,201 @@
 #include <SensorData.hpp>
 #include <ISensor.hpp>
 
+class BNO055Data : public SensorData
+{
+public:
+    BNO055Data() : SensorData("BNO055") {}
+
+    // Calibration status
+    uint8_t calibration_sys;
+    uint8_t calibration_gyro;
+    uint8_t calibration_accel;
+    uint8_t calibration_mag;
+    
+    // Orientation (Euler angles in degrees)
+    float orientation_x;
+    float orientation_y;
+    float orientation_z;
+    
+    // Angular velocity (rad/s)
+    float angular_velocity_x;
+    float angular_velocity_y;
+    float angular_velocity_z;
+    
+    // Linear acceleration (m/s^2)
+    float linear_acceleration_x;
+    float linear_acceleration_y;
+    float linear_acceleration_z;
+    
+    // Total acceleration (m/s^2)
+    float acceleration_x;
+    float acceleration_y;
+    float acceleration_z;
+
+    // Gravity vector (m/s^2)
+    float gravity_x;
+    float gravity_y;
+    float gravity_z;
+    
+    // Magnetometer (microtesla)
+    float magnetometer_x;
+    float magnetometer_y;
+    float magnetometer_z;
+    
+    // Quaternion orientation
+    double quaternion_w;
+    double quaternion_x;
+    double quaternion_y;
+    double quaternion_z;
+    
+    // Temperature (°C)
+    float temperature;
+    
+    // Metadata
+    uint32_t timestamp;
+    
+    json toJSON() const override {
+        json j;
+        j["source"] = getSensorName();
+
+        json sensorDataJson;
+        sensorDataJson["calibration_sys"] = calibration_sys;
+        sensorDataJson["calibration_gyro"] = calibration_gyro;
+        sensorDataJson["calibration_accel"] = calibration_accel;
+        sensorDataJson["calibration_mag"] = calibration_mag;
+        sensorDataJson["orientation_x"] = orientation_x;
+        sensorDataJson["orientation_y"] = orientation_y;
+        sensorDataJson["orientation_z"] = orientation_z;
+        sensorDataJson["angular_velocity_x"] = angular_velocity_x;
+        sensorDataJson["angular_velocity_y"] = angular_velocity_y;
+        sensorDataJson["angular_velocity_z"] = angular_velocity_z;
+        sensorDataJson["linear_acceleration_x"] = linear_acceleration_x;
+        sensorDataJson["linear_acceleration_y"] = linear_acceleration_y;
+        sensorDataJson["linear_acceleration_z"] = linear_acceleration_z;
+        sensorDataJson["acceleration_x"] = acceleration_x;
+        sensorDataJson["acceleration_y"] = acceleration_y;
+        sensorDataJson["acceleration_z"] = acceleration_z;
+        sensorDataJson["gravity_x"] = gravity_x;
+        sensorDataJson["gravity_y"] = gravity_y;
+        sensorDataJson["gravity_z"] = gravity_z;
+        sensorDataJson["magnetometer_x"] = magnetometer_x;
+        sensorDataJson["magnetometer_y"] = magnetometer_y;
+        sensorDataJson["magnetometer_z"] = magnetometer_z;
+        sensorDataJson["quaternion_w"] = quaternion_w;
+        sensorDataJson["quaternion_x"] = quaternion_x;
+        sensorDataJson["quaternion_y"] = quaternion_y;
+        sensorDataJson["quaternion_z"] = quaternion_z;
+        sensorDataJson["temperature"] = temperature;
+        sensorDataJson["timestamp"] = timestamp;
+
+        j["sensorData"] = sensorDataJson;
+
+        return j;
+    }
+};
+
+/**
+ * @class BNO055Sensor
+ * @brief High-level driver for the Bosch BNO055 IMU using BNO055SensorInterface.
+ *
+ * Provides initialization, optional calibration helpers, hardware self-test and
+ * a consolidated data readout via ISensor::getData(). Typical SensorData keys
+ * include accelerometer, angular velocity (gyroscope), orientation and board
+ * temperature depending on interface configuration.
+ */
+class BNO055Data : public SensorData
+{
+public:
+    BNO055Data() : SensorData("BNO055") {}
+
+    // Calibration status
+    uint8_t calibration_sys;
+    uint8_t calibration_gyro;
+    uint8_t calibration_accel;
+    uint8_t calibration_mag;
+    
+    // Orientation (Euler angles in degrees)
+    float orientation_x;
+    float orientation_y;
+    float orientation_z;
+    
+    // Angular velocity (rad/s)
+    float angular_velocity_x;
+    float angular_velocity_y;
+    float angular_velocity_z;
+    
+    // Linear acceleration (m/s^2)
+    float linear_acceleration_x;
+    float linear_acceleration_y;
+    float linear_acceleration_z;
+    
+    // Total acceleration (m/s^2)
+    float acceleration_x;
+    float acceleration_y;
+    float acceleration_z;
+
+    // Gravity vector (m/s^2)
+    float gravity_x;
+    float gravity_y;
+    float gravity_z;
+    
+    // Magnetometer (microtesla)
+    float magnetometer_x;
+    float magnetometer_y;
+    float magnetometer_z;
+    
+    // Quaternion orientation
+    double quaternion_w;
+    double quaternion_x;
+    double quaternion_y;
+    double quaternion_z;
+    
+    // Temperature (°C)
+    float temperature;
+    
+    // Metadata
+    uint32_t timestamp;
+    
+    json toJSON() const override {
+        json j;
+        j["source"] = getSensorName();
+
+        json sensorDataJson;
+        sensorDataJson["calibration_sys"] = calibration_sys;
+        sensorDataJson["calibration_gyro"] = calibration_gyro;
+        sensorDataJson["calibration_accel"] = calibration_accel;
+        sensorDataJson["calibration_mag"] = calibration_mag;
+        sensorDataJson["orientation_x"] = orientation_x;
+        sensorDataJson["orientation_y"] = orientation_y;
+        sensorDataJson["orientation_z"] = orientation_z;
+        sensorDataJson["angular_velocity_x"] = angular_velocity_x;
+        sensorDataJson["angular_velocity_y"] = angular_velocity_y;
+        sensorDataJson["angular_velocity_z"] = angular_velocity_z;
+        sensorDataJson["linear_acceleration_x"] = linear_acceleration_x;
+        sensorDataJson["linear_acceleration_y"] = linear_acceleration_y;
+        sensorDataJson["linear_acceleration_z"] = linear_acceleration_z;
+        sensorDataJson["acceleration_x"] = acceleration_x;
+        sensorDataJson["acceleration_y"] = acceleration_y;
+        sensorDataJson["acceleration_z"] = acceleration_z;
+        sensorDataJson["gravity_x"] = gravity_x;
+        sensorDataJson["gravity_y"] = gravity_y;
+        sensorDataJson["gravity_z"] = gravity_z;
+        sensorDataJson["magnetometer_x"] = magnetometer_x;
+        sensorDataJson["magnetometer_y"] = magnetometer_y;
+        sensorDataJson["magnetometer_z"] = magnetometer_z;
+        sensorDataJson["quaternion_w"] = quaternion_w;
+        sensorDataJson["quaternion_x"] = quaternion_x;
+        sensorDataJson["quaternion_y"] = quaternion_y;
+        sensorDataJson["quaternion_z"] = quaternion_z;
+        sensorDataJson["temperature"] = temperature;
+        sensorDataJson["timestamp"] = timestamp;
+
+        j["sensorData"] = sensorDataJson;
+
+        return j;
+    }
+};
+
 /**
  * @class BNO055Sensor
  * @brief High-level driver for the Bosch BNO055 IMU using BNO055SensorInterface.
@@ -24,45 +219,16 @@ public:
      * @return true on success, false otherwise.
      */
     bool init() override;
-
-    /**
-     * @brief Run the device calibration routine (blocking until complete if implemented).
-     * @return true if calibration completed successfully, false otherwise.
-     */
-    bool calibrate();
-
-    /**
-     * @brief Execute a hardware self-test if supported by the interface.
-     * @return true if the test passes, false otherwise.
-     */
+    bool updateData() override;
     bool hardwareTest();
 
-    /**
-     * @brief Read the latest available IMU data and package it as SensorData.
-     * @return SensorData populated with the latest readings; std::nullopt on failure.
-     */
-    std::optional<SensorData> getData() override;
-    
-    /**
-     * @struct CalibrationStatus
-     * @brief Per-subsystem calibration completeness indicators.
-     * Fields typically range 0..3 where 3 indicates fully calibrated.
-     */
-    struct CalibrationStatus {
-        uint8_t sys;   /**< System calibration level. */
-        uint8_t gyro;  /**< Gyroscope calibration level. */
-        uint8_t accel; /**< Accelerometer calibration level. */
-        uint8_t mag;   /**< Magnetometer calibration level. */
-    };
-
-    /**
-     * @brief Get the current calibration status across subsystems.
-     * @return CalibrationStatus with subsystem indicators.
-     */
-    CalibrationStatus getCalibration();
+    // Public getter for each sensor value
+    std::shared_ptr<BNO055Data> getData();
 
 private:
-    /** @brief Low-level interface to the BNO055 device. */
-    BNO055SensorInterface bno_interface;
+    BNO055SensorInterface _bno_interface;
+
+    // Data generated by the sensor
+    std::shared_ptr<BNO055Data> _data;
 };
 

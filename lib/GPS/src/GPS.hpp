@@ -87,24 +87,14 @@ public:
      * @return true on successful initialization, false otherwise.
      */
     bool init() override;
+    bool updateData() override;
 
-    /**
-     * @brief Read current GNSS data and expose it as SensorData.
-     *
-     * On success, always returns a SensorData with at least the fields
-     * "fix" and "satellites". When a 3D fix is available (fix >= 3),
-     * latitude and longitude (in decimal degrees) are included; additional
-     * fields like altitude (m), speed (km/h) and hdop may be provided
-     * depending on sensor configuration.
-     *
-     * @return std::optional<SensorData> Populated data if the read succeeded;
-     *         std::nullopt on communication failure.
-     */
-    std::optional<SensorData> getData() override;
+    // Public getter for each sensor value
+    std::shared_ptr<GPSData> getData();
 
 private:
-    /**
-     * @brief Underlying SparkFun GNSS driver instance.
-     */
-    SFE_UBLOX_GNSS myGNSS;
+    // SparkFun u-blox GNSS library interface object
+    SFE_UBLOX_GNSS _myGNSS;
+
+    std::shared_ptr<GPSData> _data;
 };
