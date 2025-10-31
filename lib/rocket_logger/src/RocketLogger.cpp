@@ -13,8 +13,8 @@ void RocketLogger::logInfo(const std::string& message) {
     if (freeHeap < 5000) {
         return;
     }
-    
-    ILoggable* logMessage = new(std::nothrow) LogMessage("RocketLogger", message);
+
+    std::shared_ptr<ILoggable> logMessage = std::make_shared<LogMessage>("RocketLogger", message);
     if (logMessage) {
         this->logDataList.push_back(LogData("INFO", logMessage));
     }
@@ -27,8 +27,8 @@ void RocketLogger::logWarning(const std::string& message) {
     if (freeHeap < 5000) { 
         return;
     }
-    
-    ILoggable* logMessage = new(std::nothrow) LogMessage("RocketLogger", message);
+
+    std::shared_ptr<ILoggable> logMessage = std::make_shared<LogMessage>("RocketLogger", message);
     if (logMessage) {
         this->logDataList.push_back(LogData("WARNING", logMessage));
     }
@@ -41,74 +41,33 @@ void RocketLogger::logError(const std::string& message) {
     if (freeHeap < 5000) { 
         return;
     }
-    
-    ILoggable* logMessage = new(std::nothrow) LogMessage("RocketLogger", message);
+
+    std::shared_ptr<ILoggable> logMessage = std::make_shared<LogMessage>("RocketLogger", message);
     if (logMessage) {
         this->logDataList.push_back(LogData("ERROR", logMessage));
     }
 }
 
 // Override logData to store sensor data
-void RocketLogger::logSensorData(const SensorData sensorData) {
+void RocketLogger::logSensorData(std::shared_ptr<SensorData> sensorData) {
     // Prevent memory exhaustion by limiting log entries
-    const size_t MAX_LOG_ENTRIES = 1000;
+    // note: this should never happen, but just in case we have a log of it
+    const size_t MAX_LOG_ENTRIES = 500;
     
     if (logDataList.size() >= MAX_LOG_ENTRIES) {
         LOG_WARNING("RocketLogger", "Log buffer full (%zu entries), clearing oldest entries", logDataList.size());
+        
         // Clear half the entries to avoid frequent clears
         size_t entriesToRemove = MAX_LOG_ENTRIES / 2;
         for (size_t i = 0; i < entriesToRemove && !logDataList.empty(); i++) {
-            delete logDataList[i].getData();
+            // MAKE SURE THE NEW DATA SYSTEM WITH SHARED POINTERS HANDLES MEMORY MANAGEMENT!!!
+            // delete logDataList[i].getData();
             logDataList.erase(logDataList.begin());
         }
         LOG_INFO("RocketLogger", "Cleared %zu entries, now have %zu entries", entriesToRemove, logDataList.size());
     }
-    
-    // Check available memory before allocating
-    uint32_t freeHeap = ESP.getFreeHeap();
-    if (freeHeap < 10000) {
-        LOG_ERROR("RocketLogger", "Insufficient memory for logging (%u bytes free), skipping log entry", freeHeap);
-        return;
-    }
-    
-    ILoggable* logSensorData = new(std::nothrow) LogSensorData(sensorData.getSensorName(), sensorData);
-    if (!logSensorData) {
-        LOG_ERROR("RocketLogger", "Failed to allocate memory for LogSensorData");
-        return;
-    }
-    
-    this->logDataList.push_back(LogData("SENSOR_DATA", logSensorData));
-}
 
-void RocketLogger::logSensorData(const std::string& sensorName, const SensorData sensorData) {
-    // Prevent memory exhaustion by limiting log entries
-    const size_t MAX_LOG_ENTRIES = 1000;
-    
-    if (logDataList.size() >= MAX_LOG_ENTRIES) {
-        LOG_WARNING("RocketLogger", "Log buffer full (%zu entries), clearing oldest entries", logDataList.size());
-        // Clear half the entries to avoid frequent clears
-        size_t entriesToRemove = MAX_LOG_ENTRIES / 2;
-        for (size_t i = 0; i < entriesToRemove && !logDataList.empty(); i++) {
-            delete logDataList[i].getData();
-            logDataList.erase(logDataList.begin());
-        }
-        LOG_INFO("RocketLogger", "Cleared %zu entries, now have %zu entries", entriesToRemove, logDataList.size());
-    }
-    
-    // Check available memory before allocating
-    uint32_t freeHeap = ESP.getFreeHeap();
-    if (freeHeap < 10000) {
-        LOG_ERROR("RocketLogger", "Insufficient memory for logging (%u bytes free), skipping log entry", freeHeap);
-        return;
-    }
-    
-    ILoggable* logSensorData = new(std::nothrow) LogSensorData(sensorName, sensorData);
-    if (!logSensorData) {
-        LOG_ERROR("RocketLogger", "Failed to allocate memory for LogSensorData");
-        return;
-    }
-    
-    this->logDataList.push_back(LogData("SENSOR_DATA", logSensorData));
+    this->logDataList.push_back(LogData("SENSOR_DATA", sensorData));
 }
 
 // Function to get all logged sensor data as a JSON list
@@ -127,10 +86,11 @@ void RocketLogger::clearData() {
     // Print deleting n elements
     LOG_INFO("RocketLogger", "Clearing %zu log entries...", initialCount);
 
-    // Delete all dynamically allocated LogSensorData objects
-    for (auto& logData : this->logDataList) {
-        delete logData.getData();
-    }
+    // MAKE SURE THE NEW DATA SYSTEM WITH SHARED POINTERS HANDLES MEMORY MANAGEMENT!!!
+    // Delete all dynamically allocated SensorData objects
+    //for (auto& logData : this->logDataList) {
+    //    delete logData.getData();
+    //}
 
     this->logDataList.clear();
     

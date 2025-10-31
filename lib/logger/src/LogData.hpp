@@ -17,16 +17,16 @@ private:
     std::string source;
 
     // Data to be logged
-    const ILoggable* data;
+    std::shared_ptr<ILoggable> data;
     
 public:
     /**
      * @brief Construct a new Log Data object
      * 
-     * @param source Origin of the log.
+     * @param source Origin of the log (e.g. "RocketLogger", "SensorData").
      * @param data Data to be logged.
      */
-    LogData(const std::string& source, const ILoggable* data) : source(source), data(data) {}
+    LogData(const std::string& source, std::shared_ptr<ILoggable> data) : source(source), data(data) {}
 
     /**
      * @brief Get the Source of the log.
@@ -40,7 +40,7 @@ public:
      * 
      * @return A pointer to the ILoggable data.
      */
-    const ILoggable* getData() const { return this->data; }
+    const std::shared_ptr<ILoggable> getData() const { return this->data; }
 
     /**
      * @brief Return a JSON representation of the log data.
