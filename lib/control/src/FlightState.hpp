@@ -122,5 +122,43 @@ struct StateTransition
         : fromState(from), toState(to), triggerEvent(event) {}
 };
 
+/**
+ * @brief Convert RocketState enum to string representation
+ * 
+ * Uses switch statement to ensure compile-time checking - if a new state
+ * is added to the enum, the compiler will warn about missing case.
+ * 
+ * @param state The rocket state to convert
+ * @return const char* String representation of the state
+ */
+inline const char* rocketStateToString(RocketState state) {
+    switch (state) {
+        case RocketState::INACTIVE:
+            return "INACTIVE";
+        case RocketState::CALIBRATING:
+            return "CALIBRATING";
+        case RocketState::READY_FOR_LAUNCH:
+            return "READY_FOR_LAUNCH";
+        case RocketState::LAUNCH:
+            return "LAUNCH";
+        case RocketState::ACCELERATED_FLIGHT:
+            return "ACCELERATED_FLIGHT";
+        case RocketState::BALLISTIC_FLIGHT:
+            return "BALLISTIC_FLIGHT";
+        case RocketState::APOGEE:
+            return "APOGEE";
+        case RocketState::STABILIZATION:
+            return "STABILIZATION";
+        case RocketState::DECELERATION:
+            return "DECELERATION";
+        case RocketState::LANDING:
+            return "LANDING";
+        case RocketState::RECOVERED:
+            return "RECOVERED";
+        default:
+            return "UNKNOWN STATE (missing rocketStateToString function's case implementation)";
+    }
+}
+
 // Forward declaration of TaskConfig (defined in ITask.hpp)
 struct TaskConfig;
