@@ -7,7 +7,7 @@
 #include <Termoresistenze.hpp>
 #include <config.h>
 #include "utils/logger/rocket_logger/RocketLogger.hpp"
-#include "utils/logger/data/LogSensorData.hpp"
+#include "utils/logger/data/SensorData.hpp"
 #include "utils/logger/LogData.hpp"
 
 BNO055Sensor bno;
