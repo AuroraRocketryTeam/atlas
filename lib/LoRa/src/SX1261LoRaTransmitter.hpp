@@ -10,6 +10,14 @@
 
 using TransmitDataType = std::variant<char *, String, std::string, nlohmann::json>;
 
+/**
+ * @class LoRaTransmitter
+ * @brief Transmitter based on RadioLib for SX1261 module.
+ *
+ * Manages initialization, basic configuration (frequency, power, BW, SF, CR)
+ * and transmission of payloads in various formats (char*, String, std::string, JSON).
+ * Default pin mapping: NSS=19, DIO1=2, NRST=14, BUSY=4.
+ */
 class LoRaTransmitter : public ITransmitter<TransmitDataType>
 {
 private:
@@ -32,7 +40,9 @@ private:
     uint8_t syncWord = 0x12;        // Private network
     
     /**
-     * @brief Converte il variant in stringa
+     * @brief Converts the variant to a string.
+     * @param data Data to convert (char*, String, std::string, nlohmann::json).
+     * @return std::string Textual representation of the payload.
      */
     std::string dataToString(const TransmitDataType& data) {
         std::string result;
@@ -59,7 +69,7 @@ private:
 
 public:
     /**
-     * @brief Costruttore
+     * @brief Constructor.
      */
     LoRaTransmitter() 
         : radio(new Module(LORA_NSS_PIN, LORA_DIO1_PIN, LORA_NRST_PIN, LORA_BUSY_PIN))
@@ -69,23 +79,20 @@ public:
     }
     
     /**
-     * @brief Inizializza il modulo LoRa SX1261
-     * @return ResponseStatusContainer con lo stato dell'inizializzazione
+     * @brief Initializes the LoRa SX1261 module.
+     * @return ResponseStatusContainer with the initialization status.
      */
     ResponseStatusContainer init() override {
-        Serial.print("Inizializzazione SX1261... ");
-        
-        // Inizializza il modulo
+        Serial.print("Initializing SX1261... ");
+
+        // Initialize the module
         int state = radio.begin();
         if (state != RADIOLIB_ERR_NONE) {
-            Serial.print("fallito, codice: ");
+            Serial.print("failed, code: ");
             Serial.println(state);
             return ResponseStatusContainer(state, String("Errore inizializzazione SX1261, codice: ") + String(state));
         }
-        
-        Serial.println("successo!");
-        
-        // Configura i parametri LoRa
+                
         if (radio.setFrequency(frequency) != RADIOLIB_ERR_NONE) {
             return ResponseStatusContainer(01, "Errore impostazione frequenza");
         }
@@ -123,16 +130,16 @@ public:
     }
     
     /**
-     * @brief Trasmette i dati via LoRa
-     * @param data I dati da trasmettere (variant type)
-     * @return ResponseStatusContainer con lo stato della trasmissione
+     * @brief Transmits data through LoRa.
+     * @param data The data to transmit (variant type)
+     * @return ResponseStatusContainer with the transmission status
      */
     ResponseStatusContainer transmit(TransmitDataType data) override {
         if (!initialized) {
-            return ResponseStatusContainer(99, "LoRa non inizializzato");
+            return ResponseStatusContainer(99, "LoRa not initialized");
         }
         
-        // Converte i dati in stringa
+        // Converts the data to a string
         std::string dataStr = dataToString(data);
         
         // Crea un pacchetto con header per identificazione
@@ -144,7 +151,7 @@ public:
         
         std::string packetStr = packet.dump();
         
-        Serial.print("Trasmissione LoRa (");
+        Serial.print("Lora transmission (");
         Serial.print(packetStr.length());
         Serial.print(" bytes): ");
         
@@ -160,23 +167,23 @@ public:
         int state = radio.transmit(packetStr.c_str());
         
         if (state == RADIOLIB_ERR_NONE) {
-            Serial.println("Trasmissione LoRa completata!");
-            return ResponseStatusContainer(state, String("Trasmissione completata, ID: ") + String(packetCounter - 1));
+            Serial.println("Lora transmission completed!");
+            return ResponseStatusContainer(state, String("Transmission completed, ID: ") + String(packetCounter - 1));
         } else {
-            Serial.print("Errore trasmissione LoRa, codice: ");
+            Serial.print("Lora transmission error, code: ");
             Serial.println(state);
-            return ResponseStatusContainer(state, String("Errore trasmissione, codice: ") + String(state));
+            return ResponseStatusContainer(state, String("Transmission error, code: ") + String(state));
         }
     }
     
     /**
-     * @brief Trasmette solo i dati essenziali per ridurre il carico
-     * @param data JSON completo del rocket logger
-     * @return ResponseStatusContainer con lo stato della trasmissione
+     * @brief Transmits only essential data to reduce payload
+     * @param data Complete JSON of the rocket logger
+     * @return ResponseStatusContainer with the transmission status
      */
     ResponseStatusContainer transmitCompact(const nlohmann::json& data) {
         if (!initialized) {
-            return ResponseStatusContainer(99, "LoRa non inizializzato");
+            return ResponseStatusContainer(99, "LoRa not initialized");
         }
         
         // Estrae solo i dati critici per ridurre la dimensione del pacchetto
@@ -238,8 +245,8 @@ public:
         }
         
         std::string compactStr = compactData.dump();
-        
-        Serial.print("Trasmissione compatta (");
+
+        Serial.print("Compact transmission (");
         Serial.print(compactStr.length());
         Serial.print(" bytes): ");
         Serial.println(compactStr.c_str());
@@ -248,17 +255,22 @@ public:
         int state = radio.transmit(compactStr.c_str());
         
         if (state == RADIOLIB_ERR_NONE) {
-            Serial.println("Trasmissione compatta completata!");
-            return ResponseStatusContainer(state, "Trasmissione compatta completata");
+            Serial.println("Compact transmission completed!");
+            return ResponseStatusContainer(state, "Compact transmission completed");
         } else {
-            Serial.print("Errore trasmissione compatta, codice: ");
+            Serial.print("Compact transmission error, code: ");
             Serial.println(state);
-            return ResponseStatusContainer(state, String("Errore trasmissione compatta, codice: ") + String(state));
+            return ResponseStatusContainer(state, String("Compact transmission error, code: ") + String(state));
         }
     }
     
     /**
-     * @brief Configura i parametri LoRa
+     * @brief Configures the LoRa parameters.
+     * @param freq Frequency in MHz.
+     * @param pwr Power in dBm.
+     * @param bw Bandwidth in kHz.
+     * @param sf Spreading Factor (7..12).
+     * @param cr Coding Rate (4/CR).
      */
     void configure(float freq, int8_t pwr, float bw, uint8_t sf, uint8_t cr) {
         frequency = freq;
@@ -269,20 +281,21 @@ public:
     }
     
     /**
-     * @brief Ottiene il numero di pacchetti trasmessi
+     * @brief Gets the number of transmitted packets.
+     * @return uint16_t Packet counter.
      */
     uint16_t getPacketCount() const {
         return packetCounter;
     }
     
     /**
-     * @brief Stampa le statistiche del modulo
+     * @brief Stampa le statistiche del modulo.
      */
     void printStats() {
         if (!initialized) {
             Serial.println("LoRa non inizializzato");
             return;
         }
-        Serial.println("=== Statistiche LoRa SX1261 ===");
+        Serial.println("=== LoRa SX1261 Statistics ===");
     }
 };

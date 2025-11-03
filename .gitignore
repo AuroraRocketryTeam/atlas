@@ -2,3 +2,11 @@
 .vscode
 .idea
 *.code-workspace
+
+# Doxygen generated files
+!docs/latex/refman.pdf
+docs/latex/
+docs/html/
+docs/xml/
+*.tmp
+
