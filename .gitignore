@@ -2,3 +2,9 @@
 .vscode
 .idea
 *.code-workspace
+
+# Doxygen generated files
+docs/html/
+docs/latex/
+docs/xml/
+*.tmp
