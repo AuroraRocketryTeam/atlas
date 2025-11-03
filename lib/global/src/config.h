@@ -76,8 +76,8 @@
 // IMPORTANT: This must match your local atmospheric conditions!
 // Option 1: Check local weather station for "sea level pressure" (QNH in aviation)
 // Option 2: Calculate from known altitude: If at SEA_LEVEL meters reading P hPa,
-//           then SEA_LEVEL_PRESSURE_HPA ≈ P / (1 - 0.0065 * SEA_LEVEL / 288.15)^5.255
-// Example: At 63m reading 1010.28 hPa → sea level pressure ≈ 1017.5 hPa
+//           then SEA_LEVEL_PRESSURE_HPA = P / (1 - 0.0065 * SEA_LEVEL / 288.15)^5.255
+// Example: At 63m reading 1010.28 hPa -> sea level pressure = 1017.5 hPa
 #define SEA_LEVEL_PRESSURE_HPA 1017.5f  // Local sea level pressure in hPa
 
 #define H_BIAS_PRESSURE_SENSOR 2.0f

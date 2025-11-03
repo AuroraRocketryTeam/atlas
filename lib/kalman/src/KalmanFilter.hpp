@@ -26,10 +26,37 @@
 #include <ArduinoEigen.h>
 #include "esp_task_wdt.h"
 
+/**
+ * @class KalmanFilter
+ * @brief Extended Kalman Filter for attitude/kinematics estimation.
+ *
+ * State layout (EKF_N = 16):
+ * - 3x position, 3x velocity, 4x quaternion (rotation), 3x accel bias, 3x gyro bias
+ * Measurement layout (EKF_M = 6):
+ * - 3x linear acceleration, 3x orientation components (see implementation notes)
+ */
 class KalmanFilter {
 public:
+    /**
+     * @brief Construct the EKF with reference gravity and magnetometer values.
+     * @param gravity_value Gravity vector used for initial alignment/calibration.
+     * @param magnometer_value Magnetometer reference for yaw alignment.
+     */
     KalmanFilter(Eigen::Vector3f gravity_value, Eigen::Vector3f magnometer_value);
+
+    /**
+     * @brief Advance the filter by one time step.
+     * @param dt Time step in seconds.
+     * @param omega Angular rates [rad/s] as a triad {wx, wy, wz}.
+     * @param accel Linear accelerations [m/s^2] as a triad {ax, ay, az}.
+     * @return A container with updated outputs (see source for structure semantics).
+     */
     std::vector<std::vector<float>> step(float dt, float omega[3], float accel[3]);
+
+    /**
+     * @brief Access the internal state vector storage.
+     * @return Pointer to the first element of the EKF state array (size EKF_N).
+     */
     float* state();
 
 private:
@@ -88,15 +115,34 @@ private:
      * @param gravity_readings A vector of gravity reading samples (a good amount is 200)
      * @return std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f>: the good approximations of quaternions, ???TODO
      */
+    /**
+     * @brief Perform an initial calibration/alignment using gravity and magnetometer.
+     * @param gravity_value Reference gravity vector in ENU.
+     * @param magnetometer_value Reference magnetic field vector in ENU.
+     * @return Tuple with initial quaternion and auxiliary vectors used for alignment.
+     */
     std::tuple<Eigen::Quaternionf, Eigen::Vector3f, Eigen::Vector3f> calibration(Eigen::Vector3f gravity_value, Eigen::Vector3f magnetometer_value);
 
     Eigen::Vector3f rotateToBody(const Eigen::Quaternionf& q, const Eigen::Vector3f& vec_world);
 
     // Compute H_q^{(a)} numerically
+    /**
+     * @brief Numerically compute the Jacobian of accel w.r.t quaternion.
+     * @param q_nominal Nominal quaternion.
+     * @param accel_world Acceleration in world frame.
+     * @param epsilon Finite difference step.
+     * @return 3x4 Jacobian matrix.
+     */
     Eigen::Matrix<float, 3, 4> computeHqAccelJacobian(const Eigen::Quaternionf& q_nominal, const Eigen::Vector3f& accel_world, float epsilon = 1e-5);
 
+    /**
+     * @brief EKF process/measurement model computation.
+     */
     void run_model(float dt, float fx[EKF_N], float hx[EKF_M], float omega_x, float omega_y, float omega_z, float accel_z[3]);
 
+    /**
+     * @brief Compute process Jacobian for tinyEKF.
+     */
     void computeJacobianF_tinyEKF(float dt, float omega_x, float omega_y, float omega_z, float accel_z[3], float F_out[EKF_N * EKF_N]);
 };
 
