@@ -41,10 +41,6 @@ jobs:
         
     - name: Generate PDF documentation
       run: |
-        cd docs/latex
-        make
-        cd ../..
-        # Copy PDF to HTML output directory for easy access
         cp docs/latex/refman.pdf docs/html/
         
     - name: Create index page with links
