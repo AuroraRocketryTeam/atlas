@@ -13,7 +13,6 @@
 - [Overview](#overview)
 - [Features](#features)
 - [Hardware](#hardware)
-- [Architecture](#architecture)
 - [Getting Started](#getting-started)
 - [Building & Flashing](#building--flashing)
 - [Telemetry System](#telemetry-system)
@@ -199,7 +198,7 @@ struct TelemetryPacket {
     RocketState state;           // Current flight state
     float altitude;              // Meters ASL
     float vertical_velocity;     // m/s
-
+```
 ---
 
 ## Building & Flashing
@@ -343,7 +342,8 @@ pio device monitor --baud 115200
 ---
 
 ## Documentation
-
+This project's docs are publicly available in the [Github pages](https://aurorarocketryteam.github.io/nemesis/) of this repository.
+Docs are generated using Doxygen inside a Github action.
 ### Generate API Docs
 
 The project includes a Doxygen configuration:
@@ -364,7 +364,6 @@ xdg-open docs/html/index.html
 - **Flight State Patterns**: See `lib/control/docs/STATUS_PATTERNS.md`
 - **Telemetry Migration Guide**: See `lib/telemetry/docs/TELEMETRY_MIGRATION.md`
 - **Binary Protocol Spec**: See `lib/telemetry/docs/BINARY_TELEMETRY.md`
-
 ---
 
 ## Contributing
