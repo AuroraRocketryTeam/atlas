@@ -186,21 +186,6 @@ pio ci --board=heltec_wifi_lora_32_V3 telemetry_lora_receiver.ino
 
 ---
 
-## Telemetry System
-
-### Binary Protocol
-
-Telemetry uses a fixed-size packet structure for reliable LoRa transmission:
-
-```cpp
-struct TelemetryPacket {
-    uint32_t timestamp;          // Milliseconds since boot
-    RocketState state;           // Current flight state
-    float altitude;              // Meters ASL
-    float vertical_velocity;     // m/s
-```
----
-
 ## Building & Flashing
 
 ### Default Environment (Arduino Nano ESP32)
