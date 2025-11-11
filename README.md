@@ -4,6 +4,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-ESP32-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
 
+[![FreeRTOS](https://img.shields.io/badge/RTOS-FreeRTOS-green.svg)](https://www.freertos.org/)
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg?logo=c%2B%2B)](https://isocpp.org/)
+[![LoRa](https://img.shields.io/badge/radio-LoRa-orange.svg)](https://www.semtech.com/lora)
+
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://aurorarocketryteam.github.io/nemesis/)
+
 **Advanced flight computer software for high-power rocketry**, featuring real-time telemetry, sensor fusion, and autonomous flight state management.
 
 ---
