@@ -2,12 +2,12 @@
 #include <config.h>
 #include <config.h>
 
-TaskManager::TaskManager(std::shared_ptr<Nemesis> model,
+TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          SemaphoreHandle_t modelMutex,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
                          SemaphoreHandle_t loggerMutex) : 
-                         _model(model),
+                         _rocketModel(rocketModel),
                          _modelMutex(modelMutex),
                          _sd(sd),
                          _logger(logger),
@@ -46,17 +46,17 @@ void TaskManager::initializeTasks()
     // For now, only BarometerTask has been updated to use the Nemesis model
     
     _tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
-        _model,
+        _rocketModel,
         _modelMutex,
         _logger,
         _loggerMutex);
     _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
-        _model,
+        _rocketModel,
         _modelMutex,
         _logger,
         _loggerMutex);
     // _tasks[TaskType::EKF] = std::make_unique<EkfTask>(
-    //     _model,
+    //     _rocketModel,
     //     _modelMutex,
     //     _kalmanFilter);
     _tasks[TaskType::SD_LOGGING] = std::make_unique<SDLoggingTask>(
@@ -68,7 +68,7 @@ void TaskManager::initializeTasks()
         // pipe symbol, this was needed as the readLine function had problem recognizing 
         // the \n character, so separating each line 
         "/simulated_sensors_full_piped.csv",
-        _model,
+        _rocketModel,
         _modelMutex,
         _logger,
         _loggerMutex);
@@ -76,13 +76,13 @@ void TaskManager::initializeTasks()
     // Create TelemetryTask with ESP-NOW transmitter
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
     _tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(
-        _model,
+        _rocketModel,
         _modelMutex,
         _espNowTransmitter,
         TELEMETRY_INTERVAL_MS);
 
     _tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
-        _model,
+        _rocketModel,
         _modelMutex);
 
     LOG_INFO("TaskManager", "Created %d task instances", _tasks.size());

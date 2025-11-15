@@ -32,7 +32,7 @@ bool MS561101BA03::updateData()
         return false;
     }
     
-    _data = std::make_shared<MS561101BA03Data>();
+    _data = std::make_shared<PressureSensorData>("MS561101BA03");
 
     // Calculate compensated pressure and temperature
     calculatePressureAndTemperature(D1, D2, _data->pressure, _data->temperature);    
@@ -156,7 +156,7 @@ void MS561101BA03::calculatePressureAndTemperature(uint32_t D1, uint32_t D2, flo
     pressure = P; // Convert to hPa/mbar
 }
 
-std::shared_ptr<MS561101BA03Data> MS561101BA03::getData()
+std::shared_ptr<PressureSensorData> MS561101BA03::getData()
 {
     return _data;
 }

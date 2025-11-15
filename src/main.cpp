@@ -22,7 +22,7 @@
 #include <ITransmitter.hpp>
 
 // System model
-#include <Nemesis.hpp>
+#include <RocketModel.hpp>
 
 // Sensors used in the system model
 #include <BNO055Sensor.hpp>
@@ -58,7 +58,7 @@ BuzzerController buzzerController(BUZZER_PIN);
 StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
-std::shared_ptr<Nemesis> nemesis = nullptr;
+std::shared_ptr<RocketModel> rocketModel = nullptr;
 
 // Type definitions
 using TransmitDataType = std::variant<char *, String, std::string, nlohmann::json>;
@@ -148,8 +148,8 @@ void setup()
     LOG_INFO("Init", "Rocket logger initialized");
 
     // Create Nemesis instance (constructor expects: logger, bno, lis3dh, ms56_1, ms56_2, gps)
-    nemesis = std::make_shared<Nemesis>(logger, bno055, accl, baro1, baro2, gps);
-    LOG_INFO("Main", "Nemesis system model created");
+    rocketModel = std::make_shared<RocketModel>(logger, bno055, accl, baro1, baro2, gps);
+    LOG_INFO("Main", "RocketModel system model created");
 
 #ifdef ENABLE_TEST_ROUTINE
     delay(5000);
@@ -170,7 +170,7 @@ void setup()
     // Initialize and start FSM
     LOG_INFO("Main", "=== System initialization complete ===");
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
-    rocketFSM = std::make_unique<RocketFSM>(nemesis, sdCard, logger);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger);
     rocketFSM->init();
     delay(1000);
 
@@ -608,10 +608,10 @@ bool testSensors()
 {
     LOG_INFO("Test", "\n[STEP 2] Test sensori");
     bool testFailed = false;
-    bool imu_ok = nemesis->updateBNO055();
-    bool baro1_ok = nemesis->updateMS561101BA03_1();
-    bool baro2_ok = nemesis->updateMS561101BA03_2();
-    bool accl_ok = nemesis->updateLIS3DHTR();
+    bool imu_ok = rocketModel->updateBNO055();
+    bool baro1_ok = rocketModel->updateMS561101BA03_1();
+    bool baro2_ok = rocketModel->updateMS561101BA03_2();
+    bool accl_ok = rocketModel->updateLIS3DHTR();
 
     if (!imu_ok)
     {
@@ -640,7 +640,7 @@ bool testSensors()
         LOG_INFO("Test", "Verifica output dei sensori...");
 
         // Testing IMU accelerometer
-        auto bnoData = nemesis->getBNO055Data();
+        auto bnoData = rocketModel->getBNO055Data();
         auto accelImuX = bnoData->acceleration_x;
         auto accelImuY = bnoData->acceleration_y;
         auto accelImuZ = bnoData->acceleration_z;
@@ -652,13 +652,13 @@ bool testSensors()
         digitalWrite(D5, HIGH);
         
         // Testing barometers
-        auto baro1Data = nemesis->getMS561101BA03Data_1();
+        auto baro1Data = rocketModel->getMS561101BA03Data_1();
         auto pressureBaro1 = baro1Data->pressure;
         LOG_INFO("Test", "Barometer 1 Pressure: %.2f hPa", (double)pressureBaro1);
         pinMode(A7, OUTPUT);
         digitalWrite(A7, HIGH);
 
-        auto baro2Data = nemesis->getMS561101BA03Data_2();
+        auto baro2Data = rocketModel->getMS561101BA03Data_2();
         auto pressureBaro2 = baro2Data->pressure;
         LOG_INFO("Test", "Barometer 2 Pressure: %.2f hPa", (double)pressureBaro2);
         pinMode(D4, OUTPUT);

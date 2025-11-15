@@ -1,7 +1,7 @@
 #pragma once
 
 #include "BaseTask.hpp"
-#include <Nemesis.hpp>
+#include <RocketModel.hpp>
 #include <cstring>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -19,12 +19,12 @@ public:
     /**
      * @brief Construct a new Gps Task object
      * 
-     * @param model The shared pointer to the rocket model
+     * @param rocketModel The shared pointer to the rocket model
      * @param modelMutex The semaphore handle to protect access to the model
      * @param logger The shared pointer to the RocketLogger instance
      * @param loggerMutex The semaphore handle to protect access to the logger
      */
-    GpsTask(std::shared_ptr<Nemesis> model,
+    GpsTask(std::shared_ptr<RocketModel> rocketModel,
             SemaphoreHandle_t modelMutex,
             std::shared_ptr<RocketLogger> logger, 
             SemaphoreHandle_t loggerMutex
@@ -40,7 +40,7 @@ protected:
     void onTaskStart() override;
     void onTaskStop() override;
 private:
-    std::shared_ptr<Nemesis> _model;
+    std::shared_ptr<RocketModel> _rocketModel;
     SemaphoreHandle_t _modelMutex;
 
     std::shared_ptr<RocketLogger> _logger;

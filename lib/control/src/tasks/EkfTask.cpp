@@ -18,21 +18,21 @@ void EkfTask::taskFunction() {
         // Check early exit
         if (!running) break;
 
-        std::shared_ptr<BNO055Data> imuDataCopy = std::make_shared<BNO055Data>();
-        std::shared_ptr<MS561101BA03Data> baro1DataCopy = std::make_shared<MS561101BA03Data>();
-        std::shared_ptr<MS561101BA03Data> baro2DataCopy = std::make_shared<MS561101BA03Data>();
-        std::shared_ptr<LIS3DHTRData> lisDataCopy = std::make_shared<LIS3DHTRData>();
-        std::shared_ptr<GPSData> gpsDataCopy = std::make_shared<GPSData>();
+        std::shared_ptr<IMUData> imuDataCopy = std::make_shared<IMUData>("EKF_IMU");
+        std::shared_ptr<PressureSensorData> baro1DataCopy = std::make_shared<PressureSensorData>("EKF_MS561101BA03_1");
+        std::shared_ptr<PressureSensorData> baro2DataCopy = std::make_shared<PressureSensorData>("EKF_MS561101BA03_2");
+        std::shared_ptr<AccelerometerSensorData> lisDataCopy = std::make_shared<AccelerometerSensorData>("EKF_LIS3DHTR");
+        std::shared_ptr<GPSData> gpsDataCopy = std::make_shared<GPSData>("EKF_GPS");
         uint32_t dataTimeStamp = 0;
 
         // Try to take the mutex quickly; if unavailable, skip this cycle to avoid deadlock
         if (xSemaphoreTake(_modelMutex, mutexTimeout) == pdTRUE)
         {
-            imuDataCopy = _model->getBNO055Data();
-            baro1DataCopy = _model->getMS561101BA03Data_1();
-            baro2DataCopy = _model->getMS561101BA03Data_2();
-            lisDataCopy = _model->getLIS3DHTRData();
-            gpsDataCopy = _model->getGPSData();
+            imuDataCopy = _rocketModel->getBNO055Data();
+            baro1DataCopy = _rocketModel->getMS561101BA03Data_1();
+            baro2DataCopy = _rocketModel->getMS561101BA03Data_2();
+            lisDataCopy = _rocketModel->getLIS3DHTRData();
+            gpsDataCopy = _rocketModel->getGPSData();
             dataTimeStamp = millis();
 
             xSemaphoreGive(_modelMutex);

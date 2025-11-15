@@ -11,12 +11,12 @@ uint32_t SimulationTask::_filePosition = 0;  // Track current line number
 bool SimulationTask::_fileInitialized = false;
 
 SimulationTask::SimulationTask(const std::string& csvFilePathPar,
-                                std::shared_ptr<Nemesis> model,
+                                std::shared_ptr<RocketModel> rocketModel,
                                 SemaphoreHandle_t modelMutex,
                                 std::shared_ptr<RocketLogger> logger,
                                 SemaphoreHandle_t loggerMutex)
         : BaseTask("SimulationTask"), 
-            _model(model), _modelMutex(modelMutex), 
+            _rocketModel(rocketModel), _modelMutex(modelMutex), 
             _logger(logger), _loggerMutex(loggerMutex) {
 
     // Only initialize SD and open file once for all instances
@@ -147,11 +147,11 @@ void SimulationTask::taskFunction() {
                     float Z_real_m, Z_sensor_m;
                     float Pressure_real_Pa, Pressure_sensor_Pa;
                 #else
-                    std::shared_ptr<BNO055Data> bnoData = std::make_shared<BNO055Data>();
-                    std::shared_ptr<LIS3DHTRData> lis3dhData = std::make_shared<LIS3DHTRData>();
-                    std::shared_ptr<MS561101BA03Data> ms561101ba03Data_1 = std::make_shared<MS561101BA03Data>();
-                    std::shared_ptr<MS561101BA03Data> ms561101ba03Data_2 = std::make_shared<MS561101BA03Data>();
-                    std::shared_ptr<GPSData> gpsData = std::make_shared<GPSData>();
+                    std::shared_ptr<IMUData> bnoData = std::make_shared<IMUData>("Simulated_IMU");
+                    std::shared_ptr<AccelerometerSensorData> lis3dhData = std::make_shared<AccelerometerSensorData>("Simulated_LIS3DHTR");
+                    std::shared_ptr<PressureSensorData> ms561101ba03Data_1 = std::make_shared<PressureSensorData>("Simulated_MS561101BA03_1");
+                    std::shared_ptr<PressureSensorData> ms561101ba03Data_2 = std::make_shared<PressureSensorData>("Simulated_MS561101BA03_2");
+                    std::shared_ptr<GPSData> gpsData = std::make_shared<GPSData>("Simulated_GPS");
                 #endif
 
                 std::vector<float> values;
@@ -246,12 +246,12 @@ void SimulationTask::taskFunction() {
                 
 
                 // Inject into shared sensor data
-                if (_model && xSemaphoreTake(_modelMutex, portMAX_DELAY) == pdTRUE) {
-                    _model->setSimulatedBNO055Data(bnoData);
-                    _model->setSimulatedLIS3DHTRData(lis3dhData);
-                    _model->setSimulatedMS561101BA03Data_1(ms561101ba03Data_1);
-                    _model->setSimulatedMS561101BA03Data_2(ms561101ba03Data_2);
-                    _model->setSimulatedGPSData(gpsData);
+                if (_rocketModel && xSemaphoreTake(_modelMutex, portMAX_DELAY) == pdTRUE) {
+                    _rocketModel->setSimulatedBNO055Data(bnoData);
+                    _rocketModel->setSimulatedLIS3DHTRData(lis3dhData);
+                    _rocketModel->setSimulatedMS561101BA03Data_1(ms561101ba03Data_1);
+                    _rocketModel->setSimulatedMS561101BA03Data_2(ms561101ba03Data_2);
+                    _rocketModel->setSimulatedGPSData(gpsData);
                     xSemaphoreGive(_modelMutex);
                 }
                 

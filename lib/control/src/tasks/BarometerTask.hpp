@@ -4,7 +4,7 @@
 #include <MS561101BA03.hpp>
 #include <Logger.hpp>
 #include <SharedData.hpp>
-#include <Nemesis.hpp>
+#include <RocketModel.hpp>
 #include <config.h>
 #include <vector>
 #include <algorithm>
@@ -85,13 +85,13 @@ public:
     /**
      * @brief Construct a new Barometer Task object 
      * 
-     * @param model The shared pointer to the rocket model
+     * @param rocketModel The shared pointer to the rocket model
      * @param modelMutex The mutex to protect access to the model
      */
-    BarometerTask(std::shared_ptr<Nemesis> model,
+    BarometerTask(std::shared_ptr<RocketModel> rocketModel,
                     SemaphoreHandle_t modelMutex)
         : BaseTask("BarometerTask"),
-          _model(model),
+          _rocketModel(rocketModel),
           _modelMutex(modelMutex),
           _max_altitude_read(-1000.0f) // This third parameter should be probably removed!!!
     {}
@@ -104,7 +104,7 @@ public:
     }
  
 private:
-    std::shared_ptr<Nemesis> _model;
+    std::shared_ptr<RocketModel> _rocketModel;
     SemaphoreHandle_t _modelMutex;
 
     // Maximum altitude reached for easy access in BarometerTask

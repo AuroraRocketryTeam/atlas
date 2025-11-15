@@ -1,12 +1,12 @@
 #include "GpsTask.hpp"
 
-GpsTask::GpsTask(std::shared_ptr<Nemesis> model,
+GpsTask::GpsTask(std::shared_ptr<RocketModel> rocketModel,
             SemaphoreHandle_t modelMutex,
             std::shared_ptr<RocketLogger> logger, 
             SemaphoreHandle_t loggerMutex
         )
         : BaseTask("GpsTask"),
-          _model(model),
+          _rocketModel(rocketModel),
           _modelMutex(modelMutex),
           _logger(logger),
           _loggerMutex(loggerMutex)
@@ -22,12 +22,12 @@ void GpsTask::taskFunction()
     {
         esp_task_wdt_reset();
 
-        _model->updateGPS();
+        _rocketModel->updateGPS();
         std::shared_ptr<GPSData> gpsData = nullptr;
         
         if (_modelMutex && xSemaphoreTake(_modelMutex, mutexTimeout) == pdTRUE)
         {
-            gpsData = _model->getGPSData();
+            gpsData = _rocketModel->getGPSData();
 
             LOG_INFO("GpsTask", "Got GPS data");
             xSemaphoreGive(_modelMutex);

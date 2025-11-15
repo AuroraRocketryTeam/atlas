@@ -12,12 +12,12 @@ float relAltitude_tele(float pressure, float pressureRef = 99725.0f,
     return temperatureRef / a * (1 - powf(pressure / pressureRef, nInv));
 }
 
-TelemetryTask::TelemetryTask(std::shared_ptr<Nemesis> model,
+TelemetryTask::TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
                              SemaphoreHandle_t modelMutex,
                              std::shared_ptr<EspNowTransmitter> espNowTransmitter,
                              uint32_t intervalMs)
     : BaseTask("TelemetryTask"),
-      _model(model),
+      _rocketModel(rocketModel),
       _modelMutex(modelMutex),
       _transmitter(espNowTransmitter),
       _transmitIntervalMs(intervalMs),
@@ -114,7 +114,7 @@ void TelemetryTask::taskFunction()
 
 bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
 {
-    if (!_model || !_modelMutex)
+    if (!_rocketModel || !_modelMutex)
     {
         return false;
     }
@@ -135,7 +135,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         packet.timestamp = millis();
         packet.dataValid = true;
 
-        auto bno055Data = _model->getBNO055Data();
+        auto bno055Data = _rocketModel->getBNO055Data();
 
         // IMU data - accelerometer
         packet.imu.accel_x = bno055Data->acceleration_x;
@@ -149,19 +149,19 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         packet.imu.gyro_z = bno055Data->orientation_z;
 
         // Barometer 1
-        auto baro1Data = _model->getMS561101BA03Data_1();
+        auto baro1Data = _rocketModel->getMS561101BA03Data_1();
         
         packet.baro1.pressure = baro1Data->pressure;
         packet.baro1.temperature = baro1Data->temperature;
 
         // Barometer 2
-        auto baro2Data = _model->getMS561101BA03Data_2();
+        auto baro2Data = _rocketModel->getMS561101BA03Data_2();
 
         packet.baro2.pressure = baro2Data->pressure;
         packet.baro2.temperature = baro2Data->temperature;
 
         // GPS data
-        auto gpsData = _model->getGPSData();
+        auto gpsData = _rocketModel->getGPSData();
 
         packet.gps.latitude = gpsData->latitude;
         packet.gps.longitude = gpsData->longitude;
