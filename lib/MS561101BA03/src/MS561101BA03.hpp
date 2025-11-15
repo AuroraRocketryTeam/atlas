@@ -1,6 +1,7 @@
 #pragma once
 #include <ISensor.hpp>
 #include <Wire.h>
+#include <PressureSensorData.hpp>
 
 // MS5611 Commands
 #define MS5611_CMD_RESET        0x1E
@@ -18,39 +19,6 @@
 #define MS5611_CMD_PROM_READ    0xA0
 
 /**
- * @brief Data structure for MS561101BA03 sensor readings
- * 
- */
-class MS561101BA03Data : public SensorData
-{
-public:
-    MS561101BA03Data() : SensorData("MS561101BA03") {}
-
-    // Pressure in mbar
-    float pressure;
-    
-    // Temperature in °C
-    float temperature;
-
-    // Metadata
-    uint32_t timestamp;
-
-    json toJSON() const override {
-        json j;
-        j["source"] = getSensorName();
-
-        json sensorDataJson;
-        sensorDataJson["pressure"] = pressure;
-        sensorDataJson["temperature"] = temperature;
-        sensorDataJson["timestamp"] = timestamp;
-
-        j["sensorData"] = sensorDataJson;
-
-        return j;
-    }
-};
-
-/**
  * @brief MS561101BA03 sensor class
  * 
  */
@@ -64,9 +32,9 @@ public:
     /**
      * @brief Getter for the sensor data
      * 
-     * @return a shared pointer to the MS561101BA03Data structure containing the latest readings
+     * @return a shared pointer to the PressureSensorData structure containing the latest readings
      */
-    std::shared_ptr<MS561101BA03Data> getData();
+    std::shared_ptr<PressureSensorData> getData();
 
 private:
     // I2C address of the sensor
@@ -82,5 +50,5 @@ private:
     uint32_t readRawTemperature();
     void calculatePressureAndTemperature(uint32_t D1, uint32_t D2, float& pressure, float& temperature);
 
-    std::shared_ptr<MS561101BA03Data> _data;
+    std::shared_ptr<PressureSensorData> _data;
 };
