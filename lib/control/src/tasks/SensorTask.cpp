@@ -1,12 +1,12 @@
 #include "SensorTask.hpp"
 #include "esp_task_wdt.h"
 
-SensorTask::SensorTask(std::shared_ptr<Nemesis> model,
+SensorTask::SensorTask(std::shared_ptr<RocketModel> rocketModel,
                        SemaphoreHandle_t modelMutex,
                        std::shared_ptr<RocketLogger> logger, 
                        SemaphoreHandle_t loggerMutex)
     : BaseTask("SensorTask"), 
-      model(model), 
+      rocketModel(rocketModel), 
       modelMutex(modelMutex),
       logger(logger), 
       loggerMutex(loggerMutex)
@@ -17,7 +17,7 @@ SensorTask::SensorTask(std::shared_ptr<Nemesis> model,
 void SensorTask::onTaskStart()
 {
     LOG_INFO("Sensor", "Task started with stack: %u bytes", config.stackSize);
-    LOG_INFO("Sensor", "Model pointer: %s", model ? "OK" : "NULL");
+    LOG_INFO("Sensor", "Model pointer: %s", rocketModel ? "OK" : "NULL");
 }
 
 void SensorTask::onTaskStop()
@@ -39,12 +39,12 @@ void SensorTask::taskFunction()
         if (!running) break;
         
         // Update sensors through the model with mutex protection
-        if (model && xSemaphoreTake(modelMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        if (rocketModel && xSemaphoreTake(modelMutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
-            model->updateBNO055();
-            model->updateMS561101BA03_1();
-            model->updateMS561101BA03_2();
-            model->updateLIS3DHTR();
+            rocketModel->updateBNO055();
+            rocketModel->updateMS561101BA03_1();
+            rocketModel->updateMS561101BA03_2();
+            rocketModel->updateLIS3DHTR();
             
             xSemaphoreGive(modelMutex);
             LOG_DEBUG("Sensor", "Updated all sensors");
@@ -74,12 +74,12 @@ void SensorTask::taskFunction()
         if (logger && loopCount % 3 == 0 && xSemaphoreTake(loggerMutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
             // Log sensor data through the model
-            if (model)
+            if (rocketModel)
             {
-                auto bnoData = model->getBNO055Data();
-                auto ms56Data1 = model->getMS561101BA03Data_1();
-                auto ms56Data2 = model->getMS561101BA03Data_2();
-                auto lis3dhData = model->getLIS3DHTRData();
+                auto bnoData = rocketModel->getBNO055Data();
+                auto ms56Data1 = rocketModel->getMS561101BA03Data_1();
+                auto ms56Data2 = rocketModel->getMS561101BA03Data_2();
+                auto lis3dhData = rocketModel->getLIS3DHTRData();
                 
                 if (bnoData) {
                     logger->logSensorData(bnoData);

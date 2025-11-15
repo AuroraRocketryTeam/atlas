@@ -10,7 +10,7 @@
 #include <SD-master.hpp>
 #include <memory>
 #include <map>
-#include <Nemesis.hpp>
+#include <RocketModel.hpp>
 
 /**
  * @brief Enumeration for the different rocket states.
@@ -26,7 +26,7 @@ public:
      * @param sd The shared pointer to the SD card
      * @param logger The shared pointer to the RocketLogger instance
      */
-    RocketFSM(std::shared_ptr<Nemesis> model,
+    RocketFSM(std::shared_ptr<RocketModel> rocketModel,
               std::shared_ptr<SD> sd,
               std::shared_ptr<RocketLogger> logger
             );
@@ -112,7 +112,7 @@ private:
     volatile bool _isTransitioning;
 
     // Shared data
-    std::shared_ptr<Nemesis> _model;
+    std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
     SemaphoreHandle_t _modelMutex;
     SemaphoreHandle_t _loggerMutex;

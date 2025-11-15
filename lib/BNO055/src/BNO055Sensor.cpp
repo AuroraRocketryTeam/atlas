@@ -47,7 +47,7 @@ bool BNO055Sensor::updateData()
         return false;
     }
 
-    _data = std::make_shared<BNO055Data>();
+    _data = std::make_shared<IMUData>("BNO055");
 
     _data->calibration_sys = _bno_interface.check_calibration_sys();
     _data->calibration_gyro = _bno_interface.check_calibration_gyro();
@@ -119,6 +119,6 @@ bool BNO055Sensor::hardwareTest() {
     return accel_status && mag_status && gyro_status && mcu_status;
 }
 
-std::shared_ptr<BNO055Data> BNO055Sensor::getData() {
+std::shared_ptr<IMUData> BNO055Sensor::getData() {
     return _data;
 }

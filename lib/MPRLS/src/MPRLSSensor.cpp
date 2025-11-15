@@ -28,7 +28,7 @@ bool MPRLSSensor::init()
 
 bool MPRLSSensor::updateData()
 {
-    _data = std::make_shared<MPRLSData>();
+    _data = std::make_shared<PressureSensorData>("MPRLS");
 
     _data->pressure = _mprls.readPressure();
 
@@ -41,6 +41,6 @@ bool MPRLSSensor::updateData()
     return true;
 }
 
-std::shared_ptr<MPRLSData> MPRLSSensor::getData() {
+std::shared_ptr<PressureSensorData> MPRLSSensor::getData() {
     return _data;
 }

@@ -32,10 +32,10 @@ void BarometerTask::taskFunction()
         
         // Read raw data from barometers
         #ifdef BARO_1
-            auto baro1Data = _model->getMS561101BA03Data_1();
+            auto baro1Data = _rocketModel->getMS561101BA03Data_1();
             pressure = baro1Data->pressure;
         #else
-            auto baro2Data = _model->getMS561101BA03Data_2();
+            auto baro2Data = _rocketModel->getMS561101BA03Data_2();
             pressure = baro2Data->pressure;
         #endif
         
@@ -52,7 +52,7 @@ void BarometerTask::taskFunction()
         // True if at least one value in the buffer is higher than the previous maximum 
         // This function could be moved to the hpp for cleaner code, but just want to be sure
         // possiamo fare in questo modo o mettere questo codice nel loop qui sopra ed avere una variabile bool privata con una funzione getter
-        auto isRising = _model->getIsRising();
+        auto isRising = _rocketModel->getIsRising();
         if (pressureTrendBuffer.size() < trendBufferSize){
             *isRising = true; // Assume rising until we have enough data
         } else {
@@ -71,7 +71,7 @@ void BarometerTask::taskFunction()
         LOG_INFO("BarometerTask", "Altitude value: %0.2f, Max_Altitude: %0.2f", filtered_altitude, _max_altitude_read);
         
         // True se l'ultima lettura del buffer è inferiore alla quota di deploy
-        auto currentHeight = _model->getCurrentHeight();
+        auto currentHeight = _rocketModel->getCurrentHeight();
         *currentHeight = filtered_altitude;
 
         if (filtered_altitude > _max_altitude_read) {

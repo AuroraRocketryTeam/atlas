@@ -3,7 +3,6 @@
 
 #include "SD-master.hpp"
 #include "BaseTask.hpp"
-#include <Nemesis.hpp>
 #include "Logger.hpp"
 #include "RocketLogger.hpp"
 #include <ISensor.hpp>
@@ -11,7 +10,11 @@
 #include <vector>
 #include <string>
 #include <chrono>
-#include <Nemesis.hpp>
+#include <RocketModel.hpp>
+#include <IMUData.hpp>
+#include <AccelerometerSensorData.hpp>
+#include <PressureSensorData.hpp>
+#include <GPSData.hpp>
 
 // If this variable is not commented, the format for old simulation of mission analysis (August 2025), 
 // is expected, otherwise the one obtained for Euroc 2025 is expected
@@ -27,14 +30,14 @@ public:
      * @brief Construct a new Simulation Task object
      * 
      * @param csvFilePath The path to the CSV file containing the simulation data
-     * @param model The shared pointer to the rocket model
+     * @param rocketModel The shared pointer to the rocket model
      * @param modelMutex The semaphore handle to protect access to the model
      * @param logger The shared pointer to the RocketLogger instance
      * @param loggerMutex The semaphore handle to protect access to the logger
      */
     SimulationTask(
         const std::string& csvFilePath,
-        std::shared_ptr<Nemesis> model,
+        std::shared_ptr<RocketModel> rocketModel,
         SemaphoreHandle_t modelMutex,
         std::shared_ptr<RocketLogger> logger,
         SemaphoreHandle_t loggerMutex);
@@ -68,7 +71,7 @@ private:
     // The first time it'll skip the first line (header)
     static bool _firstTime;
 
-    std::shared_ptr<Nemesis> _model;
+    std::shared_ptr<RocketModel> _rocketModel;
     SemaphoreHandle_t _modelMutex;
     std::shared_ptr<RocketLogger> _logger;
     SemaphoreHandle_t _loggerMutex;

@@ -7,17 +7,17 @@
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
 
-RocketFSM::RocketFSM(std::shared_ptr<Nemesis> model,
+RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
                      std::shared_ptr<SD> sd,
                      std::shared_ptr<RocketLogger> logger)
     : _fsmTaskHandle(nullptr), _eventQueue(nullptr), _stateMutex(nullptr),
       _currentState(RocketState::INACTIVE), _previousState(RocketState::INACTIVE),
       _stateStartTime(0), _isRunning(false), _isTransitioning(false),
-      _model(model), _sd(sd), _logger(logger)
+      _rocketModel(rocketModel), _sd(sd), _logger(logger)
 {
     LOG_INFO("FSM", "Constructor called");
     LOG_INFO("FSM", "Variables check: model=%s, SD=%s, Logger=%s",
-             _model ? "OK" : "NULL",
+             _rocketModel ? "OK" : "NULL",
              _sd ? "OK" : "NULL",
              _logger ? "OK" : "NULL");
 
@@ -105,7 +105,7 @@ void RocketFSM::init()
     // Initialize managers
     LOG_INFO("RocketFSM", "Initializing TaskManager...");
     _taskManager = std::make_unique<TaskManager>(
-        _model,     // model
+        _rocketModel,     // model
         _modelMutex,// modelMutex
         _sd,             // sdCard
         _logger,         // _logger
@@ -647,7 +647,7 @@ void RocketFSM::checkTransitions()
     static unsigned long decelSince = 0;
 
     // Get accelerometer data before switch statement
-    std::shared_ptr<BNO055Data> bno055Data = _model->getBNO055Data();
+    std::shared_ptr<IMUData> bno055Data = _rocketModel->getBNO055Data();
     auto accX = bno055Data->acceleration_x;
     auto accY = bno055Data->acceleration_y;
     auto accZ = bno055Data->acceleration_z;
@@ -707,7 +707,7 @@ void RocketFSM::checkTransitions()
     {
         //LOG_INFO("RocketFSM", "BALLISTIC_FLIGHT: is rising = %u", *isRising);
         auto elapsed = millis() - _launchDetectionTime;
-        auto isRising = _model->getIsRising();
+        auto isRising = _rocketModel->getIsRising();
         //LOG_INFO("RocketFSM", "now: %.3lu, stateStartTime: %.3lu, evaluated: %.3lu, treshold: %.3lu", millis(), stateStartTime, elapsed, LAUNCH_TO_APOGEE_THRESHOLD);
         if(!*isRising || (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD)){
             sendEvent(FSMEvent::APOGEE_REACHED);
@@ -726,7 +726,7 @@ void RocketFSM::checkTransitions()
 
     case RocketState::STABILIZATION:
     {
-        auto currentHeight = _model->getCurrentHeight();
+        auto currentHeight = _rocketModel->getCurrentHeight();
         LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", *currentHeight);
         if (*currentHeight < MAIN_ALTITUDE_THRESHOLD)
         {
@@ -742,7 +742,7 @@ void RocketFSM::checkTransitions()
         // In DECELERATION state, vertical velocity in heightGainSpeed will still be tracked, but it should be negative (falling)
         // !!! choose if chenge the control to be with negative values or to invert the value here
 
-        auto currentHeight = _model->getCurrentHeight();
+        auto currentHeight = _rocketModel->getCurrentHeight();
         if (*currentHeight < TOUCHDOWN_ALTITUDE_THRESHOLD)
         {
             sendEvent(FSMEvent::DECELERATION_COMPLETE);

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "BaseTask.hpp"
-#include <Nemesis.hpp>
+#include <RocketModel.hpp>
 #include "EspNowTransmitter.hpp"
 #include "Logger.hpp"
 #include <Packet.hpp>
@@ -64,7 +64,7 @@ struct TelemetryPacket
 class TelemetryTask : public BaseTask
 {
 private:
-    std::shared_ptr<Nemesis> _model;
+    std::shared_ptr<RocketModel> _rocketModel;
     SemaphoreHandle_t _modelMutex;
     std::shared_ptr<EspNowTransmitter> _transmitter;
 
@@ -85,7 +85,7 @@ public:
      * @param espNowTransmitter ESP-NOW transmitter instance.
      * @param intervalMs Interval between transmissions in milliseconds (default 1000ms = 1Hz).
      */
-    TelemetryTask(std::shared_ptr<Nemesis> model,
+    TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
                   SemaphoreHandle_t modelMutex,
                   std::shared_ptr<EspNowTransmitter> espNowTransmitter,
                   uint32_t intervalMs = 1000);

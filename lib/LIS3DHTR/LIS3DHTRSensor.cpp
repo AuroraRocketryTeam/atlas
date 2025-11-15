@@ -25,7 +25,7 @@ bool LIS3DHTRSensor::updateData()
         return false;
     }
 
-    _data = std::make_shared<LIS3DHTRData>();
+    _data = std::make_shared<AccelerometerSensorData>("LIS3DHTR");
     
     // Read acceleration data
     _data->acceleration_x = _lis.getAccelerationX() * GRAVITY;
@@ -38,7 +38,7 @@ bool LIS3DHTRSensor::updateData()
     return true;
 }
 
-std::shared_ptr<LIS3DHTRData> LIS3DHTRSensor::getData()
+std::shared_ptr<AccelerometerSensorData> LIS3DHTRSensor::getData()
 {
     return _data;
 }
