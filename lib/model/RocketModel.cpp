@@ -1,4 +1,4 @@
-#include "Nemesis.hpp"
+#include "RocketModel.hpp"
 
 //  Actuator and Buzzer pins
 #define ADC_PIN A0
@@ -6,7 +6,7 @@
 #define DROGUE_ACTUATORS_PIN D1
 #define BUZZER_PIN D2
 
-Nemesis::Nemesis(std::shared_ptr<RocketLogger> logger,
+RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
             std::shared_ptr<BNO055Sensor> bno,
             std::shared_ptr<LIS3DHTRSensor> lis3dh,
             std::shared_ptr<MS561101BA03> ms56_1,
@@ -34,7 +34,7 @@ Nemesis::Nemesis(std::shared_ptr<RocketLogger> logger,
     digitalWrite(BUZZER_PIN, LOW);
 }
 
-void Nemesis::readBattery() {
+void RocketModel::readBattery() {
     _batteryAdc = analogRead(ADC_PIN);
     _batteryVoltage = ((_batteryAdc / 4095.0f) * 3.3f) * 2.0f;
     _batteryPercentage = (_batteryVoltage - 5.6f) / (7.2f - 5.6f) * 100.0f;
@@ -48,7 +48,7 @@ void Nemesis::readBattery() {
     //logger->logSensorData(voltageData);
 }
 
-bool Nemesis::updateBNO055() {
+bool RocketModel::updateBNO055() {
     bool result = _bno->updateData();
 
     _bnoData = _bno->getData();
@@ -57,7 +57,7 @@ bool Nemesis::updateBNO055() {
     return result;
 }
 
-bool Nemesis::updateLIS3DHTR() {
+bool RocketModel::updateLIS3DHTR() {
     bool result = _lis3dh->updateData();
 
     _lis3dhData = _lis3dh->getData();
@@ -66,7 +66,7 @@ bool Nemesis::updateLIS3DHTR() {
     return result;
 }
 
-bool Nemesis::updateMS561101BA03_1() {
+bool RocketModel::updateMS561101BA03_1() {
     bool result = _ms56_1->updateData();
 
     _ms561101ba03Data_1 = _ms56_1->getData();
@@ -75,7 +75,7 @@ bool Nemesis::updateMS561101BA03_1() {
     return result;
 }
 
-bool Nemesis::updateMS561101BA03_2() {
+bool RocketModel::updateMS561101BA03_2() {
     bool result = _ms56_2->updateData();
 
     _ms561101ba03Data_2 = _ms56_2->getData();
@@ -84,7 +84,7 @@ bool Nemesis::updateMS561101BA03_2() {
     return result;
 }
 
-bool Nemesis::updateGPS() {
+bool RocketModel::updateGPS() {
     bool result = _gps->updateData();
 
     _gpsData = _gps->getData();
@@ -93,54 +93,54 @@ bool Nemesis::updateGPS() {
     return result;
 }
 
-std::shared_ptr<BNO055Data> Nemesis::getBNO055Data() {
+std::shared_ptr<IMUData> RocketModel::getBNO055Data() {
     return _bnoData;
 }
 
-std::shared_ptr<LIS3DHTRData> Nemesis::getLIS3DHTRData() {
+std::shared_ptr<AccelerometerSensorData> RocketModel::getLIS3DHTRData() {
     return _lis3dhData;
 }
 
-std::shared_ptr<MS561101BA03Data> Nemesis::getMS561101BA03Data_1() {
+std::shared_ptr<PressureSensorData> RocketModel::getMS561101BA03Data_1() {
     return _ms561101ba03Data_1;
 }
 
-std::shared_ptr<MS561101BA03Data> Nemesis::getMS561101BA03Data_2() {
+std::shared_ptr<PressureSensorData> RocketModel::getMS561101BA03Data_2() {
     return _ms561101ba03Data_2;
 }
 
-std::shared_ptr<GPSData> Nemesis::getGPSData() {
+std::shared_ptr<GPSData> RocketModel::getGPSData() {
     return _gpsData;
 }
 
-void Nemesis::setSimulatedBNO055Data(std::shared_ptr<BNO055Data> data) {
+void RocketModel::setSimulatedBNO055Data(std::shared_ptr<IMUData> data) {
     _bnoData = data;
 }
 
-void Nemesis::setSimulatedLIS3DHTRData(std::shared_ptr<LIS3DHTRData> data) {
+void RocketModel::setSimulatedLIS3DHTRData(std::shared_ptr<AccelerometerSensorData> data) {
     _lis3dhData = data;
 }
 
-void Nemesis::setSimulatedMS561101BA03Data_1(std::shared_ptr<MS561101BA03Data> data) {
+void RocketModel::setSimulatedMS561101BA03Data_1(std::shared_ptr<PressureSensorData> data) {
     _ms561101ba03Data_1 = data;
 }
 
-void Nemesis::setSimulatedMS561101BA03Data_2(std::shared_ptr<MS561101BA03Data> data) {
+void RocketModel::setSimulatedMS561101BA03Data_2(std::shared_ptr<PressureSensorData> data) {
     _ms561101ba03Data_2 = data;
 }
 
-void Nemesis::setSimulatedGPSData(std::shared_ptr<GPSData> data) {
+void RocketModel::setSimulatedGPSData(std::shared_ptr<GPSData> data) {
     _gpsData = data;
 }
 
-std::shared_ptr<bool> Nemesis::getIsRising() {
+std::shared_ptr<bool> RocketModel::getIsRising() {
     return _isRising;
 }
 
-std::shared_ptr<float> Nemesis::getHeightGainSpeed() {
+std::shared_ptr<float> RocketModel::getHeightGainSpeed() {
     return _heightGainSpeed;
 }
 
-std::shared_ptr<float> Nemesis::getCurrentHeight() {
+std::shared_ptr<float> RocketModel::getCurrentHeight() {
     return _currentHeight;
 }
