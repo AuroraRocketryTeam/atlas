@@ -297,19 +297,6 @@ Transition logic is in `lib/control/src/states/TransitionManager.cpp`.
 - **Doxygen comments** for all public APIs
 - **Include guards** and `#pragma once` for headers
 
-### Testing
-
-Unit tests are in `test/`:
-```bash
-# Run all tests
-pio test
-
-# Run specific test
-pio test -f test_kalman_filter
-```
-
-Manual hardware tests are in `test/test_manual/`.
-
 ### Debugging
 
 Enable verbose logging in `config.h`:
@@ -350,13 +337,6 @@ doxygen Doxyfile
 xdg-open docs/html/index.html
 ```
 
-### Additional Resources
-
-- **Flight State Patterns**: See `lib/control/docs/STATUS_PATTERNS.md`
-- **Telemetry Migration Guide**: See `lib/telemetry/docs/TELEMETRY_MIGRATION.md`
-- **Binary Protocol Spec**: See `lib/telemetry/docs/BINARY_TELEMETRY.md`
----
-
 ## Contributing
 
 We welcome contributions from the Aurora Rocket Team and the wider rocketry community!
@@ -373,7 +353,6 @@ We welcome contributions from the Aurora Rocket Team and the wider rocketry comm
 
 - Follow existing code style and naming conventions
 - Add Doxygen comments for new public APIs
-- Include unit tests for new algorithms
 - Update documentation for user-facing changes
 - Test on hardware before submitting (if possible)
 
