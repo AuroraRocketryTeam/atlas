@@ -1,0 +1,9 @@
+blank_issues_enabled: false  # Forza l'uso dei template
+contact_links:
+  - name: 💬 Questions and Discussions
+    url: https://github.com/aurorarocketryteam/nemesis/discussions
+    about: If you have a question or an idea that is not ready for an issue, open a discussion here
+
+  - name: 📖 Nemesis Docs
+    url: https://aurorarocketryteam.github.io/nemesis
+    about: Before opening an issue, check if your answer is already in the docs.
