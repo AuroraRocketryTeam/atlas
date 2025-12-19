@@ -1,0 +1,6 @@
+{
+  "name": "thirdparty_BNO055",
+  "version": "2.0.6",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}
