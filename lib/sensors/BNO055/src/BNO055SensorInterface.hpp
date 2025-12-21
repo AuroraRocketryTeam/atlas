@@ -6,6 +6,7 @@ extern "C" {
 #include <config.h>
 #include <Wire.h>
 #include <Arduino.h>
+#include <vector>
 
 // I2C communication functions are now private static members of BNO055SensorInterface
 

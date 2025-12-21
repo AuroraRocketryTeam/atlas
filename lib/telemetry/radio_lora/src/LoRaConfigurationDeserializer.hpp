@@ -2,7 +2,7 @@
 
 #include <nlohmann/json.hpp>
 #include <LoRa_E220.h>
-#include "utils/logger/ILogger.hpp"
+#include "ILogger.hpp"
 #include <FS.h> // Include the appropriate header for the File class
 
 /**
@@ -21,9 +21,9 @@ public:
 
         configuration.CHAN = 23;
 
-        configuration.SPEED.uartBaudRate = UART_BPS_9600;
-        configuration.SPEED.airDataRate = AIR_DATA_RATE_010_24;
-        configuration.SPEED.uartParity = MODE_00_8N1;
+        configuration.SPED.uartBaudRate = UART_BPS_9600;
+        configuration.SPED.airDataRate = AIR_DATA_RATE_010_24;
+        configuration.SPED.uartParity = MODE_00_8N1;
 
         configuration.OPTION.subPacketSetting = SPS_200_00;
         configuration.OPTION.RSSIAmbientNoise = RSSI_AMBIENT_NOISE_DISABLED;
@@ -45,7 +45,7 @@ public:
     bool isJsonValid(const nlohmann::json &json) const
     {
         return !(json.empty() || json.is_null() || !json.is_object() || json.size() == 0 || 
-                json["ADDH"].is_null() || json["ADDL"].is_null() || json["CHAN"].is_null() ||);
+                json["ADDH"].is_null() || json["ADDL"].is_null() || json["CHAN"].is_null());
     }
 
     /**
@@ -69,9 +69,9 @@ public:
         configuration.ADDL = json["ADDL"];
         configuration.CHAN = json["CHAN"];
 
-        configuration.SPEED.airDataRate = json["SPEED"]["airDataRate"];
-        configuration.SPEED.uartParity = json["SPEED"]["uartParity"];
-        configuration.SPEED.uartBaudRate = json["SPEED"]["uartBaudRate"];
+        configuration.SPED.airDataRate = json["SPED"]["airDataRate"];
+        configuration.SPED.uartParity = json["SPED"]["uartParity"];
+        configuration.SPED.uartBaudRate = json["SPED"]["uartBaudRate"];
 
         configuration.OPTION.transmissionPower = json["OPTION"]["transmissionPower"];
         configuration.OPTION.reserved = json["OPTION"]["reserved"];
