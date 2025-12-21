@@ -103,19 +103,27 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
 
     // Preparazione del pacchetto
     Packet packet = {};
-    packet.header.packetNumber = this->packetNumber++;
+    packet.header.messageId = this->packetNumber++;
     // Calcolo del numero totale di chunk per rientrare nei 199 byte massimi.
     packet.header.totalChunks = (dataLength + LORA_MAX_PAYLOAD_SIZE - 1) / LORA_MAX_PAYLOAD_SIZE;
-    packet.header.chunkNumber = 1;
-
+    packet.header.chunkIndex = 0;
+    packet.header.flags = 0;
+    
     while (offset < dataLength)
     {
-        packet.header.timestamp = static_cast<uint32_t>(time(nullptr));
+        if (packet.header.chunkIndex == 0)
+            packet.header.flags |= 0x01;  // Start of Message
+        else if (packet.header.chunkIndex == packet.header.totalChunks - 1)
+            packet.header.flags |= 0x02;  // Start of Message
+
+        // packet.header.timestamp = static_cast<uint32_t>(time(nullptr));
         uint8_t payloadSize = std::min(dataLength - offset, static_cast<size_t>(LORA_MAX_PAYLOAD_SIZE));
+        
         // Dimensione del payload
         packet.header.payloadSize = payloadSize;
-        packet.header.chunkSize = payloadSize + HEADER_SIZE + CRC_SIZE;
+        // packet.header.chunkSize = payloadSize + HEADER_SIZE + CRC_SIZE;
         // Suddivisione del pacchetto in chunk
+
         memcpy(packet.payload.data, compressedData.data() + offset, payloadSize);
 
         if (payloadSize < LORA_MAX_PAYLOAD_SIZE)
@@ -139,7 +147,7 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
         {
             return ResponseStatusContainer(rc.code, rc.getResponseDescription());
         }
-        packet.header.chunkNumber++;
+        packet.header.chunkIndex++;
         // Sposta l'offset al prossimo chunk
         offset += payloadSize;
     }
