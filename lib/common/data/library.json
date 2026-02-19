@@ -1,0 +1,6 @@
+{
+  "name": "aurora_rocketry_common_data",
+  "version": "0.1.0",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}
