@@ -1,6 +1,0 @@
-{
-  "name": "aurora_rocketry_telemetry_core",
-  "version": "0.1.0",
-  "frameworks": ["arduino"],
-  "platforms": ["espressif32"]
-}
