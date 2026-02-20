@@ -1,0 +1,7 @@
+{
+    "name": "aurora_rocketry_status",
+    "version": "0.1.0",
+    "description": "Status indicators (LED, Buzzer) for the Aurora Rocketry project",
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}

@@ -1,0 +1,7 @@
+{
+    "name": "aurora_rocketry_control",
+    "version": "0.1.0",
+    "description": "Flight control, FSM, and task management for the Aurora Rocketry project",
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}
