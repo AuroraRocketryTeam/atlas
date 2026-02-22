@@ -717,7 +717,7 @@ void RocketFSM::checkTransitions()
     }
 
     case RocketState::APOGEE:
-        LOG_INFO("RocketFSM", "Drogue Opened! %d", millis()-launchDetectionTime);
+        LOG_INFO("RocketFSM", "Drogue Opened! %d", millis()-_launchDetectionTime);
         if (millis() - _stateStartTime > DROGUE_APOGEE_TIMEOUT)
         {
             sendEvent(FSMEvent::DROGUE_READY);
