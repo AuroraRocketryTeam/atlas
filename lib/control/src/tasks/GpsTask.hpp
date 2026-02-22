@@ -1,7 +1,7 @@
 #pragma once
 
 #include "BaseTask.hpp"
-#include "SharedData.hpp"
+#include <RocketModel.hpp>
 #include <cstring>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -9,34 +9,30 @@
 #include "Logger.hpp"
 #include <RocketLogger.hpp>
 
+/**
+ * @brief Class to implement a GPS task.
+ * 
+ */
 class GpsTask : public BaseTask
 {
 public:
-    GpsTask(std::shared_ptr<SharedSensorData> sensorData,
-            SemaphoreHandle_t sensorDataMutex,
-            std::shared_ptr<ISensor> gps,
-            std::shared_ptr<RocketLogger> rocketLogger, 
+    /**
+     * @brief Construct a new Gps Task object
+     * 
+     * @param rocketModel The shared pointer to the rocket model
+     * @param modelMutex The semaphore handle to protect access to the model
+     * @param logger The shared pointer to the RocketLogger instance
+     * @param loggerMutex The semaphore handle to protect access to the logger
+     */
+    GpsTask(std::shared_ptr<RocketModel> rocketModel,
+            SemaphoreHandle_t modelMutex,
+            std::shared_ptr<RocketLogger> logger, 
             SemaphoreHandle_t loggerMutex
-        )
-        : BaseTask("GpsTask"),
-          sensorData(sensorData),
-          dataMutex(sensorDataMutex),
-          gps(gps ? gps.get() : nullptr),
-          rocketLogger(rocketLogger),
-          loggerMutex(loggerMutex)
-    {
-        LOG_INFO("GpsTask", "Initialized with GPS: %s", gps ? "OK" : "NULL");
-    }
+        );
 
     ~GpsTask() override
     {
         stop();
-    }
-
-    void setGps(std::shared_ptr<ISensor> gps)
-    {
-        this->gps = gps.get();
-        LOG_INFO("GpsTask", "Updated GPS: %s", gps ? "OK" : "NULL");
     }
 
 protected:
@@ -44,10 +40,9 @@ protected:
     void onTaskStart() override;
     void onTaskStop() override;
 private:
-    std::shared_ptr<SharedSensorData> sensorData;
-    SemaphoreHandle_t dataMutex;
-    ISensor *gps;
+    std::shared_ptr<RocketModel> _rocketModel;
+    SemaphoreHandle_t _modelMutex;
 
-    std::shared_ptr<RocketLogger> rocketLogger;
-    SemaphoreHandle_t loggerMutex;
+    std::shared_ptr<RocketLogger> _logger;
+    SemaphoreHandle_t _loggerMutex;
 };

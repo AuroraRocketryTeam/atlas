@@ -1,0 +1,10 @@
+{
+    "name": "aurora_rocketry_model",
+    "version": "0.1.0",
+    "description": "Rocket system model for the Aurora Rocketry project",
+    "frameworks": "arduino",
+    "platforms": "espressif32",
+    "build": {
+        "srcDir": "."
+    }
+}

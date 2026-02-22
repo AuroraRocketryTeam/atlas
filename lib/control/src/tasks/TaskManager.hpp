@@ -8,6 +8,7 @@
 #include "TaskConfig.hpp"
 #include "Logger.hpp"
 #include "SD-master.hpp"
+#include "RocketModel.hpp"
 
 #include "SensorTask.hpp"
 #include "SDLoggingTask.hpp"
@@ -20,52 +21,101 @@
 
 //#define SIMULATION_DATA // Comment this out to use real sensors
 
-class TaskManager {
-private:
-    std::map<TaskType, std::unique_ptr<ITask>> tasks;
-    std::shared_ptr<SharedSensorData> sensorData;
-    std::shared_ptr<ISensor> bno055;
-    std::shared_ptr<ISensor> baro1;
-    std::shared_ptr<ISensor> baro2;
-    std::shared_ptr<ISensor> gps;
-    std::shared_ptr<RocketLogger> rocketLogger;
-    SemaphoreHandle_t sensorDataMutex;
-    SemaphoreHandle_t loggerMutex;
-
-    std::shared_ptr<SD> sd;
-    
-    // Telemetry
-    std::shared_ptr<EspNowTransmitter> espNowTransmitter;
-
-    // Flight state
-    std::shared_ptr<bool> isRising;
-    std::shared_ptr<float> heightGainSpeed;
-    std::shared_ptr<float> currentHeight;
-    
+/**
+ * @brief Class to manage tasks in the system.
+ * 
+ */
+class TaskManager {    
 public:
-    TaskManager(std::shared_ptr<SharedSensorData> sensorData,
-            std::shared_ptr<ISensor> imu,
-            std::shared_ptr<ISensor> barometer1,
-            std::shared_ptr<ISensor> barometer2,
-            std::shared_ptr<ISensor> gps,
-            SemaphoreHandle_t sensorMutex,
+    /**
+     * @brief Construct a new Task Manager object
+     * 
+     * @param rocketModel The shared pointer to the rocket model
+     * @param modelMutex The semaphore handle to protect access to the model
+     * @param sd The shared pointer to the SD card
+     * @param logger The shared pointer to the RocketLogger instance
+     */
+    TaskManager(std::shared_ptr<RocketModel> rocketModel,
+            SemaphoreHandle_t modelMutex,
             std::shared_ptr<SD> sd,
-            std::shared_ptr<RocketLogger> rocketLogger,
-            SemaphoreHandle_t loggerMutex,
-            std::shared_ptr<bool> isRising,
-            std::shared_ptr<float> heightGainSpeed,
-            std::shared_ptr<float> currentHeight);
+            std::shared_ptr<RocketLogger> logger,
+            SemaphoreHandle_t loggerMutex);
     
+    /**
+     * @brief Destroy the Task Manager object
+     * 
+     */
     ~TaskManager();
-    
+
+    /**
+     * @brief Initialize all tasks in the manager
+     * 
+     */
     void initializeTasks();
+
+    /**
+     * @brief Start a task in the manager
+     * 
+     * @param type The type of task to start
+     * @param config The configuration parameters for the task
+     * @return true if the task was started successfully, false otherwise
+     */
     bool startTask(TaskType type, const TaskConfig& config);
-    void stopTask(TaskType type);
-    void stopAllTasks();
-    int getRunningTaskCount();
     
+    /**
+     * @brief Stop a task in the manager
+     * 
+     * @param type The type of task to stop
+     */
+    void stopTask(TaskType type);
+
+    /**
+     * @brief Stop all running tasks in the manager
+     * 
+     */
+    void stopAllTasks();
+
+    /**
+     * @brief Get the count of currently running tasks
+     * 
+     * @return int The number of running tasks
+     */
+    int getRunningTaskCount();
+
+    /**
+     * @brief Check if a task is currently running
+     * 
+     * @param type The type of task to check
+     * @return true if the task is running, false otherwise
+     */
     bool isTaskRunning(TaskType type) const;
+
+    /**
+     * @brief Get the stack usage of a task
+     * 
+     * @param type The type of task to check
+     * @return uint32_t The stack usage of the task
+     */
     uint32_t getTaskStackUsage(TaskType type) const;
     
+    /**
+     * @brief Print the status of all tasks
+     * 
+     */
     void printTaskStatus() const;
+
+private:
+    // Map of task type to task instance
+    std::map<TaskType, std::unique_ptr<ITask>> _tasks;
+    
+    // Shared resources
+    std::shared_ptr<RocketModel> _rocketModel;
+    std::shared_ptr<RocketLogger> _logger;
+    SemaphoreHandle_t _modelMutex;
+    SemaphoreHandle_t _loggerMutex;
+
+    std::shared_ptr<SD> _sd;
+    
+    // Telemetry
+    std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
 };

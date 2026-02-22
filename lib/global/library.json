@@ -1,0 +1,7 @@
+{
+    "name": "aurora_rocketry_global",
+    "version": "0.1.0",
+    "description": "Global configuration, pin definitions, and telemetry fields for the Aurora Rocketry project",
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}

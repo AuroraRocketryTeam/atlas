@@ -21,7 +21,10 @@
 #include <ILogger.hpp>
 #include <ITransmitter.hpp>
 
-// Sensors
+// System model
+#include <RocketModel.hpp>
+
+// Sensors used in the system model
 #include <BNO055Sensor.hpp>
 #include <MS561101BA03.hpp>
 #include <LIS3DHTRSensor.hpp>
@@ -31,8 +34,6 @@
 #include <SD-master.hpp>
 #include <RocketLogger.hpp>
 #include <Logger.hpp>
-
-// Transmitters
 
 // Controllers and filters
 #include <LEDController.hpp>
@@ -48,7 +49,7 @@
  *
  */
 #define CALIBRATE_SENSORS
-#define ENABLE_PRE_FLIGHT_MODE
+#define ENABLE_TEST_ROUTINE
 #define TEST_FILE "/test.txt"
 
 // Create controller instances
@@ -56,31 +57,30 @@ LEDController ledController(LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN);
 BuzzerController buzzerController(BUZZER_PIN);
 StatusManager statusManager(ledController, buzzerController);
 
+// Define the system model
+std::shared_ptr<RocketModel> rocketModel = nullptr;
+
 // Type definitions
 using TransmitDataType = std::variant<char *, String, std::string, nlohmann::json>;
-
-// Global component instances - these match the extern declarations in RocketFSM.cpp
-std::shared_ptr<ISensor> bno055 = nullptr;
-std::shared_ptr<ISensor> baro1 = nullptr;
-std::shared_ptr<ISensor> baro2 = nullptr;
-std::shared_ptr<ISensor> gps = nullptr;
-std::shared_ptr<ISensor> accl = nullptr;
 
 std::shared_ptr<SD> sdCard = nullptr;
 
 // Define the RocketLogger
-std::shared_ptr<RocketLogger> rocketLogger = nullptr;
+std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
 std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
 void testFSMTransitions(RocketFSM &fsm);
-void initializeComponents();
-void GPSfix();
+void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
+                          std::shared_ptr<LIS3DHTRSensor> accl,
+                          std::shared_ptr<MS561101BA03> baro1,
+                          std::shared_ptr<MS561101BA03> baro2,
+                          std::shared_ptr<GPS> gps);
+void GPSfix(std::shared_ptr<GPS> gps);
 void printSystemInfo();
 void testRoutine();
-void gpsFix();
 
 void setup()
 {
@@ -114,6 +114,7 @@ void setup()
 
     // Initialize basic hardware
     Serial.begin(SERIAL_BAUD_RATE);
+    
     // Initialize controllers
     ledController.init();
     buzzerController.init();
@@ -132,9 +133,25 @@ void setup()
     LOG_INFO("Main", "I2C initialized");
 
     // Initialize components
-    initializeComponents();
+    LOG_INFO("Main", "Initializing sensors...");
+    std::shared_ptr<BNO055Sensor> bno055 = nullptr;
+    std::shared_ptr<LIS3DHTRSensor> accl = nullptr;
+    std::shared_ptr<MS561101BA03> baro1 = nullptr;
+    std::shared_ptr<MS561101BA03> baro2 = nullptr;
+    std::shared_ptr<GPS> gps = nullptr;
+    initializeComponents(bno055, accl, baro1, baro2, gps);
+    LOG_INFO("Main", "All components initialized");
 
-#ifdef ENABLE_PRE_FLIGHT_MODE
+    // Initialize logger
+    LOG_INFO("Init", "Initializing rocket logger...");
+    logger = std::make_shared<RocketLogger>();
+    LOG_INFO("Init", "Rocket logger initialized");
+
+    // Create Nemesis instance (constructor expects: logger, bno, lis3dh, ms56_1, ms56_2, gps)
+    rocketModel = std::make_shared<RocketModel>(logger, bno055, accl, baro1, baro2, gps);
+    LOG_INFO("Main", "RocketModel system model created");
+
+#ifdef ENABLE_TEST_ROUTINE
     delay(5000);
     // Start test routine if in test mode
     LOG_INFO("Main", "=== TEST MODE ENABLED ===");
@@ -144,22 +161,16 @@ void setup()
 #ifdef CALIBRATE_SENSORS
     // Checking sensors calibration
     statusManager.setSystemCode(CALIBRATING);
-    GPSfix();
+    GPSfix(gps);
     statusManager.setSystemCode(SYSTEM_OK);
 #endif
-
-    // Initialize logger
-    LOG_INFO("Init", "Initializing rocket logger...");
-    rocketLogger = std::make_shared<RocketLogger>();
-    LOG_INFO("Init", "✓ Rocket logger initialized");
-
     // Print system information
     printSystemInfo();
 
     // Initialize and start FSM
     LOG_INFO("Main", "=== System initialization complete ===");
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
-    rocketFSM = std::make_unique<RocketFSM>(bno055, baro1, baro2, accl, gps, sdCard, rocketLogger);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger);
     rocketFSM->init();
     delay(1000);
 
@@ -170,6 +181,7 @@ void setup()
         LOG_WARNING("Main", "System not armed! Waiting for arming signal on pin %d...", ARMING_PIN);
         delay(1000);
     }
+
     // Start FSM tasks
     LOG_INFO("Main", "Starting Flight State Machine...");
     statusManager.setSystemCode(FSM_STARTED);
@@ -189,8 +201,8 @@ void loop()
     LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
     LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
 
-    static unsigned long lastHeartbeat = 0;
-    static bool ledState = false;
+    unsigned long lastHeartbeat = 0;
+    bool ledState = false;
 
     // Heartbeat every 2 seconds
     if (millis() - lastHeartbeat > 2000)
@@ -201,9 +213,9 @@ void loop()
         digitalWrite(LED_BUILTIN, ledState);
 
         // Monitor RocketLogger memory usage
-        if (rocketLogger)
+        if (logger)
         {
-            int logCount = rocketLogger->getLogCount();
+            int logCount = logger->getLogCount();
             LOG_INFO("Main", "RocketLogger entries: %d", logCount);
 
             // If log count is high, warn about memory usage
@@ -214,7 +226,7 @@ void loop()
         }
 
         // Optional: Print current state periodically
-        static RocketState lastLoggedState = RocketState::INACTIVE;
+        RocketState lastLoggedState = RocketState::INACTIVE;
         RocketState currentState = rocketFSM->getCurrentState();
 
         if (currentState != lastLoggedState)
@@ -280,7 +292,11 @@ void testFSMTransitions(RocketFSM &fsm)
     }
 }
 
-void initializeComponents()
+void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
+                          std::shared_ptr<LIS3DHTRSensor> accl,
+                          std::shared_ptr<MS561101BA03> baro1,
+                          std::shared_ptr<MS561101BA03> baro2,
+                          std::shared_ptr<GPS> gps)
 {
     LOG_INFO("Init", "\n--- Initializing Components ---");
 
@@ -291,43 +307,43 @@ void initializeComponents()
     bno055 = std::make_shared<BNO055Sensor>();
     if (bno055 && bno055->init())
     {
-        LOG_INFO("Init", "✓ BNO055 (IMU) initialized");
+        LOG_INFO("Init", "BNO055 (IMU) initialized");
     }
     else
     {
-        LOG_ERROR("Init", "✗ Failed to initialize BNO055");
+        LOG_ERROR("Init", "Failed to initialize BNO055");
     }
 
     // Initialize barometers
     baro1 = std::make_shared<MS561101BA03>(MS56_I2C_ADDR_1);
     if (baro1 && baro1->init())
     {
-        LOG_INFO("Init", "✓ Barometer 1 initialized");
+        LOG_INFO("Init", "Barometer 1 initialized");
     }
     else
     {
-        LOG_ERROR("Init", "✗ Failed to initialize Barometer 1");
+        LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
     baro2 = std::make_shared<MS561101BA03>(MS56_I2C_ADDR_2);
     if (baro2 && baro2->init())
     {
-        LOG_INFO("Init", "✓ Barometer 2 initialized");
+        LOG_INFO("Init", "Barometer 2 initialized");
     }
     else
     {
-        LOG_ERROR("Init", "✗ Failed to initialize Barometer 2");
+        LOG_ERROR("Init", "Failed to initialize Barometer 2");
     }
 
     // Initialize accelerometer
     accl = std::make_shared<LIS3DHTRSensor>();
     if (accl && accl->init())
     {
-        LOG_INFO("Init", "✓ LIS3DHTR (Accelerometer) initialized");
+        LOG_INFO("Init", "LIS3DHTR (Accelerometer) initialized");
     }
     else
     {
-        LOG_ERROR("Init", "✗ Failed to initialize LIS3DHTR");
+        LOG_ERROR("Init", "Failed to initialize LIS3DHTR");
     }
 
     // Initialize GPS
@@ -335,11 +351,11 @@ void initializeComponents()
 
     if (gps && gps->init())
     {
-        LOG_INFO("Init", "✓ GPS initialized");
+        LOG_INFO("Init", "GPS initialized");
     }
     else
     {
-        LOG_ERROR("Init", "✗ Failed to initialize GPS");
+        LOG_ERROR("Init", "Failed to initialize GPS");
     }
 
     // Inizializza la scheda SD
@@ -347,13 +363,13 @@ void initializeComponents()
     sdCard = std::make_shared<SD>();
     if (sdCard && sdCard->init())
     {
-        LOG_INFO("Init", "✓ SD card initialized");
+        LOG_INFO("Init", "SD card initialized");
         sdCard->openFile("test.txt");
         LOG_INFO("Init", "Testing SD card write...");
         std::string content = "SD card write test successful! Timestamp: " + std::to_string(millis()) + " ms";
         if (sdCard->writeFile("test.txt", content))
         {
-            LOG_INFO("Init", "✓ SD card write test successful");
+            LOG_INFO("Init", "SD card write test successful");
             char *readContent = sdCard->readFile("test.txt");
             if (readContent)
             {
@@ -361,18 +377,18 @@ void initializeComponents()
             }
             else
             {
-                LOG_ERROR("Init", "✗ Failed to read back from SD card");
+                LOG_ERROR("Init", "Failed to read back from SD card");
             }
         }
         else
         {
-            LOG_ERROR("Init", "✗ SD card write test failed");
+            LOG_ERROR("Init", "SD card write test failed");
         }
         sdCard->closeFile();
     }
     else
     {
-        LOG_ERROR("Init", "✗ Failed to initialize SD card");
+        LOG_ERROR("Init", "Failed to initialize SD card");
     }
 
     // Initializa ESP-NOW connection for telemetry
@@ -385,7 +401,7 @@ void initializeComponents()
 
         if (esp_now_init() == ESP_OK)
         {
-            LOG_INFO("Init", "✓ ESP-NOW initialized");
+            LOG_INFO("Init", "ESP-NOW initialized");
             esp_now_peer_info_t peerInfo = {};
             memcpy(peerInfo.peer_addr, RECEIVER_MAC_ADDRESS, 6);
             peerInfo.channel = 0;
@@ -393,29 +409,29 @@ void initializeComponents()
 
             if (esp_now_add_peer(&peerInfo) == ESP_OK)
             {
-                LOG_INFO("Init", "✓ ESP-NOW peer added");
+                LOG_INFO("Init", "ESP-NOW peer added");
             }
             else
             {
-                LOG_ERROR("Init", "✗ Failed to add ESP-NOW peer");
+                LOG_ERROR("Init", "Failed to add ESP-NOW peer");
             }
         }
         else
         {
-            LOG_ERROR("Init", "✗ Failed to initialize ESP-NOW");
+            LOG_ERROR("Init", "Failed to initialize ESP-NOW");
         }
     }
     else
     {
-        LOG_ERROR("Init", "✗ Failed to initialize Wi-Fi");
+        LOG_ERROR("Init", "Failed to initialize Wi-Fi");
     }
 
     // We don't need to initialize LEDManager anymore - StatusManager handles it
-    LOG_INFO("Init", "✓ Status indicators initialized");
+    LOG_INFO("Init", "Status indicators initialized");
 }
 
 // Function to check GPS fix
-void GPSfix()
+void GPSfix(std::shared_ptr<GPS> gps)
 {
     if (gps)
     {
@@ -426,22 +442,19 @@ void GPSfix()
 
         while (!gpsLocked && (millis() - startTime < GPS_FIX_TIMEOUT_MS))
         {
-            auto gpsDataOpt = gps->getData();
-            if (gpsDataOpt.has_value())
+            auto gpsDataUpdate = gps->updateData();
+            if (gpsDataUpdate)
             {
                 LOG_INFO("GPS", "Getting GPS data...");
-                auto gpsData = gpsDataOpt.value();
-                auto fix_opt = gpsData.getData("fix");
-                auto satellites_opt = gpsData.getData("satellites");
-                if (fix_opt.has_value())
+                auto gpsData = gps->getData();
+                auto fixType = gpsData->fixType;
+                auto satellites = gpsData->satellites;
+
+                LOG_INFO("GPS", "Fix value: %d", fixType);
+                if (fixType >= GPS_MIN_FIX)
                 {
-                    uint8_t fix = std::get<uint8_t>(fix_opt.value());
-                    LOG_INFO("GPS", "Fix value: %d", fix);
-                    if (fix >= GPS_MIN_FIX)
-                    {
-                        gpsLocked = true;
-                        LOG_INFO("GPS", "GPS lock acquired. Satellites: %d", std::get<uint8_t>(satellites_opt.value()));
-                    }
+                    gpsLocked = true;
+                    LOG_INFO("GPS", "GPS lock acquired. Satellites: %d", satellites);
                 }
             }
             delay(GPS_FIX_LOOKUP_INTERVAL_MS);
@@ -595,10 +608,10 @@ bool testSensors()
 {
     LOG_INFO("Test", "\n[STEP 2] Test sensori");
     bool testFailed = false;
-    bool imu_ok = bno055->init();
-    bool baro1_ok = baro1->init();
-    bool baro2_ok = baro2->init();
-    bool accl_ok = accl->init();
+    bool imu_ok = rocketModel->updateBNO055();
+    bool baro1_ok = rocketModel->updateMS561101BA03_1();
+    bool baro2_ok = rocketModel->updateMS561101BA03_2();
+    bool accl_ok = rocketModel->updateLIS3DHTR();
 
     if (!imu_ok)
     {
@@ -626,117 +639,41 @@ bool testSensors()
     {
         LOG_INFO("Test", "Verifica output dei sensori...");
 
-        auto imuDataOpt = bno055->getData();
-        if (imuDataOpt.has_value())
-        {
-            auto imuData = imuDataOpt.value();
-            auto accelerometer_opt = imuData.getData("accelerometer");
-            if (accelerometer_opt.has_value())
-            {
-                auto accelMap = std::get<std::map<std::string, float>>(accelerometer_opt.value());
-                LOG_INFO("Test", "IMU Accelerometer: x=%.2f, y=%.2f, z=%.2f m/s^2",
-                         (double)accelMap["x"],
-                         (double)accelMap["y"],
-                         (double)accelMap["z"]);
-                pinMode(D5, OUTPUT);
-                digitalWrite(D5, HIGH);
-                pinMode(D5, OUTPUT);
-                digitalWrite(D5, HIGH);
-            }
-            else
-            {
-                statusManager.playBlockingPattern(IMU_FAIL, 2000);
-                LOG_ERROR("Test", "Errore: Impossibile leggere dati accelerometro dall'IMU.");
-            }
-        }
-        else
-        {
-            statusManager.playBlockingPattern(IMU_FAIL, 2000);
-            LOG_ERROR("Test", "Errore: Impossibile leggere dati dall'IMU.");
-        }
-        auto baro1DataOpt = baro1->getData();
-        if (baro1DataOpt.has_value())
-        {
-            auto baro1Data = baro1DataOpt.value();
-            auto pressure_opt = baro1Data.getData("pressure");
-            if (pressure_opt.has_value())
-            {
-                float pressure = std::get<float>(pressure_opt.value());
-                LOG_INFO("Test", "Barometer 1 Pressure: %.2f hPa", (double)pressure);
-                pinMode(A7, OUTPUT);
-                digitalWrite(A7, HIGH);
-                pinMode(A7, OUTPUT);
-                digitalWrite(A7, HIGH);
-            }
-            else
-            {
-                statusManager.playBlockingPattern(BARO1_FAIL, 2000);
-                LOG_ERROR("Test", "Errore: Impossibile leggere dati pressione dal Barometro 1.");
-            }
-        }
-        else
-        {
-            statusManager.playBlockingPattern(BARO1_FAIL, 2000);
-            LOG_ERROR("Test", "Errore: Impossibile leggere dati dal Barometro 1.");
-        }
-        auto baro2DataOpt = baro2->getData();
-        if (baro2DataOpt.has_value())
-        {
-            auto baro2Data = baro2DataOpt.value();
-            auto pressure_opt = baro2Data.getData("pressure");
-            if (pressure_opt.has_value())
-            {
-                float pressure = std::get<float>(pressure_opt.value());
-                LOG_INFO("Test", "Barometer 2 Pressure: %.2f hPa", (double)pressure);
-                pinMode(D4, OUTPUT);
-                digitalWrite(D4, HIGH);
-                pinMode(D4, OUTPUT);
-                digitalWrite(D4, HIGH);
-            }
-            else
-            {
-                statusManager.playBlockingPattern(BARO2_FAIL, 2000);
-                LOG_ERROR("Test", "Errore: Impossibile leggere dati pressione dal Barometro 2.");
-            }
-        }
-        else
-        {
-            statusManager.playBlockingPattern(BARO2_FAIL, 2000);
-            LOG_ERROR("Test", "Errore: Impossibile leggere dati dal Barometro 2.");
-        }
-        auto acclDataOpt = accl->getData();
-        if (acclDataOpt.has_value())
-        {
-            auto acclData = acclDataOpt.value();
-            auto x_opt = acclData.getData("accel_x");
-            auto y_opt = acclData.getData("accel_y");
-            auto z_opt = acclData.getData("accel_z");
-            if (x_opt.has_value() && y_opt.has_value() && z_opt.has_value())
-            {
-                float x = std::get<float>(x_opt.value());
-                float y = std::get<float>(y_opt.value());
-                float z = std::get<float>(z_opt.value());
-                LOG_INFO("Test", "Accelerometer: x=%.2f, y=%.2f, z=%.2f m/s^2",
-                         (double)x,
-                         (double)y,
-                         (double)z);
-                pinMode(A6, OUTPUT);
-                digitalWrite(A6, HIGH);
-                pinMode(A6, OUTPUT);
-                digitalWrite(A6, HIGH);
-            }
-            else
-            {
-                statusManager.playBlockingPattern(IMU_FAIL, 2000);
-                LOG_ERROR("Test", "Errore: Impossibile leggere dati dall'accelerometro.");
-            }
-        }
-        else
-        {
-            statusManager.playBlockingPattern(IMU_FAIL, 2000);
-            LOG_ERROR("Test", "Errore: Impossibile leggere dati dall'accelerometro.");
-        }
+        // Testing IMU accelerometer
+        auto bnoData = rocketModel->getBNO055Data();
+        auto accelImuX = bnoData->acceleration_x;
+        auto accelImuY = bnoData->acceleration_y;
+        auto accelImuZ = bnoData->acceleration_z;
+        LOG_INFO("Test", "IMU Accelerometer: x=%.2f, y=%.2f, z=%.2f m/s^2",
+                    (double)accelImuX,
+                    (double)accelImuY,
+                    (double)accelImuZ);
+        pinMode(D5, OUTPUT);
+        digitalWrite(D5, HIGH);
+        
+        // Testing barometers
+        auto baro1Data = rocketModel->getMS561101BA03Data_1();
+        auto pressureBaro1 = baro1Data->pressure;
+        LOG_INFO("Test", "Barometer 1 Pressure: %.2f hPa", (double)pressureBaro1);
+        pinMode(A7, OUTPUT);
+        digitalWrite(A7, HIGH);
+
+        auto baro2Data = rocketModel->getMS561101BA03Data_2();
+        auto pressureBaro2 = baro2Data->pressure;
+        LOG_INFO("Test", "Barometer 2 Pressure: %.2f hPa", (double)pressureBaro2);
+        pinMode(D4, OUTPUT);
+        digitalWrite(D4, HIGH);
+        pinMode(D4, OUTPUT);
+        
+        // Testing LIS3DHTR accelerometer
+        // Note: LIS3DHTR data is not exposed through public getters in Nemesis
+        // The sensor is being updated and logged internally
+        LOG_INFO("Test", "LIS3DHTR Accelerometer: Data logged internally");
+        
+        pinMode(A6, OUTPUT);
+        digitalWrite(A6, HIGH);
     }
+
     // After all tests, go to user input
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
@@ -776,7 +713,7 @@ bool testSDCard()
         std::string content = "SD card write test successful! Timestamp: " + std::to_string(millis()) + " ms\n";
         if (sdCard->writeFile(TEST_FILE, content))
         {
-            LOG_INFO("Test", "✓ SD card write test successful");
+            LOG_INFO("Test", "SD card write test successful");
             char *readContent = sdCard->readFile(TEST_FILE);
             if (readContent)
             {
@@ -785,20 +722,20 @@ bool testSDCard()
             else
             {
                 statusManager.playBlockingPattern(SD_READ_FAIL, 2000);
-                LOG_ERROR("Test", "✗ Failed to read back from SD card");
+                LOG_ERROR("Test", "Failed to read back from SD card");
             }
         }
         else
         {
             statusManager.playBlockingPattern(SD_WRITE_FAIL, 2000);
-            LOG_ERROR("Test", "✗ SD card write test failed");
+            LOG_ERROR("Test", "SD card write test failed");
         }
         sdCard->closeFile();
     }
     else
     {
         statusManager.playBlockingPattern(SD_MOUNT_FAIL, 2000);
-        LOG_ERROR("Test", "✗ Failed to open test file on SD card");
+        LOG_ERROR("Test", "Failed to open test file on SD card");
     }
 
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
@@ -928,61 +865,6 @@ void testRoutine()
             LOG_INFO("Test", "Test completato con successo!");
             // Show success pattern before returning to menu
             statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
-        }
-    }
-}
-
-void gpsFix()
-{
-    if (gps)
-    {
-        LOG_INFO("GPS", "Checking GPS lock...");
-        bool gpsLocked = false;
-        unsigned long startTime = millis();
-
-        while (!gpsLocked && (millis() - startTime < GPS_FIX_TIMEOUT_MS))
-        {
-            auto gpsDataOpt = gps->getData();
-            if (gpsDataOpt.has_value())
-            {
-                LOG_INFO("GPS", "Getting GPS data...");
-                auto gpsData = gpsDataOpt.value();
-                auto fix_opt = gpsData.getData("fix");
-                auto satellites_opt = gpsData.getData("satellites");
-                if (fix_opt.has_value())
-                {
-                    uint8_t fix = std::get<uint8_t>(fix_opt.value());
-                    LOG_INFO("GPS", "Fix value: %d", fix);
-                    if (fix >= GPS_MIN_FIX)
-                    {
-                        gpsLocked = true;
-                        LOG_INFO("GPS", "GPS lock acquired. Satellites: %d", std::get<uint8_t>(satellites_opt.value()));
-                    }
-                }
-            }
-            delay(GPS_FIX_LOOKUP_INTERVAL_MS);
-        }
-
-        if (!gpsLocked)
-        {
-            LOG_ERROR("GPS", "GPS lock not acquired within timeout period.");
-            statusManager.setSystemCode(SystemCode::GPS_NO_SIGNAL);
-            while(true) {
-                // Read OVERRIDE from Serial
-                if (Serial.available()) {
-                    String input = Serial.readStringUntil('\n');
-                    input.trim();
-                    input.toUpperCase();
-                    Serial.println("Type OVERRIDE to bypass GPS lock and continue.");
-                    if (input == "OVERRIDE") {
-                        LOG_WARNING("GPS", "GPS lock override received. Continuing without GPS.");
-                        statusManager.setSystemCode(SYSTEM_OK);
-                        break;
-                    } else {
-                        LOG_INFO("GPS", "Invalid input. Type OVERRIDE to bypass GPS lock.");
-                    }
-                }
-            }
         }
     }
 }

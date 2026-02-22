@@ -2,38 +2,25 @@
 #include <config.h>
 #include <config.h>
 
-TaskManager::TaskManager(std::shared_ptr<SharedSensorData> sensorData,
-                            std::shared_ptr<ISensor> imu,
-                            std::shared_ptr<ISensor> barometer1,
-                            std::shared_ptr<ISensor> barometer2,
-                            std::shared_ptr<ISensor> gps,
-                            SemaphoreHandle_t sensorMutex,
+TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
+                         SemaphoreHandle_t modelMutex,
                          std::shared_ptr<SD> sd,
-                         std::shared_ptr<RocketLogger> rocketLogger,
-                         SemaphoreHandle_t loggerMutex,
-                            std::shared_ptr<bool> isRising,
-                            std::shared_ptr<float> heightGainSpeed,
-                            std::shared_ptr<float> currentHeight) : 
-                            sensorData(sensorData),
-                            bno055(imu), baro1(barometer1), baro2(barometer2), 
-                                                          gps(gps), 
-                            sensorDataMutex(sensorMutex), sd(sd), rocketLogger(rocketLogger),
-                            loggerMutex(loggerMutex), isRising(isRising),
-                                                          heightGainSpeed(heightGainSpeed), currentHeight(currentHeight)
+                         std::shared_ptr<RocketLogger> logger,
+                         SemaphoreHandle_t loggerMutex) : 
+                         _rocketModel(rocketModel),
+                         _modelMutex(modelMutex),
+                         _sd(sd),
+                         _logger(logger),
+                         _loggerMutex(loggerMutex)
 {
-    LOG_INFO("TaskMgr", "Initialized with sensors: IMU=%s, Baro1=%s, Baro2=%s, GPS=%s, SD=%s",
-             imu ? "OK" : "NULL",
-             barometer1 ? "OK" : "NULL",
-             barometer2 ? "OK" : "NULL",
-             gps ? "OK" : "NULL",
-             sd ? "OK" : "NULL");
+    LOG_INFO("TaskMgr", "Initialized with model");
 
     // Initialize ESP-NOW transmitter
     uint8_t peerMac[] = ESPNOW_PEER_MAC;
-    espNowTransmitter = std::make_shared<EspNowTransmitter>(peerMac, ESPNOW_CHANNEL);
+    _espNowTransmitter = std::make_shared<EspNowTransmitter>(peerMac, ESPNOW_CHANNEL);
 
     // Initialize transmitter
-    ResponseStatusContainer initResult = espNowTransmitter->init();
+    ResponseStatusContainer initResult = _espNowTransmitter->init();
     if (initResult.getCode() != 0)
     {
         LOG_ERROR("TaskMgr", "Failed to initialize ESP-NOW: %s", initResult.getDescription().c_str());
@@ -55,54 +42,50 @@ void TaskManager::initializeTasks()
     LOG_INFO("TaskManager", "Creating task instances...");
 
     // Create all task instances but don't start them yet
-    // Create SensorTask with shared pointers
-    tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
-        sensorData,
-        sensorDataMutex,
-        bno055,
-        baro1,
-        baro2,
-        rocketLogger,
-        loggerMutex);
-    tasks[TaskType::GPS] = std::make_unique<GpsTask>(
-        sensorData, 
-        sensorDataMutex, 
-        gps,
-        rocketLogger,
-        loggerMutex);
-    // tasks[TaskType::EKF] = std::make_unique<EkfTask>(
-    //     sensorData, 
-    //     sensorDataMutex, 
-    //     kalmanFilter);
-    tasks[TaskType::SD_LOGGING] = std::make_unique<SDLoggingTask>(
-        rocketLogger,
-        loggerMutex,
-        sd);
-    tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
-        // Using a different simulation file where at the end of each line there is a 
+    // Note: Most tasks still need refactoring to use the model-based architecture
+    // For now, only BarometerTask has been updated to use the Nemesis model
+    
+    _tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
+        _rocketModel,
+        _modelMutex,
+        _logger,
+        _loggerMutex);
+    _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
+        _rocketModel,
+        _modelMutex,
+        _logger,
+        _loggerMutex);
+    // _tasks[TaskType::EKF] = std::make_unique<EkfTask>(
+    //     _rocketModel,
+    //     _modelMutex,
+    //     _kalmanFilter);
+    _tasks[TaskType::SD_LOGGING] = std::make_unique<SDLoggingTask>(
+        _logger,
+        _loggerMutex,
+        _sd);
+    _tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
+        // Using a different simulation file where at the end of each line there is a
         // pipe symbol, this was needed as the readLine function had problem recognizing 
         // the \n character, so separating each line 
         "/simulated_sensors_full_piped.csv",
-        sensorData,
-        sensorDataMutex,
-        rocketLogger,
-        loggerMutex);
+        _rocketModel,
+        _modelMutex,
+        _logger,
+        _loggerMutex);
 
     // Create TelemetryTask with ESP-NOW transmitter
-    tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(
-        sensorData,
-        sensorDataMutex,
-        espNowTransmitter,
+    // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
+    _tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(
+        _rocketModel,
+        _modelMutex,
+        _espNowTransmitter,
         TELEMETRY_INTERVAL_MS);
 
-    tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
-        sensorData,
-        sensorDataMutex,
-        isRising,
-        heightGainSpeed,
-        currentHeight);
+    _tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
+        _rocketModel,
+        _modelMutex);
 
-    LOG_INFO("TaskManager", "Created %d task instances", tasks.size());
+    LOG_INFO("TaskManager", "Created %d task instances", _tasks.size());
 }
 
 bool TaskManager::startTask(TaskType type, const TaskConfig &config)
@@ -111,8 +94,8 @@ bool TaskManager::startTask(TaskType type, const TaskConfig &config)
              static_cast<int>(type), config.name);
 
     // Check if task exists
-    auto it = tasks.find(type);
-    if (it == tasks.end())
+    auto it = _tasks.find(type);
+    if (it == _tasks.end())
     {
         LOG_ERROR("TaskManager", "ERROR: Task type %d not found", static_cast<int>(type));
         return false;
@@ -150,13 +133,13 @@ bool TaskManager::startTask(TaskType type, const TaskConfig &config)
 
 void TaskManager::stopTask(TaskType type)
 {
-    if (tasks.find(type) == tasks.end())
+    if (_tasks.find(type) == _tasks.end())
     {
         LOG_WARNING("TaskManager", "Task type %d not found", static_cast<int>(type));
         return;
     }
 
-    auto &task = tasks[type];
+    auto &task = _tasks[type];
     if (task && task->isRunning())
     {
         LOG_INFO("TaskManager", "Stopping task: %s", task->getName());
@@ -186,13 +169,13 @@ void TaskManager::stopAllTasks()
 
     // Iterate over a snapshot of task types to avoid iterator invalidation during stops
     std::vector<TaskType> taskTypes;
-    for (const auto &p : tasks)
+    for (const auto &p : _tasks)
         taskTypes.push_back(p.first);
 
     for (auto type : taskTypes)
     {
-        auto it = tasks.find(type);
-        if (it != tasks.end())
+        auto it = _tasks.find(type);
+        if (it != _tasks.end())
         {
             auto &task = it->second;
             if (task && task->isRunning())
@@ -211,14 +194,14 @@ void TaskManager::stopAllTasks()
 
 bool TaskManager::isTaskRunning(TaskType type) const
 {
-    auto it = tasks.find(type);
-    return (it != tasks.end()) && it->second->isRunning();
+    auto it = _tasks.find(type);
+    return (it != _tasks.end()) && it->second->isRunning();
 }
 
 uint32_t TaskManager::getTaskStackUsage(TaskType type) const
 {
-    auto it = tasks.find(type);
-    if (it != tasks.end())
+    auto it = _tasks.find(type);
+    if (it != _tasks.end())
     {
         return it->second->getStackHighWaterMark();
     }
@@ -236,7 +219,7 @@ void TaskManager::printTaskStatus() const
         "DATA_COLLECTION", "TELEMETRY", "GPS", "LOGGING"};
 
     int index = 0;
-    for (const auto &[type, task] : tasks)
+    for (const auto &[type, task] : _tasks)
     {
         if (task)
         {
@@ -253,7 +236,7 @@ void TaskManager::printTaskStatus() const
 int TaskManager::getRunningTaskCount()
 {
     int count = 0;
-    for (const auto &[type, task] : tasks)
+    for (const auto &[type, task] : _tasks)
     {
         if (task && task->isRunning())
         {

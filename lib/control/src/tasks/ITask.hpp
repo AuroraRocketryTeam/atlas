@@ -6,47 +6,66 @@
 #include "TaskConfig.hpp"
 
 /**
- * @brief Interface for defining tasks in the FSM.
- *
+ * @brief Interface for tasks in the system.
+ * 
  */
 class ITask
 {
 public:
+    /** 
+     * @brief Virtual destructor for proper cleanup.
+     * 
+     */
     virtual ~ITask() = default;
 
     /**
      * @brief Start the task with the given configuration.
-     *
-     * @param config TaskConfig: Configuration for the task
+     * 
+     * @param config The task configuration
      * @return true if the task started successfully
-     * @return false otherwise
+     * @return false if the task failed to start
      */
     virtual bool start(const TaskConfig &config) = 0;
+
     /**
-     * @brief Stop the task.
-     *
+     * @brief Stop the task and clean up resources.
+     * 
      */
     virtual void stop() = 0;
+
     /**
      * @brief Check if the task is currently running.
-     *
-     * @return true if running
-     * @return false otherwise
+     * 
+     * @return true if the task is running
+     * @return false if the task is not running
      */
     virtual bool isRunning() const = 0;
+
     /**
      * @brief Get the name of the task.
-     *
-     * @return const char* Name of the task
+     * 
+     * @return const char* The name of the task
      */
     virtual const char *getName() const = 0;
+
     /**
-     * @brief Get the stack high water mark for the task.
-     *
-     * @return uint32_t High water mark in bytes
+     * @brief Get the stack high water mark of the task.
+     * 
+     * @return uint32_t The stack high water mark
      */
     virtual uint32_t getStackHighWaterMark() const = 0;
 
 protected:
+    /**
+     * @brief The main function of the task.
+     * 
+     */
     virtual void taskFunction() = 0;
+
+    /**
+     * @brief Static wrapper function to adapt member function to FreeRTOS task signature.
+     * 
+     * @param parameter The task parameter (pointer to the task instance)
+     */
+    static void taskWrapper(void *parameter);
 };

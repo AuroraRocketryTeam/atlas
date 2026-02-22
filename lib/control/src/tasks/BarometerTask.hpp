@@ -4,6 +4,7 @@
 #include <MS561101BA03.hpp>
 #include <Logger.hpp>
 #include <SharedData.hpp>
+#include <RocketModel.hpp>
 #include <config.h>
 #include <vector>
 #include <algorithm>
@@ -11,46 +12,27 @@
 // If not commented, the Baro1 is used, otherwise Baro2
 #define BARO_1
 
-// Simple moving average filter for noise reduction
-class MovingAverageFilter {
-public:
-    MovingAverageFilter(size_t windowSize = 10) : windowSize(windowSize) {
-        buffer.reserve(windowSize);
-    }
-    
-    float update(float newValue) {
-        buffer.push_back(newValue);
-        if (buffer.size() > windowSize) {
-            buffer.erase(buffer.begin());
-        }
-        
-        float sum = 0.0f;
-        for (float val : buffer) {
-            sum += val;
-        }
-        return sum / buffer.size();
-    }
-    
-    void reset() {
-        buffer.clear();
-    }
-    
-    bool isReady() const {
-        return buffer.size() >= windowSize;
-    }
-    
-private:
-    size_t windowSize;
-    std::vector<float> buffer;
-};
-
-// Median filter for spike rejection (better for outliers than moving average)
+/**
+ * @brief Class to implement a median filter.
+ * 
+ */
 class MedianFilter {
 public:
+    /**
+     * @brief Construct a new Median Filter object
+     * 
+     * @param windowSize The size of the median filter window
+     */
     MedianFilter(size_t windowSize) : windowSize(windowSize) {
         buffer.reserve(windowSize);
     }
-    
+
+    /**
+     * @brief Update the filter with a new value and get the filtered result
+     * 
+     * @param newValue The new value to add to the filter vector
+     * @return float The filtered result
+     */
     float update(float newValue) {
         buffer.push_back(newValue);
         if (buffer.size() > windowSize) {
@@ -69,10 +51,20 @@ public:
         }
     }
     
+    /**
+     * @brief Reset the filter buffer
+     * 
+     */
     void reset() {
         buffer.clear();
     }
     
+    /**
+     * @brief Check if the filter is ready (i.e., has enough data)
+     * 
+     * @return true if the filter is ready
+     * @return false if the filter is not ready
+     */
     bool isReady() const {
         return buffer.size() >= windowSize;
     }
@@ -82,20 +74,26 @@ private:
     std::vector<float> buffer;
 };
 
+// The whole point of this class is not to deal directly with barometers, refactory needed!!!
+/**
+ * @brief Class to implement a barometer task.
+ * 
+ */
 class BarometerTask : public BaseTask
 {
 public:
-    BarometerTask(std::shared_ptr<SharedSensorData> sensorData,
-                    SemaphoreHandle_t sensorDataMutex,
-                    std::shared_ptr<bool> isRising,
-                    std::shared_ptr<float> heightGainSpeed,
-                    std::shared_ptr<float> currentHeight)
+    /**
+     * @brief Construct a new Barometer Task object 
+     * 
+     * @param rocketModel The shared pointer to the rocket model
+     * @param modelMutex The mutex to protect access to the model
+     */
+    BarometerTask(std::shared_ptr<RocketModel> rocketModel,
+                    SemaphoreHandle_t modelMutex)
         : BaseTask("BarometerTask"),
-          sensorData(sensorData),
-          dataMutex(sensorDataMutex),
-          isRising(isRising),
-          heightGainSpeed(heightGainSpeed),
-          currentHeight(currentHeight)
+          _rocketModel(rocketModel),
+          _modelMutex(modelMutex),
+          _max_altitude_read(-1000.0f) // This third parameter should be probably removed!!!
     {}
 
     void taskFunction() override;
@@ -106,14 +104,11 @@ public:
     }
  
 private:
-    std::shared_ptr<SharedSensorData> sensorData;
-    SemaphoreHandle_t dataMutex;
-    std::shared_ptr<bool> isRising;
-    std::shared_ptr<float> heightGainSpeed;
-    std::shared_ptr<float> currentHeight;
+    std::shared_ptr<RocketModel> _rocketModel;
+    SemaphoreHandle_t _modelMutex;
 
     // Maximum altitude reached for easy access in BarometerTask
-    static float max_altitude_read;
+    float _max_altitude_read;
     
     // Noise reduction: Median filters reject spikes better than moving average
     // Window size from config.h - tune BAROMETER_FILTER_WINDOW for your needs
@@ -134,6 +129,6 @@ private:
     }
 
     // If max altitude reached is needed to be retrived
-    float getMaxAltitudeReached() { return max_altitude_read; }
+    float getMaxAltitudeReached() { return _max_altitude_read; }
 
 };

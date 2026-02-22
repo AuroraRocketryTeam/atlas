@@ -1,0 +1,6 @@
+{
+  "name": "SparkFun_u-blox_GNSS_Arduino_Library",
+  "version": "2.2.27",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}
