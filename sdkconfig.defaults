@@ -1,0 +1,24 @@
+# Atlas ESP-IDF — Default SDK configuration
+# Target: ESP32-S3 (Arduino Nano ESP32)
+CONFIG_IDF_TARGET="esp32s3"
+
+# C++ exceptions and RTTI (often needed for Arduino-style code)
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
+CONFIG_COMPILER_CXX_RTTI=y
+
+# FreeRTOS (already used in the project)
+CONFIG_FREERTOS_HZ=1000
+
+# Serial flasher config
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+
+# Partition table — default single factory app
+CONFIG_PARTITION_TABLE_SINGLE_APP=y
+
+# Stack sizes
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Enable C++17
+CONFIG_COMPILER_CXX_STANDARD_CXX17=y
+CONFIG_COMPILER_CXX_STANDARD="c++17"

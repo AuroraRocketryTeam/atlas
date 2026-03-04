@@ -1,0 +1,54 @@
+cmake_minimum_required(VERSION 3.16)
+
+# Each entry must point directly to a component folder (one that has a CMakeLists.txt)
+set(EXTRA_COMPONENT_DIRS
+    # Arduino.h
+    ${CMAKE_SOURCE_DIR}/components/third_party/arduino
+    # common
+    ${CMAKE_SOURCE_DIR}/components/common/data
+
+    # top-level components
+    ${CMAKE_SOURCE_DIR}/components/control
+    ${CMAKE_SOURCE_DIR}/components/global
+    ${CMAKE_SOURCE_DIR}/components/model
+    ${CMAKE_SOURCE_DIR}/components/status
+
+    # sensors
+    ${CMAKE_SOURCE_DIR}/components/sensors/BME680
+    ${CMAKE_SOURCE_DIR}/components/sensors/BNO055
+    ${CMAKE_SOURCE_DIR}/components/sensors/GPS
+    ${CMAKE_SOURCE_DIR}/components/sensors/LIS3DHTR
+    ${CMAKE_SOURCE_DIR}/components/sensors/MPRLS
+    ${CMAKE_SOURCE_DIR}/components/sensors/MS561101BA03
+    ${CMAKE_SOURCE_DIR}/components/sensors/Termoresistenze
+    ${CMAKE_SOURCE_DIR}/components/sensors/filters_kalman
+
+    # telemetry
+    ${CMAKE_SOURCE_DIR}/components/telemetry/protocol
+    ${CMAKE_SOURCE_DIR}/components/telemetry/radio_espnow
+    ${CMAKE_SOURCE_DIR}/components/telemetry/radio_lora
+
+    # logger
+    ${CMAKE_SOURCE_DIR}/components/logger/core
+    ${CMAKE_SOURCE_DIR}/components/logger/implementation
+
+    # persistence
+    ${CMAKE_SOURCE_DIR}/components/persistence/SD
+
+    # third_party
+    ${CMAKE_SOURCE_DIR}/components/third_party/ArduinoEigen
+    ${CMAKE_SOURCE_DIR}/components/third_party/BNO055_SensorAPI
+    ${CMAKE_SOURCE_DIR}/components/third_party/RadioLib-master
+    ${CMAKE_SOURCE_DIR}/components/third_party/Seeed_Arduino_LIS3DHTR-1.2.4
+    ${CMAKE_SOURCE_DIR}/components/third_party/SparkFun_u-blox_GNSS_Arduino_Library-2.2.27
+    ${CMAKE_SOURCE_DIR}/components/third_party/TinyEKF-master
+)
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+
+# This registers all the components in the specified directory, so IT IS IMPORTANT to put all the EXTRA_COMPONENT_DIRS before this
+# Note: if two components have the same name the highest priority one will override the other: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/build-system.html#multiple-components-with-the-same-name
+project(atlas)
+
+# To add compilation flags:
+# idf_build_set_property(COMPILE_OPTIONS "-Wno-error" APPEND)
