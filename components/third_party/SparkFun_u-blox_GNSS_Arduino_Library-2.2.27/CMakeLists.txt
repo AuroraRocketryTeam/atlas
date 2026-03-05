@@ -4,4 +4,5 @@ file(GLOB SRCS "src/*.cpp" "src/*.c")
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "src"
+    REQUIRES espressif__arduino-esp32
 )

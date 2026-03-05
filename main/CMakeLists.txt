@@ -27,6 +27,7 @@ idf_component_register(
         # Third-party
         BNO055_SensorAPI
         RadioLib-master
+    REQUIRES espressif__arduino-esp32
 )
 
 
