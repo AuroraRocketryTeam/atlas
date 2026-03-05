@@ -11,6 +11,8 @@ docs/xml/
 *.tmp
 
 # ESP-IDF build files
+sdkconfig
+sdkconfig.old
 .config
 *.o
 *.pyc
