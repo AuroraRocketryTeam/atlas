@@ -1,6 +1,7 @@
 #include "Logger.hpp"
 #include "esp_heap_caps.h"
 #include <Arduino.h>
+#include <inttypes.h>
 
 // Serial mutex for thread-safe printing
 static SemaphoreHandle_t serialMutex = nullptr;
@@ -86,11 +87,11 @@ namespace Logger
             float fragmentation = 100.0f * (1.0f - (float)largestBlock / freeHeap);
 
             Serial.printf("\n=== MEMORY DEBUG [%s] ===\n", location);
-            Serial.printf("Free heap: %u bytes\n", freeHeap);
-            Serial.printf("Min free heap: %u bytes\n", ESP.getMinFreeHeap());
-            Serial.printf("Max alloc heap: %u bytes\n", maxAlloc);
+            Serial.printf("Free heap: %zu bytes\n", freeHeap);
+            Serial.printf("Min free heap: %" PRIu32 " bytes\n", ESP.getMinFreeHeap());
+            Serial.printf("Max alloc heap: %zu bytes\n", maxAlloc);
             Serial.printf("Fragmentation: %.2f%%\n", fragmentation);
-            Serial.printf("Largest free block: %u bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+            Serial.printf("Largest free block: %zu bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
             Serial.printf("==========================\n\n");
 
             if (fragmentation > 20.0f)
