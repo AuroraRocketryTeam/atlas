@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.16)
 
 # Each entry must point directly to a component folder (one that has a CMakeLists.txt)
 set(EXTRA_COMPONENT_DIRS
-    # Arduino.h
-    ${CMAKE_SOURCE_DIR}/components/third_party/arduino
     # common
     ${CMAKE_SOURCE_DIR}/components/common/data
 
@@ -36,12 +34,21 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_SOURCE_DIR}/components/persistence/SD
 
     # third_party
+    ${CMAKE_SOURCE_DIR}/components/third_party/nlohmann_json
     ${CMAKE_SOURCE_DIR}/components/third_party/ArduinoEigen
     ${CMAKE_SOURCE_DIR}/components/third_party/BNO055_SensorAPI
     ${CMAKE_SOURCE_DIR}/components/third_party/RadioLib-master
+    ${CMAKE_SOURCE_DIR}/components/third_party/SdFat
     ${CMAKE_SOURCE_DIR}/components/third_party/Seeed_Arduino_LIS3DHTR-1.2.4
     ${CMAKE_SOURCE_DIR}/components/third_party/SparkFun_u-blox_GNSS_Arduino_Library-2.2.27
     ${CMAKE_SOURCE_DIR}/components/third_party/TinyEKF-master
+    ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_MPRLS
+    ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_BusIO
+    ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_BME680
+    ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_Sensor
+    ${CMAKE_SOURCE_DIR}/components/third_party/EByte_LoRa_E220_Series_Library
+    ${CMAKE_SOURCE_DIR}/components/third_party/SX126x-Arduino
+    ${CMAKE_SOURCE_DIR}/components/third_party/ArxTypeTraits
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
@@ -49,6 +56,9 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # This registers all the components in the specified directory, so IT IS IMPORTANT to put all the EXTRA_COMPONENT_DIRS before this
 # Note: if two components have the same name the highest priority one will override the other: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/build-system.html#multiple-components-with-the-same-name
 project(atlas)
+
+# Relax -Werror for implicit-function-declaration — needed for Arduino-ESP32 3.x
+idf_build_set_property(COMPILE_OPTIONS "-Wno-error=implicit-function-declaration" APPEND)
 
 # To add compilation flags:
 # idf_build_set_property(COMPILE_OPTIONS "-Wno-error" APPEND)
