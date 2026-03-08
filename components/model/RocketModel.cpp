@@ -2,9 +2,9 @@
 
 //  Actuator and Buzzer pins
 #define ADC_PIN A0
-#define MAIN_ACTUATORS_PIN D0
-#define DROGUE_ACTUATORS_PIN D1
-#define BUZZER_PIN D2
+#define MAIN_ACTUATORS_PIN 4  // Replaced D0 with actual pin number 4
+#define DROGUE_ACTUATORS_PIN 5 // Replaced D1 with actual pin number 5
+#define BUZZER_PIN 6         // Replaced D2 with actual pin number 6
 
 RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
             std::shared_ptr<BNO055Sensor> bno,
