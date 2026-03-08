@@ -13,7 +13,7 @@ RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
     : _fsmTaskHandle(nullptr), _eventQueue(nullptr), _stateMutex(nullptr),
       _currentState(RocketState::INACTIVE), _previousState(RocketState::INACTIVE),
       _stateStartTime(0), _isRunning(false), _isTransitioning(false),
-      _rocketModel(rocketModel), _sd(sd), _logger(logger)
+      _rocketModel(rocketModel), _logger(logger), _sd(sd)
 {
     LOG_INFO("FSM", "Constructor called");
     LOG_INFO("FSM", "Variables check: model=%s, SD=%s, Logger=%s",
@@ -62,7 +62,11 @@ void RocketFSM::init()
     LOG_INFO("RocketFSM", "Initializing...");
 
     // Initialize watchdog timer
-    esp_task_wdt_init(60000, true); // 60 second timeout
+    esp_task_wdt_config_t config;
+    config.timeout_ms = 60000;
+    config.idle_core_mask = (1 << portNUM_PROCESSORS) - 1;
+    config.trigger_panic = true;
+    esp_task_wdt_init(&config); // 60 second timeout
 
     // Create FreeRTOS objects
     _eventQueue = xQueueCreate(EVENT_QUEUE_SIZE, sizeof(FSMEventData));
@@ -641,10 +645,7 @@ void RocketFSM::checkTransitions()
     }
 
     // Cache some persistent values across calls to avoid repeated allocations
-    static bool haveAccel = false;
-    static float accelZ = 0.0f;
     static unsigned long launchHighSince = 0;
-    static unsigned long decelSince = 0;
 
     // Get accelerometer data before switch statement
     std::shared_ptr<IMUData> bno055Data = _rocketModel->getBNO055Data();

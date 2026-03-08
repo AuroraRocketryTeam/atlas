@@ -27,7 +27,7 @@ public:
      * @param logger The shared pointer to the RocketLogger instance
      */
     RocketFSM(std::shared_ptr<RocketModel> rocketModel,
-              std::shared_ptr<SD> sd,
+              std::shared_ptr<SDCard> sd,
               std::shared_ptr<RocketLogger> logger
             );
     
@@ -117,7 +117,7 @@ private:
     SemaphoreHandle_t _modelMutex;
     SemaphoreHandle_t _loggerMutex;
 
-    std::shared_ptr<SD> _sd;
+    std::shared_ptr<SDCard> _sd;
 
     // Important timers and tresholds
     const unsigned long LAUNCH_TO_BALLISTIC_THRESHOLD = 6000;

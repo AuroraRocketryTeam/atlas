@@ -8,10 +8,10 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          std::shared_ptr<RocketLogger> logger,
                          SemaphoreHandle_t loggerMutex) : 
                          _rocketModel(rocketModel),
-                         _modelMutex(modelMutex),
-                         _sd(sd),
                          _logger(logger),
-                         _loggerMutex(loggerMutex)
+                         _modelMutex(modelMutex),
+                         _loggerMutex(loggerMutex),
+                         _sd(sd)
 {
     LOG_INFO("TaskMgr", "Initialized with model");
 

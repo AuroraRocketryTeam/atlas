@@ -37,7 +37,7 @@ public:
      */
     TaskManager(std::shared_ptr<RocketModel> rocketModel,
             SemaphoreHandle_t modelMutex,
-            std::shared_ptr<SD> sd,
+            std::shared_ptr<SDCard> sd,
             std::shared_ptr<RocketLogger> logger,
             SemaphoreHandle_t loggerMutex);
     
@@ -114,7 +114,7 @@ private:
     SemaphoreHandle_t _modelMutex;
     SemaphoreHandle_t _loggerMutex;
 
-    std::shared_ptr<SD> _sd;
+    std::shared_ptr<SDCard> _sd;
     
     // Telemetry
     std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
