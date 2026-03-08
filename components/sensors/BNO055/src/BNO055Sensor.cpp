@@ -113,8 +113,8 @@ bool BNO055Sensor::hardwareTest() {
     bool mcu_status = _bno_interface.selftest_mcu();
 
     // !!! These are not strictly hardware stuff, should we add another test function?
-    bool system_status = _bno_interface.check_system_error();
-    bool clock_status = _bno_interface.check_clock_status();
+    // bool system_status = _bno_interface.check_system_error();
+    // bool clock_status = _bno_interface.check_clock_status();
 
     return accel_status && mag_status && gyro_status && mcu_status;
 }

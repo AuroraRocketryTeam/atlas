@@ -53,18 +53,18 @@ void EkfTask::taskFunction() {
         float baro2Pressure = 0.0f;
         float gpsAltitude = 0.0f;
 
-        auto orientation_x = imuDataCopy->orientation_x;
-        auto orientation_y = imuDataCopy->orientation_y;
-        auto orientation_z = imuDataCopy->orientation_z;
+        // auto orientation_x = imuDataCopy->orientation_x;
+        // auto orientation_y = imuDataCopy->orientation_y;
+        // auto orientation_z = imuDataCopy->orientation_z;
 
-        auto acceleration_x = lisDataCopy->acceleration_x;
-        auto acceleration_y = lisDataCopy->acceleration_y;
-        auto acceleration_z = lisDataCopy->acceleration_z;
+        // auto acceleration_x = lisDataCopy->acceleration_x;
+        // auto acceleration_y = lisDataCopy->acceleration_y;
+        // auto acceleration_z = lisDataCopy->acceleration_z;
 
-        auto pressure1 = baro1DataCopy->pressure;
-        auto pressure2 = baro2DataCopy->pressure;
+        // auto pressure1 = baro1DataCopy->pressure;
+        // auto pressure2 = baro2DataCopy->pressure;
 
-        auto altitude = gpsDataCopy->altitude;
+        // auto altitude = gpsDataCopy->altitude;
 
         if (!running) break; // Check before heavy computation
 

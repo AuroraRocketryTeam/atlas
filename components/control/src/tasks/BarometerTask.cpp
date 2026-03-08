@@ -19,7 +19,7 @@ float relAltitude(float pressure, float pressureRef = 99725.0f,
 
 void BarometerTask::taskFunction()
 {
-    float altitude, pressure;
+    float pressure;
     float filtered_pressure, filtered_altitude;
 
     //LOG_INFO("BarometerTask", "Starting with median filter (window=%d)", BAROMETER_FILTER_WINDOW);
@@ -45,7 +45,7 @@ void BarometerTask::taskFunction()
         addPressureTrendValue(filtered_pressure);
         
         // Calculate altitudes for comparison
-        altitude = relAltitude(pressure);              // Raw altitude
+        (void)relAltitude(pressure);              // Raw altitude
         filtered_altitude = relAltitude(filtered_pressure);  // Filtered altitude
 
         // Controls if the last readings indicate that the system is rising or not

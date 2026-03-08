@@ -112,9 +112,6 @@ std::string trimString(const std::string& str) {
 void SimulationTask::taskFunction() {
     try {
         while (running) {
-            auto now = millis();
-            double elapsed = now - _startTime;
-
             if (_firstTime) {
                 String header = _sdManager.readLine(); // skip header
                 _firstTime = false;

@@ -35,9 +35,6 @@ std::optional<RocketState> TransitionManager::findTransition(RocketState current
 
 bool TransitionManager::checkAutomaticTransitions(RocketState currentState, unsigned long stateStartTime)
 {
-    // Calculate elapsed time in current state
-    unsigned long elapsedTime = millis() - stateStartTime;
-
     // Check all transitions from the current state that have conditions
     for (const auto &transition : transitions)
     {
