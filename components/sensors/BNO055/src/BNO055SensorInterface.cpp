@@ -74,7 +74,7 @@ uint8_t BNO055SensorInterface::check_calibration_accel() {
     uint8_t accel_calib = 0;
     
     // Get current accelerometer calibration status from BNO055 registers
-    /*bool success = */(bno055_get_accel_calib_stat(&accel_calib) == BNO055_SUCCESS);
+    bno055_get_accel_calib_stat(&accel_calib);
     
     return accel_calib;
 }
@@ -83,7 +83,7 @@ uint8_t BNO055SensorInterface::check_calibration_mag() {
     uint8_t mag_calib = 0;
     
     // Get current magnetometer calibration status from BNO055 registers
-    /*bool success = */(bno055_get_mag_calib_stat(&mag_calib) == BNO055_SUCCESS);
+    bno055_get_mag_calib_stat(&mag_calib);
     
     return mag_calib;
 }
@@ -92,7 +92,7 @@ uint8_t BNO055SensorInterface::check_calibration_gyro() {
     uint8_t gyro_calib = 0;
     
     // Get current gyroscope calibration status from BNO055 registers
-    /*bool success = */(bno055_get_gyro_calib_stat(&gyro_calib) == BNO055_SUCCESS);
+    bno055_get_gyro_calib_stat(&gyro_calib);
     
     return gyro_calib;
 }
@@ -101,7 +101,7 @@ uint8_t BNO055SensorInterface::check_calibration_sys() {
     uint8_t sys_calib = 0;
     
     // Get current system calibration status from BNO055 registers
-    /*bool success = */(bno055_get_sys_calib_stat(&sys_calib) == BNO055_SUCCESS);
+    bno055_get_sys_calib_stat(&sys_calib);
     
     return sys_calib;
 }
@@ -362,7 +362,7 @@ std::vector<float> BNO055SensorInterface::get_gravity() {
 float BNO055SensorInterface::get_temperature() {
     int8_t raw_temp = 0;
     
-    /*bool res = */(bno055_read_temp_data(&raw_temp) == BNO055_SUCCESS);
+    bno055_read_temp_data(&raw_temp);
     
     // Conversion: 1 LSB = 1°C, so just cast to float
     return static_cast<float>(raw_temp);
