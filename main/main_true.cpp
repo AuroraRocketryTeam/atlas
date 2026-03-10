@@ -3,14 +3,20 @@
 #include <Wire.h>
 #include <HardwareSerial.h>
 #include <variant>
+#include <string>
+#include <cstring>
 
 // FreeRTOS
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
 // WiFi and communication
-#include <WiFi.h>
 #include <esp_now.h>
+#include <esp_wifi.h>
+#include <esp_event.h>
+#include <esp_netif.h>
+#include <esp_err.h>
+#include <nvs_flash.h>
 
 // Configuration and pins
 #include <config.h>
@@ -61,7 +67,7 @@ StatusManager statusManager(ledController, buzzerController);
 std::shared_ptr<RocketModel> rocketModel = nullptr;
 
 // Type definitions
-using TransmitDataType = std::variant<char *, String, std::string, nlohmann::json>;
+using TransmitDataType = std::variant<char *, std::string, nlohmann::json>;
 
 std::shared_ptr<SD> sdCard = nullptr;
 
@@ -291,6 +297,73 @@ void testFSMTransitions(RocketFSM &fsm)
     }
 }
 
+static bool initializeWifiStaForEspNow()
+{
+    static bool initialized = false;
+    if (initialized) {
+        return true;
+    }
+
+    // NVS init (required by Wi-Fi)
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ret = nvs_flash_erase();
+        if (ret != ESP_OK) {
+            LOG_ERROR("WiFi", "nvs_flash_erase failed: %s", esp_err_to_name(ret));
+            return false;
+        }
+        ret = nvs_flash_init();
+    }
+    if (ret != ESP_OK) {
+        LOG_ERROR("WiFi", "nvs_flash_init failed: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    // init network stack and event loop 
+    ret = esp_netif_init();
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        LOG_ERROR("WiFi", "esp_netif_init failed: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    ret = esp_event_loop_create_default();
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        LOG_ERROR("WiFi", "esp_event_loop_create_default failed: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    (void)esp_netif_create_default_wifi_sta();
+
+    // init wifi drivers 
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ret = esp_wifi_init(&cfg);
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_INIT_STATE) {
+        LOG_ERROR("WiFi", "esp_wifi_init failed: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (ret != ESP_OK) {
+        LOG_ERROR("WiFi", "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    ret = esp_wifi_start();
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_STOPPED) {
+        LOG_ERROR("WiFi", "esp_wifi_start failed: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    // disconnect wifi
+    ret = esp_wifi_disconnect();
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT && ret != ESP_ERR_WIFI_CONN) {
+        LOG_WARNING("WiFi", "esp_wifi_disconnect returned: %s", esp_err_to_name(ret));
+    }
+
+    initialized = true;
+    return true;
+}
+
 void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
                           std::shared_ptr<LIS3DHTRSensor> accl,
                           std::shared_ptr<MS561101BA03> baro1,
@@ -392,12 +465,8 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
 
     // Initializa ESP-NOW connection for telemetry
     LOG_INFO("Init", "Initializing ESP-NOW for telemetry...");
-    if (WiFi.begin())
+    if (initializeWifiStaForEspNow())
     {
-        // Disattiva Wi-Fi STA/AP
-        WiFi.mode(WIFI_STA);
-        WiFi.disconnect();
-
         if (esp_now_init() == ESP_OK)
         {
             LOG_INFO("Init", "ESP-NOW initialized");
@@ -523,20 +592,39 @@ void showTestPattern(int testNumber, StatusManager &statusManager)
     }
 }
 
+// helper functions for std::string manipulation
+static void trimString(std::string &s)
+{
+    auto notSpace = [](unsigned char c) { return !std::isspace(c); };
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), notSpace));
+    s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
+}
+
+static void toUpperString(std::string &s)
+{
+    for (char &c : s)
+    {
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+}
+
 // Modified waitForUserInput with buzzer patterns
 bool waitForUserInput(const char *message)
 {
-    String full_message = String(message) + "\n Or type REBOOT to restart the system.";
-    Serial.println(full_message);
+    std::string full_message = std::string(message) + "\n Or type REBOOT to restart the system.";
+    Serial.println(full_message.c_str());
     statusManager.setSystemCode(WAITING_INPUT);
 
     while (true)
     {
         if (Serial.available())
         {
-            String input = Serial.readStringUntil('\n');
-            input.trim();
-            input.toUpperCase();
+            char buffer[64] = {0};
+            size_t len = Serial.readBytesUntil('\n', buffer, sizeof(buffer) - 1);
+            buffer[len] = '\0';
+            std::string input(buffer, len);
+            trimString(input);
+            toUpperString(input);
             if (input == "PASSED")
             {
                 statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
@@ -559,24 +647,27 @@ bool waitForUserInput(const char *message)
                 }
 
                 unsigned long waitStart = millis();
-                String confirm = "";
+                std::string confirm;
                 while (millis() - waitStart < 10000) // Wait up to 10 seconds
                 {
                     if (Serial.available())
                     {
-                        confirm = Serial.readStringUntil('\n');
+                        char confirmBuffer[64] = {0};
+                        size_t confirmLen = Serial.readBytesUntil('\n', confirmBuffer, sizeof(confirmBuffer) - 1);
+                        confirmBuffer[confirmLen] = '\0';
+                        confirm.assign(confirmBuffer, confirmLen);
                         break;
                     }
                     vTaskDelay(pdMS_TO_TICKS(100));
                 }
 
-                if (confirm.length() == 0)
+                if (confirm.empty())
                 {
                     LOG_INFO("Test", "Reboot timeout - continuing normal operation.");
                     continue;
                 }
-                confirm.trim();
-                confirm.toUpperCase();
+                trimString(confirm);
+                toUpperString(confirm);
                 if (confirm == "REBOOT")
                 {
                     LOG_WARNING("Test", "Rebooting system...");
@@ -778,9 +869,12 @@ void testRoutine()
             vTaskDelay(pdMS_TO_TICKS(100));
         }
 
-        String input = Serial.readStringUntil('\n');
-        input.trim();
-        int choice = input.toInt();
+        char buffer[32] = {0};
+        size_t len = Serial.readBytesUntil('\n', buffer, sizeof(buffer) - 1);
+        buffer[len] = '\0';
+        std::string input(buffer, len);
+        trimString(input);
+        int choice = std::atoi(input.c_str());
         bool testPassed = false;
 
         // Show specific pattern for this test

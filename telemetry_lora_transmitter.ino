@@ -34,9 +34,13 @@
  * - Adjust transmit power and other radio parameters as needed
  */
 
-#include <WiFi.h>
+/*#include <WiFi.h>*/
 #include <esp_now.h>
 #include <esp_wifi.h>
+#include <esp_event.h>
+#include <esp_netif.h>
+#include <nvs_flash.h>
+#include <esp_err.h>
 #include <RadioLib.h>
 
 // instead of defining RADIO_BOARD_AUTO,
@@ -213,6 +217,74 @@ volatile size_t queueCount = 0;
 // LoRa transmission state
 volatile bool transmitFlag = false;
 volatile bool transmitting = false;
+
+// Wifi initialization
+static bool initializeWifiStaForEspNow()
+{
+    static bool initialized = false;
+    if (initialized) {
+        return true;
+    }
+
+    // NVS init (required by Wi-Fi)
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ret = nvs_flash_erase();
+        if (ret != ESP_OK) {
+            Serial.printf("[WIFI] nvs_flash_erase failed: %s\n", esp_err_to_name(ret));
+            return false;
+        }
+        ret = nvs_flash_init();
+    }
+    if (ret != ESP_OK) {
+        Serial.printf("[WIFI] nvs_flash_init failed: %s\n", esp_err_to_name(ret));
+        return false;
+    }
+
+    // init network stack and event loop 
+    ret = esp_netif_init();
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        Serial.printf("[WIFI] esp_netif_init failed: %s\n", esp_err_to_name(ret));
+        return false;
+    }
+
+    ret = esp_event_loop_create_default();
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        Serial.printf("[WIFI] esp_event_loop_create_default failed: %s\n", esp_err_to_name(ret));
+        return false;
+    }
+
+    (void)esp_netif_create_default_wifi_sta();
+
+    // init wifi drivers
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ret = esp_wifi_init(&cfg);
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_INIT_STATE) {
+        Serial.printf("[WIFI] esp_wifi_init failed: %s\n", esp_err_to_name(ret));
+        return false;
+    }
+
+    ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (ret != ESP_OK) {
+        Serial.printf("[WIFI] esp_wifi_set_mode failed: %s\n", esp_err_to_name(ret));
+        return false;
+    }
+
+    ret = esp_wifi_start();
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_STOPPED) {
+        Serial.printf("[WIFI] esp_wifi_start failed: %s\n", esp_err_to_name(ret));
+        return false;
+    }
+
+    // disconnect wifi
+    ret = esp_wifi_disconnect();
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT && ret != ESP_ERR_WIFI_CONN) {
+        Serial.printf("[WIFI] esp_wifi_disconnect returned: %s\n", esp_err_to_name(ret));
+    }
+
+    initialized = true;
+    return true;
+}
 
 bool enqueuePacket(const uint8_t* packetData)
 {
@@ -391,13 +463,22 @@ void setup()
     // Set up interrupt for LoRa transmission complete
     radio.setDio1Action(onTransmitDone);
     
-    // Set WiFi mode to STA for ESP-NOW
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
-    
-    // Print MAC address
+    // Initialize WiFi in sta mode
+    if (!initializeWifiStaForEspNow())
+    {
+        Serial.println("[ERROR] Failed to initialize WiFi for ESP-NOW");
+        while (true) {
+            delay(1000);
+        }
+    }
+
+    uint8_t mac_address[6];
     Serial.print("[WIFI] Transmitter MAC Address: ");
-    Serial.println(WiFi.macAddress());
+    esp_wifi_get_mac(WIFI_IF_STA, mac_address);
+    for (int i = 0; i < 6; i++) {
+        Serial.printf("%02X%s", mac_address[i], i < 5 ? ":" : "\n");
+    }   
+
     
     // Initialize ESP-NOW
     if (esp_now_init() != ESP_OK)
