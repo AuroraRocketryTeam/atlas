@@ -4,7 +4,7 @@
 
 SDLoggingTask::SDLoggingTask(std::shared_ptr<RocketLogger> logger, 
                                SemaphoreHandle_t loggerMutex,
-                               std::shared_ptr<SDCard> sdCard)
+                               std::shared_ptr<SD> sdCard)
     : BaseTask("SDLoggingTask"),
       logger(logger),
       loggerMutex(loggerMutex),

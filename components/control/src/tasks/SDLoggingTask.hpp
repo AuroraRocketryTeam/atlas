@@ -24,7 +24,7 @@ public:
      */
     SDLoggingTask(std::shared_ptr<RocketLogger> logger, 
                SemaphoreHandle_t loggerMutex,
-               std::shared_ptr<SDCard> sdCard);
+               std::shared_ptr<SD> sdCard);
     
     ~SDLoggingTask() override;
 
@@ -35,7 +35,7 @@ private:
     std::shared_ptr<RocketLogger> logger;
     SemaphoreHandle_t loggerMutex;
 
-    std::shared_ptr<SDCard> sdCard;
+    std::shared_ptr<SD> sdCard;
     bool sdInitialized = false;
     int file_counter = 0;
 

@@ -201,7 +201,7 @@ bool EspNowTransmitter::addPeer()
     return true;
 }
 
-void EspNowTransmitter::onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+void EspNowTransmitter::onDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status)
 {
     if (instance == nullptr)
     {

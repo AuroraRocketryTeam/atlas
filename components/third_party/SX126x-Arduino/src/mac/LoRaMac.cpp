@@ -3399,9 +3399,13 @@ LoRaMacStatus_t LoRaMacMcpsRequest(McpsReq_t *mcpsRequest)
 	void *fBuffer;
 	uint16_t fBufferSize;
         int8_t datarate = 0;
+        bool readyToSend = false;
+
+	if (mcpsRequest == NULL)
 	{
 		return LORAMAC_STATUS_PARAMETER_INVALID;
 	}
+
 	if (((LoRaMacState & LORAMAC_TX_RUNNING) == LORAMAC_TX_RUNNING) ||
 		((LoRaMacState & LORAMAC_TX_DELAYED) == LORAMAC_TX_DELAYED))
 	{
