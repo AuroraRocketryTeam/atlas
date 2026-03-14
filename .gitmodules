@@ -1,3 +1,0 @@
-[submodule "lib/ArduinoEigen"]
-	path = lib/third_party/ArduinoEigen
-	url = https://github.com/hideakitai/ArduinoEigen
