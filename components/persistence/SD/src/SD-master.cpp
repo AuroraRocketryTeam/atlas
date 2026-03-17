@@ -1,50 +1,101 @@
 #include "SD-master.hpp"
+#include <sys/stat.h>
+#include <dirent.h>
 
 /**
- * @brief A SD.begin() wrapper
+ * @brief A wrapper for SD card initialization
  *
  * @return true if the SD card is initialized, false otherwise
  */
 bool SD::init()
 {
-    this->fileInitialized = this->SD.begin(SD_CS, SPI_FULL_SPEED);
-    return this->fileInitialized;
+    esp_err_t ret;
+    
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {};
+    mount_config.format_if_mount_failed = false; // if mount fails, do not format the card
+    mount_config.max_files = 5; // max number of open files simultaneously
+    mount_config.allocation_unit_size = 16 * 1024;
+
+    LOG_INFO("SD-Task", "Initializing SD card");
+
+    // Use settings defined above to initialize SD card and mount FAT filesystem
+    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
+
+    spi_bus_config_t bus_cfg = {};
+    bus_cfg.mosi_io_num = SD_SI;
+    bus_cfg.miso_io_num = SD_SO;
+    bus_cfg.sclk_io_num = SD_CLK;
+    bus_cfg.quadwp_io_num = SD_QUADWP;
+    bus_cfg.quadhd_io_num = SD_QUADHD;
+    bus_cfg.max_transfer_sz = SD_MAX_TRANSFER_SIZE;
+
+    ret = spi_bus_initialize(static_cast<spi_host_device_t>(host.slot), &bus_cfg, SDSPI_DEFAULT_DMA);
+    if (ret != ESP_OK) {
+        LOG_ERROR("SD-Task", "Failed to initialize bus.");
+        return false;
+    }
+
+    // This initializes the slot without card detect (CD) and write protect (WP) signals.
+    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
+    slot_config.gpio_cs = (gpio_num_t)SD_CS;
+    slot_config.host_id = static_cast<spi_host_device_t>(host.slot);
+
+    LOG_INFO("SD-Task", "Mounting filesystem");
+    ret = esp_vfs_fat_sdspi_mount(mount_point.c_str(), &host, &slot_config, &mount_config, &card);
+
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+            LOG_ERROR("SD-Task", "Failed to mount filesystem.");
+        } else {
+            LOG_ERROR("SD-Task", "Failed to initialize the card (ESP_ERR: %d).", ret);
+        }
+        return false;
+    }
+
+    this->fileInitialized = true;
+    return true;
 }
 
 /**
- * @brief A SdFile.open wrapper
+ * @brief File open wrapper
  *
  * @param filename
  * @return true if the file is opened, false otherwise
  */
 bool SD::openFile(std::string filename)
 {
-    if (!this->SD.exists(filename.c_str()) || this->file == nullptr)
-    {
-        this->file = new SdFile(filename.c_str(), O_RDWR | O_CREAT | O_AT_END);
-    }
-    else
-    {
-        this->file->open(filename.c_str(), O_RDWR | O_CREAT | O_AT_END);
+    std::string full_path = mount_point + "/" + filename;
+    
+    if (this->file != nullptr) {
+        fclose(this->file);
+        this->file = nullptr;
     }
 
-    this->file->seekSet(0);
+    this->file = fopen(full_path.c_str(), "a+");
+    if (this->file == nullptr) {
+        LOG_ERROR("SD-Task", "Failed to open file for appending/reading");
+        return false;
+    }
 
-    return this->file->isOpen();
+    fseek(this->file, 0, SEEK_SET);
+
+    return true;
 }
 
 /**
- * @brief A SDFile.close wrapper
+ * @brief File close wrapper
  *
  * @return true if the file is closed, false otherwise.
  */
 bool SD::closeFile()
 {
-    if (this->file == nullptr || !this->file->isOpen())
+    if (this->file == nullptr)
     {
         return false;
     }
-    return this->file->close();
+    fclose(this->file);
+    this->file = nullptr;
+    return true;
 }
 
 /**
@@ -54,36 +105,29 @@ bool SD::closeFile()
  * @param content  the content to write
  * @return true if the file is written, false otherwise
  */
-bool SD::writeFile(std::string filename, std::variant<std::string, String, char *> content)
+bool SD::writeFile(std::string filename, std::variant<std::string, const char *> content)
 {
-    if (!this->file->isOpen())
+    std::string full_path = mount_point + "/" + filename;
+
+    // overwrite mode
+    FILE* temp_file = fopen(full_path.c_str(), "w");
+    if (temp_file == nullptr)
     {
-        if(!this->openFile(filename))
-        {
-            return false;
-        }
+        return false;
     }
-    char *data;
+    
+    const char *data;
     if (std::holds_alternative<std::string>(content))
     {
-        std::string str = std::get<std::string>(content);
-        data = new char[str.length() + 1];
-        strcpy(data, str.c_str());
-    }
-    else if (std::holds_alternative<String>(content))
-    {
-        String str = std::get<String>(content);
-        data = new char[str.length() + 1];
-        strcpy(data, str.c_str());
+        data = std::get<std::string>(content).c_str();
     }
     else
     {
-        char *str = std::get<char *>(content);
-        data = new char[strlen(str) + 1];
-        strcpy(data, str);
+        data = std::get<const char *>(content);
     }
-    this->file->write(data, strlen(data));
-    delete[] data;
+    
+    fputs(data, temp_file);
+    fclose(temp_file);
     return true;
 }
 
@@ -94,9 +138,9 @@ bool SD::writeFile(std::string filename, std::variant<std::string, String, char 
  * @param content  the content to append
  * @return true if the content is appended, false otherwise
  */
-bool SD::appendFile(std::string filename, std::variant<std::string, String, char *> content)
+bool SD::appendFile(std::string filename, std::variant<std::string, const char *> content)
 {
-    if (!this->file->isOpen())
+    if (this->file == nullptr)
     {
         if(!this->openFile(filename))
         {
@@ -104,30 +148,20 @@ bool SD::appendFile(std::string filename, std::variant<std::string, String, char
         }
     }
     
-    // Move to the end of the file for appending
-    this->file->seekEnd();
+    fseek(this->file, 0, SEEK_END);
     
-    char *data;
+    const char *data;
     if (std::holds_alternative<std::string>(content))
     {
-        std::string str = std::get<std::string>(content);
-        data = new char[str.length() + 1];
-        strcpy(data, str.c_str());
-    }
-    else if (std::holds_alternative<String>(content))
-    {
-        String str = std::get<String>(content);
-        data = new char[str.length() + 1];
-        strcpy(data, str.c_str());
+        data = std::get<std::string>(content).c_str();
     }
     else
     {
-        char *str = std::get<char *>(content);
-        data = new char[strlen(str) + 1];
-        strcpy(data, str);
+        data = std::get<const char *>(content);
     }
-    this->file->write(data, strlen(data));
-    delete[] data;
+    
+    fputs(data, this->file);
+    fflush(this->file);
     return true;
 }
 
@@ -139,7 +173,7 @@ bool SD::appendFile(std::string filename, std::variant<std::string, String, char
  */
 char *SD::readFile(std::string filename)
 {
-    if (!this->file->isOpen())
+    if (this->file == nullptr)
     {
         if(!this->openFile(filename))
         {
@@ -147,9 +181,13 @@ char *SD::readFile(std::string filename)
         }
     }
 
-    this->file->seekSet(0); // Riporta il puntatore all'inizio
+    fseek(this->file, 0, SEEK_END);
+    long fileSize = ftell(this->file);
+    fseek(this->file, 0, SEEK_SET);
 
-    size_t fileSize = this->file->fileSize();
+    if (fileSize <= 0) {
+        return nullptr;
+    }
 
     char *content = (char *)malloc(fileSize + 1);
     if (content == nullptr)
@@ -157,14 +195,8 @@ char *SD::readFile(std::string filename)
         return nullptr;
     }
 
-    size_t index = 0;
-    int byte;
-    while ((byte = this->file->read()) != EOF)
-    {
-        content[index] = byte;
-        index++;
-    }
-    content[index] = '\0';
+    size_t result = fread(content, 1, fileSize, this->file);
+    content[result] = '\0';
 
     return content;
 }
@@ -176,29 +208,19 @@ char *SD::readFile(std::string filename)
  */
 bool SD::clearSD()
 {
-    if (!this->SD.exists("/"))
-    {
+    DIR *dir = opendir(mount_point.c_str());
+    if (!dir) {
         return false;
     }
 
-    SdFile root;
-    if (!root.open("/", O_RDONLY))
-    {
-        return false;
-    }
-    SdFile file;
-    while (file.openNext(&root, O_RDONLY))
-    {
-        if (!file.remove())
-        {
-            file.close();
-            root.close();
-            return false;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_REG) {
+            std::string file_path = mount_point + "/" + entry->d_name;
+            unlink(file_path.c_str());
         }
-        file.close();
     }
-    root.close();
-
+    closedir(dir);
     return true;
 }
 
@@ -210,7 +232,12 @@ bool SD::clearSD()
  */
 bool SD::fileExists(std::string filename)
 {
-    return this->SD.exists(filename.c_str());
+    std::string full_path = mount_point + "/" + filename;
+    struct stat st;
+    if (stat(full_path.c_str(), &st) == 0) {
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -218,31 +245,24 @@ bool SD::fileExists(std::string filename)
  *
  * @return String containing the next line, or empty String if EOF or error
  */
-String SD::readLine() {
+std::string SD::readLine() {
     if (this->file == nullptr) {
-        LOG_INFO("SD-Task", "File pointer null");
-        return String("");
-    }
-    if (!this->file->isOpen()) {
         LOG_INFO("SD-Task", "File not open");
-        return String("");
+        return "";
     }
 
-    // Read a whole line inside of a String
-    String str = "";    
+    std::string str = "";    
     char ch;
-    int bytesRead = 0;
     
-    while (this->file->read(&ch, 1) == 1) {
-        bytesRead++;
-        
-        if (ch == '|') {
+    while (fread(&ch, 1, 1, this->file) == 1) {
+        if (ch == '|') { // Based on original logic
             break;
         }
-        if (ch != '\r') {  // Skip carriage return characters
+        if (ch != '\r') {
             str += ch;
         }
     }
     
     return str;
 }
+

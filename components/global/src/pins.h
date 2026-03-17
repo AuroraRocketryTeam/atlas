@@ -28,6 +28,9 @@
 #define SD_SI 47// from Arduino D11
 #define SD_CS 48// from Arduino D10
 #define SD_DET -1
+#define SD_MAX_TRANSFER_SIZE 4000
+#define SD_QUADWP -1
+#define SD_QUADHD -1
 
 // Actuators
 #define DROGUE_ACTUATOR_PIN 5 // Replaced D0 with actual pin number 5

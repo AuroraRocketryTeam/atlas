@@ -1,11 +1,14 @@
 #pragma once
 
 #include <variant>
-#include <Arduino.h>
-#include <SdFat.h>
-#include <pins.h>
 #include <string>
-#include <Logger.hpp>
+#include <stdio.h>
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
+#include "driver/sdspi_host.h"
+#include "driver/spi_common.h"
+#include "Logger.hpp"
+#include "pins.h"
 
 /**
  * @brief Class to handle SD card operations.
@@ -14,9 +17,10 @@
 class SD
 {
 private:
-    SdFat SD;
-    SdFile *file;
+    sdmmc_card_t *card = nullptr;
+    FILE *file = nullptr;
     bool fileInitialized = false;
+    const std::string mount_point = "/sdcard";
 
 public:
     bool init();
@@ -46,7 +50,7 @@ public:
      * @return true if the file was written successfully
      * @return false if the file could not be written
      */
-    bool writeFile(std::string filename, std::variant<std::string, String, char *> content);  // se true file trovato e scritto, se false file non trovato
+    bool writeFile(std::string filename, std::variant<std::string, const char *> content);  // se true file trovato e scritto, se false file non trovato
 
     /**
      * @brief Append a string of data to a file.
@@ -56,7 +60,7 @@ public:
      * @return true if the content was appended successfully
      * @return false if there was an error
      */
-    bool appendFile(std::string filename, std::variant<std::string, String, char *> content); // se true contenuto aggiunto al file, se false errore
+    bool appendFile(std::string filename, std::variant<std::string, const char *> content); // se true contenuto aggiunto al file, se false errore
 
     /**
      * @brief Read the whole content of a file.
@@ -86,14 +90,14 @@ public:
     /**
      * @brief Read a single line from the currently open file.
      * 
-     * @return A String containing the next line, or an empty String if EOF or error.
+     * @return A std::string containing the next line, or an empty string if EOF or error.
      */
-    String readLine();
+    std::string readLine();
 
     /**
      * @brief Get a pointer to the currently open file.
      * 
      * @return A pointer to the currently open file, or nullptr if no file is open.
      */
-    SdFile* getFile() { return file; }                                                        // ritorna il puntatore al file aperto
+    FILE* getFile() { return file; }                                                        // ritorna il puntatore al file aperto
 };
