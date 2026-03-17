@@ -84,7 +84,7 @@ private:
     
     // ESP-NOW callbacks (must be static)
     // Note: Signature matching esp_now_send_cb_t
-    static void onDataSent(const wifi_tx_info_t *info, esp_now_send_status_t status);
+    static void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status);
     
     // Instance pointer for callback access
     static EspNowTransmitter* instance;
