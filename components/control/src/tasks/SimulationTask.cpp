@@ -113,15 +113,15 @@ void SimulationTask::taskFunction() {
     try {
         while (running) {
             if (_firstTime) {
-                String header = _sdManager.readLine(); // skip header
+                std::string header = _sdManager.readLine(); // skip header
                 _firstTime = false;
                 _filePosition = 1; // After header, we're at line 1
             }
             
-            String line = _sdManager.readLine();
+            std::string line = _sdManager.readLine();
             
             // Preprocess the line: trim whitespace and newlines
-            std::string lineStr = trimString(std::string(line.c_str()));
+            std::string lineStr = trimString(line);
             
             if (lineStr.length() > 0) {
                 _filePosition++; // Increment line counter
