@@ -39,8 +39,8 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_SOURCE_DIR}/components/third_party/BNO055_SensorAPI
     ${CMAKE_SOURCE_DIR}/components/third_party/RadioLib-master
     ${CMAKE_SOURCE_DIR}/components/third_party/SdFat
-    ${CMAKE_SOURCE_DIR}/components/third_party/Seeed_Arduino_LIS3DHTR-1.2.4
     ${CMAKE_SOURCE_DIR}/components/third_party/SparkFun_u-blox_GNSS_Arduino_Library-2.2.27
+    ${CMAKE_SOURCE_DIR}/components/third_party/lis3dh_pid
     ${CMAKE_SOURCE_DIR}/components/third_party/TinyEKF-master
     ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_MPRLS
     ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_BusIO
