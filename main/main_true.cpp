@@ -346,7 +346,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
     }
 
     // Initialize GPS
-    gps = std::make_shared<GPS>();
+    gps = std::make_shared<GPS>(GPS_TX_PIN, GPS_RX_PIN);
 
     if (gps && gps->init())
     {

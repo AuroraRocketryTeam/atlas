@@ -71,6 +71,7 @@ ResponseStatusContainer EspNowTransmitter::init()
     }
     
     // Register send callback
+    // esp-idf 5.5 uses wifi_tx_info_t* in esp_now_send_cb_t
     if (esp_now_register_send_cb(onDataSent) != ESP_OK)
     {
         LOG_ERROR("EspNow", "Failed to register send callback");
@@ -201,14 +202,14 @@ bool EspNowTransmitter::addPeer()
     return true;
 }
 
-void EspNowTransmitter::onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
+void EspNowTransmitter::onDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status)
 {
     if (instance == nullptr)
     {
         return;
     }
     
-    // Store send result
+    // Store send result; tx_info may be null per esp-now docs
     instance->sendSuccess = (status == ESP_NOW_SEND_SUCCESS);
     
     // Signal completion
