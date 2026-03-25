@@ -49,7 +49,13 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_SOURCE_DIR}/components/third_party/EByte_LoRa_E220_Series_Library
     ${CMAKE_SOURCE_DIR}/components/third_party/SX126x-Arduino
     ${CMAKE_SOURCE_DIR}/components/third_party/ArxTypeTraits
+    ${CMAKE_SOURCE_DIR}/components/third_party/nmea0183_parser
 )
+
+# Ensure a placeholder Kconfig exists so kconfgen does not fail when no project Kconfig is generated
+if(NOT EXISTS "${CMAKE_BINARY_DIR}/Kconfig")
+    file(WRITE "${CMAKE_BINARY_DIR}/Kconfig" "# Auto-generated placeholder for project Kconfig\n")
+endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 

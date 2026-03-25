@@ -1,0 +1,46 @@
+menu "NMEA parser configuration"
+
+config NMEA_PARSER_RING_BUFFER_SIZE
+    int "NMEA parser ring buffer size"
+    default 2048
+    help
+        Size of the UART RX ring buffer used by the parser. A larger buffer
+        tolerates bursts of incoming NMEA sentences without loss.
+
+config NMEA_PARSER_TASK_STACK_SIZE
+    int "NMEA parser task stack size"
+    default 4096
+
+config NMEA_PARSER_TASK_PRIORITY
+    int "NMEA parser task priority"
+    default 12
+
+config NMEA_PARSER_UART_RXD
+    int "NMEA parser UART RX pin"
+    default 34
+
+config NMEA_STATEMENT_GGA
+    bool "Enable GGA statement parsing"
+    default y
+
+config NMEA_STATEMENT_GSA
+    bool "Enable GSA statement parsing"
+    default y
+
+config NMEA_STATEMENT_GSV
+    bool "Enable GSV statement parsing"
+    default y
+
+config NMEA_STATEMENT_RMC
+    bool "Enable RMC statement parsing"
+    default y
+
+config NMEA_STATEMENT_GLL
+    bool "Enable GLL statement parsing"
+    default y
+
+config NMEA_STATEMENT_VTG
+    bool "Enable VTG statement parsing"
+    default y
+
+endmenu

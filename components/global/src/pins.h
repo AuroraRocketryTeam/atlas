@@ -38,9 +38,23 @@
 #define BUZZER_PIN 6         // Replaced D2 with actual pin number 6
 
 // LED
-#define LED_RED_PIN A2
-#define LED_GREEN_PIN A3
-#define LED_BLUE_PIN A1
+#define LED_RED_PIN 3
+#define LED_GREEN_PIN 2
+#define LED_BLUE_PIN 1
+
+// Fallback mapping for boards without a predefined builtin LED
+#ifndef LED_BUILTIN
+#define LED_BUILTIN LED_BLUE_PIN
+#endif
+
+// GPS UART pins (TX -> GPS RX, RX -> GPS TX)
+#ifndef GPS_TX_PIN
+#define GPS_TX_PIN 17
+#endif
+
+#ifndef GPS_RX_PIN
+#define GPS_RX_PIN 16
+#endif
 
 #define GPS_LED 7            // Replaced D6 with actual pin number 7
 
