@@ -1,4 +1,5 @@
 // Standard libraries
+#include "driver/gpio.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <HardwareSerial.h>
@@ -85,31 +86,20 @@ void testRoutine();
 void setup()
 {
     // Initialize actuator pins
-    pinMode(MAIN_ACTUATOR_PIN, OUTPUT);
-    pinMode(DROGUE_ACTUATOR_PIN, OUTPUT);
-
-    digitalWrite(MAIN_ACTUATOR_PIN, LOW);
-    digitalWrite(DROGUE_ACTUATOR_PIN, LOW);
+    gpio_config(&actuators_gpio_config);
+    
+    gpio_set_level(MAIN_ACTUATOR_PIN, LOW);
+    gpio_set_level(DROGUE_ACTUATOR_PIN, LOW);
 
     // Initialize LED pins (only those not handled by controllers)
-    pinMode(LED_RED_PIN, OUTPUT);
-    pinMode(LED_GREEN_PIN, OUTPUT);
-    pinMode(LED_BLUE_PIN, OUTPUT);
-#ifdef LED_BUILTIN
-    pinMode(LED_BUILTIN, OUTPUT);
-    digitalWrite(LED_BUILTIN, LOW);
-#endif
+    gpio_config(&led_gpio_config);
 
-    digitalWrite(LED_RED_PIN, HIGH);
-
-    pinMode(ARMING_PIN, INPUT);
+    gpio_set_level(LED_BUILTIN, LOW);
+    gpio_set_level(LED_RED_PIN, HIGH);
+    
     // Signal initialization start
-    digitalWrite(LED_RED_PIN, HIGH);
-
-#ifdef LED_BUILTIN
-    // Turn off internal LED
-    digitalWrite(LED_BUILTIN, LOW);
-#endif
+    gpio_config(&arming_gpio_config);
+    gpio_set_level(LED_RED_PIN, HIGH);
 
     // Initialize basic hardware
     Serial.begin(SERIAL_BAUD_RATE);
@@ -151,7 +141,7 @@ void setup()
     LOG_INFO("Main", "RocketModel system model created");
 
 #ifdef ENABLE_TEST_ROUTINE
-    delay(5000);
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
     // Start test routine if in test mode
     LOG_INFO("Main", "=== TEST MODE ENABLED ===");
     testRoutine();
@@ -171,26 +161,26 @@ void setup()
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
     rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger);
     rocketFSM->init();
-    delay(1000);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Wait for arming pin to be enabled before starting FSM
     statusManager.setSystemCode(PRE_FLIGHT_MODE);
-    while (digitalRead(ARMING_PIN) == LOW)
+    while (gpio_get_level(ARMING_PIN) == LOW)
     {
         LOG_WARNING("Main", "System not armed! Waiting for arming signal on pin %d...", ARMING_PIN);
-        delay(1000);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 
     // Start FSM tasks
     LOG_INFO("Main", "Starting Flight State Machine...");
     statusManager.setSystemCode(FSM_STARTED);
-    delay(1000);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
     rocketFSM->start();
     statusManager.setSystemCode(FLIGHT_MODE);
 
     // Signal successful initialization
-    digitalWrite(LED_RED_PIN, LOW);
-    digitalWrite(LED_GREEN_PIN, HIGH);
+    gpio_set_level(LED_RED_PIN, LOW);
+    gpio_set_level(LED_GREEN_PIN, HIGH);
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
@@ -209,7 +199,7 @@ void loop()
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", millis());
         lastHeartbeat = millis();
         ledState = !ledState;
-        digitalWrite(LED_BUILTIN, ledState);
+        gpio_set_level(LED_BUILTIN, ledState);
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -237,7 +227,7 @@ void loop()
     }
 
     // Small delay to prevent watchdog issues
-    delay(100);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
 }
 
 void testFSMTransitions(RocketFSM &fsm)
@@ -456,7 +446,7 @@ void GPSfix(std::shared_ptr<GPS> gps)
                     LOG_INFO("GPS", "GPS lock acquired. Satellites: %d", satellites);
                 }
             }
-            delay(GPS_FIX_LOOKUP_INTERVAL_MS);
+            vTaskDelay(GPS_FIX_LOOKUP_INTERVAL_MS / portTICK_PERIOD_MS);
         }
 
         if (!gpsLocked)
@@ -638,6 +628,8 @@ bool testSensors()
     {
         LOG_INFO("Test", "Verifica output dei sensori...");
 
+        gpio_config(&sensors_gpio_config);
+
         // Testing IMU accelerometer
         auto bnoData = rocketModel->getBNO055Data();
         auto accelImuX = bnoData->acceleration_x;
@@ -647,30 +639,25 @@ bool testSensors()
                     (double)accelImuX,
                     (double)accelImuY,
                     (double)accelImuZ);
-        // pinMode(D5, OUTPUT);
-        // digitalWrite(D5, HIGH);
-        
+        // gpio_set_level(IMU_S, HIGH);
+
         // Testing barometers
         auto baro1Data = rocketModel->getMS561101BA03Data_1();
         auto pressureBaro1 = baro1Data->pressure;
         LOG_INFO("Test", "Barometer 1 Pressure: %.2f hPa", (double)pressureBaro1);
-        // pinMode(A7, OUTPUT);
-        // digitalWrite(A7, HIGH);
+        // gpio_set_level(BAR1_S, HIGH);
+        
 
         auto baro2Data = rocketModel->getMS561101BA03Data_2();
         auto pressureBaro2 = baro2Data->pressure;
         LOG_INFO("Test", "Barometer 2 Pressure: %.2f hPa", (double)pressureBaro2);
-        // pinMode(D4, OUTPUT);
-        // digitalWrite(D4, HIGH);
-        // pinMode(D4, OUTPUT);
-        
+        // gpio_set_level(BAR2_S, HIGH);
+
         // Testing LIS3DHTR accelerometer
         // Note: LIS3DHTR data is not exposed through public getters in Nemesis
         // The sensor is being updated and logged internally
         LOG_INFO("Test", "LIS3DHTR Accelerometer: Data logged internally");
-        
-        pinMode(A6, OUTPUT);
-        digitalWrite(A6, HIGH);
+        gpio_set_level(ACC_S, HIGH);
     }
 
     // After all tests, go to user input
@@ -688,16 +675,16 @@ bool testActuators()
 
     // DROGUE test
     statusManager.playBlockingPattern(TEST_ACTUATORS, 500); // Show test pattern first
-    digitalWrite(DROGUE_ACTUATOR_PIN, HIGH);
+    gpio_set_level(DROGUE_ACTUATOR_PIN, HIGH);
     buzzerController.playTone(TONE_MID, 1000);
-    digitalWrite(DROGUE_ACTUATOR_PIN, LOW);
+    gpio_set_level(DROGUE_ACTUATOR_PIN, LOW);
     vTaskDelay(pdMS_TO_TICKS(1000));
 
     // MAIN test
     statusManager.playBlockingPattern(TEST_ACTUATORS, 500); // Show test pattern first
-    digitalWrite(MAIN_ACTUATOR_PIN, HIGH);
+    gpio_set_level(MAIN_ACTUATOR_PIN, HIGH);
     buzzerController.playTone(TONE_MID, 1000);
-    digitalWrite(MAIN_ACTUATOR_PIN, LOW);
+    gpio_set_level(MAIN_ACTUATOR_PIN, LOW);
 
     return waitForUserInput("Verificare accensione LED e tensione in uscita da DROGUE e MAIN, verificare funzionamento Buzzer. Scrivi PASSED o FAILED");
 }
@@ -884,4 +871,9 @@ void printSystemInfo()
     Serial.printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
     Serial.printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
     Serial.println("--- End System Information ---");
+}
+
+// ESP-IDF millis() equivalent. Temporary definition.
+unsigned long millis() {
+    return esp_timer_get_time() / 1000ULL;
 }

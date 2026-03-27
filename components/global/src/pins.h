@@ -52,6 +52,10 @@
 
 #define ARMING_PIN                  GPIO_NUM_9          // From Arduino D6
 
+// Sensor testing pins
+#define IMU_S                       GPIO_NUM_8          // From Arduino D5
+#define BAR1_S                      GPIO_NUM_14         // From Arduino A7
+#define BAR2_S                      GPIO_NUM_7          // From Arduino D4
 #define ACC_S                       GPIO_NUM_13         // From Arduino A6
 
 #elifdef CONFIG_ATLAS_MCU_ESP32S3_WROOM
@@ -79,10 +83,8 @@
 
 #endif
 
-// Fallback mapping for boards without a predefined builtin LED
-#ifndef LED_BUILTIN
+// Arbitrary builtin LED
 #define LED_BUILTIN LED_BLUE_PIN
-#endif
 
 // GPS UART pins (TX -> GPS RX, RX -> GPS TX)
 #ifndef GPS_TX_PIN
@@ -92,6 +94,9 @@
 #ifndef GPS_RX_PIN
 #define GPS_RX_PIN 16
 #endif
+
+#define LOW        0x0
+#define HIGH       0x1
 
 // --- GPIO CONFIGURATIONS ---
 const gpio_config_t led_gpio_config = {
@@ -110,9 +115,9 @@ const gpio_config_t actuators_gpio_config = {
     .intr_type    = GPIO_INTR_DISABLE
 };
 
-#ifdef ACC_S
-const gpio_config_t acc_gpio_config = {
-    .pin_bit_mask = 1ULL << ACC_S,
+#ifdef IMU_S
+const gpio_config_t sensors_gpio_config = {
+    .pin_bit_mask = (1ULL << IMU_S) | (1ULL << BAR1_S) | (1ULL << BAR2_S) | (1ULL << ACC_S),
     .mode         = GPIO_MODE_OUTPUT,
     .pull_up_en   = GPIO_PULLUP_DISABLE,
     .pull_down_en = GPIO_PULLDOWN_DISABLE,
