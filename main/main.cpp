@@ -874,7 +874,7 @@ void printSystemInfo()
 }
 
 // ESP-IDF millis() equivalent. Temporary definition.
-unsigned long millis() {
+unsigned long millis_() {
     return esp_timer_get_time() / 1000ULL;
 }
 

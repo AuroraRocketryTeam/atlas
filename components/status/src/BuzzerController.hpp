@@ -1,4 +1,5 @@
 #pragma once
+#include "soc/gpio_num.h"
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -46,7 +47,7 @@ class BuzzerController
 {
 private:
     // Buzzer pin
-    uint8_t buzzerPin;
+    gpio_num_t buzzerPin;
 
     // Current active pattern
     TaskHandle_t buzzerTaskHandle;
@@ -67,7 +68,7 @@ private:
 
 public:
     // Constructor & Destructor
-    BuzzerController(uint8_t buzzerPin);
+    BuzzerController(gpio_num_t buzzerPin);
     ~BuzzerController();
 
     // Initialize pins

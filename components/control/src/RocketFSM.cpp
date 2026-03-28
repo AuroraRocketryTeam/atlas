@@ -1,6 +1,5 @@
 #include "RocketFSM.hpp"
 #include "esp_task_wdt.h"
-#include "esp_heap_caps.h"
 #include <Arduino.h>
 #include <pins.h>
 
@@ -394,8 +393,8 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          {
                              LOG_INFO("RocketFSM", "Entering APOGEE");
-                             digitalWrite(DROGUE_ACTUATOR_PIN, HIGH); // Activate drogue deployment
-                             tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
+                             gpio_set_level(DROGUE_ACTUATOR_PIN, HIGH); // Activate drogue deployment
+                             // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
                          })
         #ifdef SIMULATION_DATA
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_6", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
@@ -412,8 +411,8 @@ void RocketFSM::setupStateActions()
         ->setExitAction([this]()
                          {
                              LOG_INFO("RocketFSM", "Exiting STABILIZATION");
-                             digitalWrite(MAIN_ACTUATOR_PIN, HIGH); // Activate main deployment
-                             tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
+                             gpio_set_level(MAIN_ACTUATOR_PIN, HIGH); // Activate main deployment
+                             // tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
                          })
         #ifdef SIMULATION_DATA
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_7", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
@@ -538,7 +537,7 @@ void RocketFSM::setupTransitions()
 void RocketFSM::transitionTo(RocketState newState)
 {
     //play buzzer
-    tone(BUZZER_PIN, 2000, 100);
+    // tone(BUZZER_PIN, 2000, 100);
     if (_isTransitioning)
     {
         LOG_WARNING("RocketFSM", "Already transitioning, ignoring");
