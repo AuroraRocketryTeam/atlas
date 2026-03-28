@@ -28,7 +28,7 @@
 #define SD_QUADHD                   -1
 
 // ADC Pin
-#define ADC_PIN                     GPIO_NUM_1          // From Arduino A0
+#define ADC_PIN                     ADC_CHANNEL_0       // From Arduino A0 (GPIO1)
 
 #ifdef CONFIG_ATLAS_MCU_ARDUINO_ESP32
 

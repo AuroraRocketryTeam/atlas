@@ -1,10 +1,7 @@
 #include "RocketModel.hpp"
-
-//  Actuator and Buzzer pins
-#define ADC_PIN A0
-#define MAIN_ACTUATORS_PIN 4  // Replaced D0 with actual pin number 4
-#define DROGUE_ACTUATORS_PIN 5 // Replaced D1 with actual pin number 5
-#define BUZZER_PIN 6         // Replaced D2 with actual pin number 6
+#include "esp_adc/adc_oneshot.h"
+#include "esp_err.h"
+#include "pins.h"
 
 RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
             std::shared_ptr<BNO055Sensor> bno,
@@ -25,21 +22,31 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     Serial.begin(SERIAL_BAUD_RATE);
     Serial.setRxBufferSize(2048);
 
-    pinMode(MAIN_ACTUATORS_PIN, OUTPUT);
-    pinMode(DROGUE_ACTUATORS_PIN, OUTPUT);
-    pinMode(BUZZER_PIN, OUTPUT);
+    // Configure and Initialize ADC unit
+    adc_oneshot_unit_init_cfg_t adc1_config = {
+        .unit_id  = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&adc1_config, &_adc1_handle));
 
-    digitalWrite(MAIN_ACTUATORS_PIN, LOW);
-    digitalWrite(DROGUE_ACTUATORS_PIN, LOW);
-    digitalWrite(BUZZER_PIN, LOW);
+    // ADC channel Configuration and Initialization (GPIO1 = ADC_CHANNEL_0)
+    adc_oneshot_chan_cfg_t channel_config = {
+        .atten    = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(_adc1_handle, ADC_PIN, &channel_config));
 }
 
 void RocketModel::readBattery() {
-    _batteryAdc = analogRead(ADC_PIN);
-    _batteryVoltage = ((_batteryAdc / 4095.0f) * 3.3f) * 2.0f;
-    _batteryPercentage = (_batteryVoltage - 5.6f) / (7.2f - 5.6f) * 100.0f;
-    std::string voltageStr = (String(_batteryPercentage, 1) + "%").c_str();
-
+    esp_err_t res = adc_oneshot_read(_adc1_handle, ADC_PIN, &_batteryAdc);
+    if (res == ESP_OK) {
+        _batteryVoltage = ((_batteryAdc / 4095.0f) * 3.3f) * 2.0f;
+        _batteryPercentage = (_batteryVoltage - 5.6f) / (7.2f - 5.6f) * 100.0f;
+        std::string voltageStr = (String(_batteryPercentage, 1) + "%").c_str();
+    } else {
+        LOG_ERROR("ADC", "Failed to read battery voltage: %s", esp_err_to_name(res));
+    }
+    
     //auto voltageData = SensorData("Voltage");
     //voltageData.setData("ADC_Value", _batteryAdc);
     //voltageData.setData("Voltage", _batteryVoltage);

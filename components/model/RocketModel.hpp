@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esp_private/adc_private.h"
 #include <Arduino.h>
 #include <BNO055Sensor.hpp>
 #include <MPRLSSensor.hpp>
@@ -192,8 +193,10 @@ private:
     std::shared_ptr<PressureSensorData> _ms561101ba03Data_1;
     std::shared_ptr<PressureSensorData> _ms561101ba03Data_2;
     std::shared_ptr<GPSData> _gpsData;
-
-    float _batteryAdc, _batteryVoltage, _batteryPercentage;
+    
+    adc_oneshot_unit_handle_t _adc1_handle;
+    int _batteryAdc;
+    float _batteryVoltage, _batteryPercentage;
 
     // Flight state variables
     std::shared_ptr<bool> _isRising;
