@@ -1,6 +1,6 @@
 #include "BuzzerController.hpp"
 
-BuzzerController::BuzzerController(uint8_t buzzerPin)
+BuzzerController::BuzzerController(gpio_num_t buzzerPin)
     : buzzerPin(buzzerPin), buzzerTaskHandle(nullptr)
 {
 }
@@ -15,7 +15,7 @@ void BuzzerController::init()
     // Configure buzzer pin if valid
     if (buzzerPin > 0)
     {
-        pinMode(buzzerPin, OUTPUT);
+        // pinMode(buzzerPin, OUTPUT);
         stopTone();
     }
 }
@@ -73,14 +73,14 @@ void BuzzerController::playToneFreq(uint16_t frequency)
     if (buzzerPin == 0 || frequency == 0)
         return;
 
-    ::tone(buzzerPin, frequency);
+    //::tone(buzzerPin, frequency);
 }
 
 void BuzzerController::stopTone()
 {
     if (buzzerPin > 0)
     {
-        ::noTone(buzzerPin);
+        //::noTone(buzzerPin);
     }
 }
 

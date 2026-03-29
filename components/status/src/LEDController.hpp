@@ -1,4 +1,5 @@
 #pragma once
+#include "soc/gpio_num.h"
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -36,13 +37,13 @@ class LEDController
 {
 private:
     // LED pins
-    uint8_t redPin;
-    uint8_t greenPin;
-    uint8_t bluePin;
+    gpio_num_t redPin;
+    gpio_num_t greenPin;
+    gpio_num_t bluePin;
 
     // Additional status LEDs
     uint8_t statusLedCount;
-    uint8_t *statusLedPins;
+    gpio_num_t *statusLedPins;
 
     // Current active pattern
     TaskHandle_t ledTaskHandle;
@@ -68,11 +69,11 @@ private:
 
 public:
     // Constructor & Destructor
-    LEDController(uint8_t redPin, uint8_t greenPin, uint8_t bluePin);
+    LEDController(gpio_num_t redPin, gpio_num_t greenPin, gpio_num_t bluePin);
     ~LEDController();
 
     // Add additional status LEDs
-    void addStatusLeds(uint8_t *pins, uint8_t count);
+    void addStatusLeds(gpio_num_t *pins, uint8_t count);
 
     // Initialize pins
     void init();

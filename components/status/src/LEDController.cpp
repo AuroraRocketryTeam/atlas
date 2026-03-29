@@ -1,6 +1,8 @@
 #include "LEDController.hpp"
+#include "driver/gpio.h"
+#include "soc/gpio_num.h"
 
-LEDController::LEDController(uint8_t redPin, uint8_t greenPin, uint8_t bluePin)
+LEDController::LEDController(gpio_num_t redPin, gpio_num_t greenPin, gpio_num_t bluePin)
     : redPin(redPin), greenPin(greenPin), bluePin(bluePin),
       statusLedCount(0), statusLedPins(nullptr), ledTaskHandle(nullptr)
 {
@@ -18,7 +20,7 @@ LEDController::~LEDController()
     }
 }
 
-void LEDController::addStatusLeds(uint8_t *pins, uint8_t count)
+void LEDController::addStatusLeds(gpio_num_t *pins, uint8_t count)
 {
     // Clean up old pins if any
     if (statusLedPins != nullptr)
@@ -28,22 +30,18 @@ void LEDController::addStatusLeds(uint8_t *pins, uint8_t count)
 
     // Allocate and copy new pins
     statusLedCount = count;
-    statusLedPins = new uint8_t[count];
-    memcpy(statusLedPins, pins, count * sizeof(uint8_t));
+    statusLedPins = new gpio_num_t[count];
+    memcpy(statusLedPins, pins, count * sizeof(gpio_num_t));
 }
 
 void LEDController::init()
 {
-    // Set pin modes
-    pinMode(redPin, OUTPUT);
-    pinMode(greenPin, OUTPUT);
-    pinMode(bluePin, OUTPUT);
+
 
     // Initialize any status LEDs
     for (uint8_t i = 0; i < statusLedCount; i++)
     {
-        pinMode(statusLedPins[i], OUTPUT);
-        digitalWrite(statusLedPins[i], LOW); // All off
+        gpio_set_level(statusLedPins[i], LOW); // All off
     }
 
     // Initialize LED to off state
@@ -87,7 +85,7 @@ void LEDController::stopPattern()
     // Turn off all status LEDs
     for (uint8_t i = 0; i < statusLedCount; i++)
     {
-        digitalWrite(statusLedPins[i], LOW);
+        gpio_set_level(statusLedPins[i], LOW);
     }
 }
 
@@ -158,9 +156,9 @@ void LEDController::setOff()
 
 void LEDController::setRGB(uint8_t r, uint8_t g, uint8_t b)
 {
-    analogWrite(redPin, r);
-    analogWrite(greenPin, g);
-    analogWrite(bluePin, b);
+    // analogWrite(redPin, r);
+    // analogWrite(greenPin, g);
+    // analogWrite(bluePin, b);
 }
 
 void LEDController::setStatusLeds(uint8_t mask)
@@ -168,7 +166,7 @@ void LEDController::setStatusLeds(uint8_t mask)
     // Set each status LED based on bitmask
     for (uint8_t i = 0; i < statusLedCount && i < 8; i++)
     {
-        digitalWrite(statusLedPins[i], (mask & (1 << i)) ? HIGH : LOW);
+        gpio_set_level(statusLedPins[i], (mask & (1 << i)) ? HIGH : LOW);
     }
 }
 

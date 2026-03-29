@@ -1,29 +1,69 @@
 # Atlas ESP-IDF — Default SDK configuration
 # Target: ESP32-S3 (Arduino Nano ESP32)
-CONFIG_IDF_TARGET="esp32s3"
 
-# C++ exceptions and RTTI (Required for Arduino libraries)
+# --- COMPILER SETTINGS ---
+
+# C++ exceptions and RTTI (Required for Arduino libraries) [To be removed when pure esp-idf porting is complete]
 CONFIG_COMPILER_CXX_EXCEPTIONS=y
 CONFIG_COMPILER_CXX_RTTI=y
 
-# Enable C++17
-CONFIG_COMPILER_CXX_STANDARD_CXX17=y
-CONFIG_COMPILER_CXX_STANDARD="c++17"
+# This option sets compiler optimization level (gcc -O argument) for the app. The "Performance" setting will add the -O2 flag to CFLAGS.
+# The "Performance" setting causes the compiled code to be larger and faster, but will be easier to correlated code addresses to source file lines.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# --- FREERTOS SETTINGS ---
 
 # FreeRTOS (Must be 1000 for Arduino's delay() and millis() to be accurate)
 CONFIG_FREERTOS_HZ=1000
 
-# Serial flasher config
-CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+# FreeRTOS will have complete control on all available cores.
+CONFIG_FREERTOS_UNICORE=n
+
+# Check for tasks' stack overflows using canary bytes at the end of every stack.
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_PTRVAL=y
+
+# Executes the `app_main` task on Core 0.
+CONFIG_ESP_MAIN_TASK_AFFINITY=CPU0
 
 # Stack sizes
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=n
+
+# If the FreeRTOS tick interrupt has not been called for a certain time by a task, the Watchdog timer 
+# will try to invoke the panic handler first and failing that reset the SoC.
+CONFIG_ESP_INT_WDT=y
+CONFIG_ESP_INT_WDT_TIMEOUT_MS=300
+
+# --- SERIAL FLASHER CONFIG ---
+
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+
+# --- GENERAL SYSTEM SETTINGS ---
+
+# Data cache size to be set on application startup. [!]
+CONFIG_ESP32S3_DATA_CACHE_64KB=y
+
+# Instruction cache size to be set on application startup. [!]
+CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
+
+# SPI flash APIs can optionally abort or return a failure code if erasing or writing addresses that fall at the beginning of flash (covering the bootloader and partition table) 
+# or that overlap the app partition that contains the running app.
+CONFIG_SPI_FLASH_DANGEROUS_WRITE_ABORTS=y
+
+# The ESP32-S3 has a built-in brownout detector which can detect if the voltage is lower than a specific value. 
+# If this happens, it will reset the chip in order to prevent unintended behaviour.
+CONFIG_BROWNOUT_DET=y
 
 # --- ARDUINO COMPONENT INTEGRATION ---
 
 # Disable Arduino autostart so we can use app_main() as the entry point
 CONFIG_AUTOSTART_ARDUINO=n
 
-# Partition table — default single factory app
-CONFIG_PARTITION_TABLE_SINGLE_APP=y
+# Partition table — large single factory app
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# --- ATLAS CONFIGURATION ---
+
+CONFIG_ATLAS_MCU_ARDUINO_ESP32=y
