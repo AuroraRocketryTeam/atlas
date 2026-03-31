@@ -5,6 +5,7 @@ idf_component_register(
     SRCS ${MAIN_SRCS}
     INCLUDE_DIRS "."
     PRIV_REQUIRES
+        nvs_flash
         global
         data
         control

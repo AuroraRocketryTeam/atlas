@@ -27,8 +27,7 @@ EspNowTransmitter::~EspNowTransmitter()
     if (initialized)
     {
         esp_now_deinit();
-        WiFi.disconnect();
-        WiFi.mode(WIFI_OFF);
+        esp_wifi_stop();
     }
     
     if (sendMutex)
@@ -56,9 +55,13 @@ ResponseStatusContainer EspNowTransmitter::init()
     
     LOG_INFO("EspNow", "Initializing ESP-NOW transmitter...");
     
-    // Set WiFi mode to STA (required for ESP-NOW)
-    WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
+    // Initialize WiFi
+    esp_netif_init();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    esp_wifi_init(&cfg);
+    esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_start();
     
     // Wait for WiFi to initialize
     vTaskDelay(pdMS_TO_TICKS(100));
@@ -89,8 +92,12 @@ ResponseStatusContainer EspNowTransmitter::init()
     
     initialized = true;
     
+    uint8_t mac_addr[6] = {0};
+    esp_read_mac(mac_addr, ESP_MAC_WIFI_STA);
+    
     LOG_INFO("EspNow", "ESP-NOW initialized successfully");
-    LOG_INFO("EspNow", "Local MAC: %s", WiFi.macAddress().c_str());
+    LOG_INFO("EspNow", "Local MAC: %02X:%02X:%02X:%02X:%02X:%02X", 
+             mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
     
     return ResponseStatusContainer(0, "Success");
 }

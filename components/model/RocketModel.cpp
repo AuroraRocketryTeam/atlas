@@ -23,17 +23,15 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     Serial.setRxBufferSize(2048);
 
     // Configure and Initialize ADC unit
-    adc_oneshot_unit_init_cfg_t adc1_config = {
-        .unit_id  = ADC_UNIT_1,
-        .ulp_mode = ADC_ULP_MODE_DISABLE,
-    };
+    adc_oneshot_unit_init_cfg_t adc1_config = {};
+    adc1_config.unit_id  = ADC_UNIT_1;
+    adc1_config.ulp_mode = ADC_ULP_MODE_DISABLE;
     ESP_ERROR_CHECK(adc_oneshot_new_unit(&adc1_config, &_adc1_handle));
 
     // ADC channel Configuration and Initialization (GPIO1 = ADC_CHANNEL_0)
-    adc_oneshot_chan_cfg_t channel_config = {
-        .atten    = ADC_ATTEN_DB_12,
-        .bitwidth = ADC_BITWIDTH_12
-    };
+    adc_oneshot_chan_cfg_t channel_config = {};
+    channel_config.atten    = ADC_ATTEN_DB_12;
+    channel_config.bitwidth = ADC_BITWIDTH_12;
     ESP_ERROR_CHECK(adc_oneshot_config_channel(_adc1_handle, ADC_PIN, &channel_config));
 }
 

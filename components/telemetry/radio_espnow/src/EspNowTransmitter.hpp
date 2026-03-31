@@ -3,7 +3,8 @@
 #include <ITransmitter.hpp>
 #include <Packet.hpp>
 #include <esp_now.h>
-#include <WiFi.h>
+#include <esp_wifi.h>
+#include <esp_mac.h>
 #include <vector>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>

@@ -84,7 +84,8 @@
 #endif
 
 // Arbitrary builtin LED
-#define LED_BUILTIN LED_BLUE_PIN
+
+#define LED_BUILT_IN LED_BLUE_PIN
 
 // GPS UART pins (TX -> GPS RX, RX -> GPS TX)
 #ifndef GPS_TX_PIN
@@ -100,7 +101,7 @@
 
 // --- GPIO CONFIGURATIONS ---
 const gpio_config_t led_gpio_config = {
-    .pin_bit_mask = (1ULL << LED_RED_PIN) | (1ULL << LED_GREEN_PIN) | (1ULL << LED_RED_PIN) | (1ULL << LED_BUILTIN),
+    .pin_bit_mask = (1ULL << LED_RED_PIN) | (1ULL << LED_GREEN_PIN) | (1ULL << LED_RED_PIN) | (1ULL << LED_BUILT_IN),
     .mode         = GPIO_MODE_OUTPUT,
     .pull_up_en   = GPIO_PULLUP_DISABLE,
     .pull_down_en = GPIO_PULLDOWN_DISABLE,
