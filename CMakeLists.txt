@@ -33,6 +33,9 @@ set(EXTRA_COMPONENT_DIRS
     # persistence
     ${CMAKE_SOURCE_DIR}/components/persistence/SD
 
+    # protocols
+    ${CMAKE_SOURCE_DIR}/components/protocols/I2C
+
     # third_party
     ${CMAKE_SOURCE_DIR}/components/third_party/nlohmann_json
     ${CMAKE_SOURCE_DIR}/components/third_party/ArduinoEigen

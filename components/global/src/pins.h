@@ -11,6 +11,7 @@
 #pragma once
 
 #include "driver/gpio.h"
+#include "driver/i2c_master.h"
 #include "hal/gpio_types.h"
 
 // I2C pins
@@ -135,3 +136,17 @@ const gpio_config_t arming_gpio_config = {
     .intr_type    = GPIO_INTR_DISABLE
 };
 #endif
+
+const i2c_master_bus_config_t i2c_bus0_config = {
+    .i2c_port            = I2C_MASTER_NUM,
+    .sda_io_num          = I2C_SDA,
+    .scl_io_num          = I2C_SCL,
+    .clk_source          = I2C_CLK_SRC_DEFAULT,
+    .glitch_ignore_cnt   = 7,
+    .intr_priority       = 0,
+    .trans_queue_depth   = 0,
+    .flags = { 
+        .enable_internal_pullup = false, 
+        .allow_pd = false 
+    }
+};
