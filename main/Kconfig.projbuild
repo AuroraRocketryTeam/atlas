@@ -2,7 +2,7 @@ menu "Atlas Configuration"
     choice ATLAS_MCU
         bool "Target MCU"
 
-        config ATLAS_MCU_ARDUINO_ESP32S3_WROOM
+        config ATLAS_MCU_ESP32S3_WROOM
             bool "ESP32-S3 WROOM"
 
         config ATLAS_MCU_ARDUINO_ESP32
