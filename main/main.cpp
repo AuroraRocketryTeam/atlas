@@ -1,5 +1,4 @@
 // Standard libraries
-#include "driver/gpio.h"
 #include <Arduino.h>
 #include <variant>
 #include <string>
@@ -18,6 +17,8 @@
 #include <nvs_flash.h>
 
 // Configuration and pins
+#include "driver/gpio.h"
+#include "driver/usb_serial_jtag.h"
 #include <config.h>
 #include <pins.h>
 #include <board.h>
@@ -59,13 +60,13 @@
 #define ENABLE_TEST_ROUTINE
 #define TEST_FILE "/test.txt"
 
-// Create controller instances
-LEDController ledController(LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN);
-BuzzerController buzzerController(BUZZER_PIN);
-StatusManager statusManager(ledController, buzzerController);
-
 // Board hardware instance
 Board board;
+
+// Create controller instances
+LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
+BuzzerController buzzerController(board.get_buzzer_pin());
+StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
 std::shared_ptr<RocketModel> rocketModel = nullptr;
@@ -106,6 +107,11 @@ void setup()
     gpio_set_level(LED_BUILT_IN, LOW);
     gpio_set_level(LED_RED_PIN, HIGH);
     
+    // Install driver for blocking reads of Utils::readLine
+    // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    usb_serial_jtag_driver_config_t usb_cfg = { .tx_buffer_size = 1024, .rx_buffer_size = 1024 };
+    ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_cfg));
+
     // Signal initialization start
     board.init();
     gpio_set_level(LED_RED_PIN, HIGH);
@@ -123,9 +129,6 @@ void setup()
     LOG_INFO("Main", "\n=== Aurora Rocketry Flight Software ===");
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
     LOG_INFO("Main", "Initializing system...");
-
-    // uart(PORT_NO, RX_BUF_SIZE, TX_BUF_SIZE, QUEUE_SIZE, &uart_queue, INTERRUPT_FLAGS);
-    ESP_ERROR_CHECK(uart_driver_install((uart_port_t)CONFIG_ESP_CONSOLE_UART_NUM, 256, 0, 0, NULL, 0));
 
     // Initialize components
     LOG_INFO("Main", "Initializing sensors...");
@@ -607,7 +610,7 @@ bool waitForUserInput(const char *message)
     while (true)
     {
         char buffer[64] = {0};
-        if (fgets(buffer, sizeof(buffer), stdin) != nullptr)
+        Utils::readLine(buffer, sizeof(buffer));
         {
             std::string input(buffer);
             trimString(input);
@@ -629,11 +632,8 @@ bool waitForUserInput(const char *message)
                 LOG_WARNING("Test", "Type REBOOT to confirm or anything else to cancel.");
 
                 char confirmBuffer[64] = {0};
-                std::string confirm;
-                if (fgets(confirmBuffer, sizeof(confirmBuffer), stdin) != nullptr)
-                {
-                    confirm.assign(confirmBuffer);
-                }
+                Utils::readLine(confirmBuffer, sizeof(confirmBuffer));
+                std::string confirm(confirmBuffer);
 
                 if (confirm.empty())
                 {
@@ -661,10 +661,15 @@ bool waitForUserInput(const char *message)
 bool testPowerAndLEDs()
 {
     LOG_INFO("Test", "\n[STEP 1] Verifica alimentazione e LED di stato");
-    LOG_INFO("Test", "Controllare manualmente:");
-    LOG_INFO("Test", " - LED di alimentazione componenti accesi");
-    LOG_INFO("Test", " - LED presenza SD acceso");
-    LOG_INFO("Test", " - LED attuatori visibili");
+    LOG_INFO("Test", "3 lampeggi rossi...");
+
+    for (int i = 0; i < 3; i++) {
+        ledController.setColor(ART_LED_RED);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        ledController.setOff();
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
@@ -830,7 +835,7 @@ void testRoutine()
         printf("Inserisci il numero del test da eseguire:\n");
 
         char buffer[32] = {0};
-        fgets(buffer, sizeof(buffer), stdin);
+        Utils::readLine(buffer, sizeof(buffer));
         std::string input(buffer);
         trimString(input);
         int choice = std::atoi(input.c_str());

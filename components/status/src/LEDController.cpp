@@ -144,9 +144,18 @@ void LEDController::getRGBValues(LEDColor color, uint8_t &r, uint8_t &g, uint8_t
 
 void LEDController::setColor(LEDColor color)
 {
-    uint8_t r, g, b;
-    getRGBValues(color, r, g, b);
-    setRGB(r, g, b);
+    switch (color) {
+        case ART_LED_RED:     setRGB(1, 0, 0); break;
+        case ART_LED_GREEN:   setRGB(0, 1, 0); break;
+        case ART_LED_BLUE:    setRGB(0, 0, 1); break;
+        case ART_LED_YELLOW:  setRGB(1, 1, 0); break;
+        case ART_LED_CYAN:    setRGB(0, 1, 1); break;
+        case ART_LED_MAGENTA: setRGB(1, 0, 1); break;
+        case ART_LED_WHITE:   setRGB(1, 1, 1); break;
+        case ART_LED_ORANGE:  setRGB(1, 1, 0); break; // no PWM, yellow approximation
+        case ART_LED_OFF:
+        default:              setRGB(0, 0, 0); break;
+    }
 }
 
 void LEDController::setOff()
@@ -156,9 +165,9 @@ void LEDController::setOff()
 
 void LEDController::setRGB(uint8_t r, uint8_t g, uint8_t b)
 {
-    // analogWrite(redPin, r);
-    // analogWrite(greenPin, g);
-    // analogWrite(bluePin, b);
+    gpio_set_level(redPin,   r > 0 ? 1 : 0);
+    gpio_set_level(greenPin, g > 0 ? 1 : 0);
+    gpio_set_level(bluePin,  b > 0 ? 1 : 0);
 }
 
 void LEDController::setStatusLeds(uint8_t mask)

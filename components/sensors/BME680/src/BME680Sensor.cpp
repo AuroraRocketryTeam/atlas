@@ -1,5 +1,4 @@
 #include "BME680Sensor.hpp"
-#include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <utils.h>
 

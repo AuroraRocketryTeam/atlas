@@ -33,9 +33,19 @@ void BarometerTask::taskFunction()
         // Read raw data from barometers
         #ifdef BARO_1
             auto baro1Data = _rocketModel->getMS561101BA03Data_1();
+            if (!baro1Data) {
+                LOG_ERROR("BarometerTask", "Barometer 1 data not available");
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
             pressure = baro1Data->pressure;
         #else
             auto baro2Data = _rocketModel->getMS561101BA03Data_2();
+            if (!baro2Data) {
+                LOG_ERROR("BarometerTask", "Barometer 2 data not available");
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
             pressure = baro2Data->pressure;
         #endif
         

@@ -27,10 +27,10 @@ static constexpr gpio_num_t MANNY_BAROMETER_CS_PIN = GPIO_NUM_6;
 static constexpr gpio_num_t MANNY_BATTERY_DIVIDER_ADC_PIN = GPIO_NUM_1;
 static constexpr int MANNY_BNO055_I2C_ADDRESS = 0x29;
 
-static constexpr int MANNY_ARMING_PIN = -1;
+static constexpr gpio_num_t MANNY_ARMING_PIN = GPIO_NUM_NC;
 
-static constexpr int MANNY_GPS_TX_PIN = 17;
-static constexpr int MANNY_GPS_RX_PIN = 16;
+static constexpr gpio_num_t MANNY_GPS_TX_PIN = GPIO_NUM_17;
+static constexpr gpio_num_t MANNY_GPS_RX_PIN = GPIO_NUM_16;
 
 // Hardware note: main and drogue outputs are valid only when board supply is 6.4V.
 
@@ -49,32 +49,32 @@ public:
 
     void init() override;
 
-    int get_gps_tx_pin() const override;
-    int get_gps_rx_pin() const override;
-    int get_arming_pin() const override;
+    gpio_num_t get_gps_tx_pin() const override;
+    gpio_num_t get_gps_rx_pin() const override;
+    gpio_num_t get_arming_pin() const override;
 
-    int get_flash_cs_pin() const override;
-    int get_flash_hold_pin() const override;
-    int get_flash_wp_pin() const override;
-    int get_spi_miso_pin() const override;
-    int get_spi_mosi_pin() const override;
-    int get_spi_clk_pin() const override;
-    int get_barometer_cs_pin() const override;
+    gpio_num_t get_flash_cs_pin() const override;
+    gpio_num_t get_flash_hold_pin() const override;
+    gpio_num_t get_flash_wp_pin() const override;
+    gpio_num_t get_spi_miso_pin() const override;
+    gpio_num_t get_spi_mosi_pin() const override;
+    gpio_num_t get_spi_clk_pin() const override;
+    gpio_num_t get_barometer_cs_pin() const override;
 
-    int get_buzzer_pin() const override;
-    int get_rgb_red_pin() const override;
-    int get_rgb_green_pin() const override;
-    int get_rgb_blue_pin() const override;
-    int get_main_actuator_pin() const override;
-    int get_drogue_actuator_pin() const override;
+    gpio_num_t get_buzzer_pin() const override;
+    gpio_num_t get_rgb_red_pin() const override;
+    gpio_num_t get_rgb_green_pin() const override;
+    gpio_num_t get_rgb_blue_pin() const override;
+    gpio_num_t get_main_actuator_pin() const override;
+    gpio_num_t get_drogue_actuator_pin() const override;
 
-    int get_battery_divider_adc_pin() const override;
+    gpio_num_t get_battery_divider_adc_pin() const override;
     int get_bno055_i2c_address() const override;
 
     ISPIHandler* get_spi_handler() const override;
     void set_spi_handler(ISPIHandler* handler) override;
 
-    int get_lora_cs_pin() const override;
+    gpio_num_t get_lora_cs_pin() const override;
 
     bool is_armed() const override;
 

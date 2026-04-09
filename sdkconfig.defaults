@@ -64,6 +64,11 @@ CONFIG_AUTOSTART_ARDUINO=n
 # Partition table — large single factory app
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
 
+# --- CONSOLE CONFIGURATION ---
+
+# Installs JTAG driver automatically without having to do it manually and binding it to vfs
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
 # --- ATLAS CONFIGURATION ---
 
 CONFIG_ATLAS_MCU_ARDUINO_ESP32=y

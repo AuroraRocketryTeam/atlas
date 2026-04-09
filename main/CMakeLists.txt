@@ -6,6 +6,7 @@ idf_component_register(
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         nvs_flash
+        esp_driver_usb_serial_jtag
         global
         data
         control
