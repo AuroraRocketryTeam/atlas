@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <ITransmitter.hpp>
 #include <ResponseStatusContainer.hpp>
+#include <utils.h>
 
 using TransmitDataType = std::variant<char *, String, std::string, nlohmann::json>;
 
@@ -144,7 +145,7 @@ public:
         // Crea un pacchetto con header per identificazione
         nlohmann::json packet = {
             {"id", packetCounter++},
-            {"timestamp", millis()},
+            {"timestamp", Utils::millis()},
             {"payload", dataStr}
         };
 
@@ -182,7 +183,7 @@ public:
         // Estrae solo i dati critici per ridurre la dimensione del pacchetto
         nlohmann::json compactData = {
             {"id", packetCounter++},
-            {"t", millis()}, // timestamp abbreviato
+            {"t", Utils::millis()}, // timestamp abbreviato
         };
         
         // Cerca i dati BNO055 (IMU principale)

@@ -1,7 +1,9 @@
 #include "Logger.hpp"
 #include "esp_heap_caps.h"
+// TODO: replace ESP calls
 #include <Arduino.h>
 #include <inttypes.h>
+#include <utils.h>
 
 // Serial mutex for thread-safe printing
 static SemaphoreHandle_t serialMutex = nullptr;
@@ -32,7 +34,7 @@ namespace Logger
             va_start(args, format);
 
             // Add timestamp, log level, and tag
-            unsigned long timestamp = millis();
+            unsigned long timestamp = Utils::millis();
             const char *levelStr = "";
             switch (level)
             {

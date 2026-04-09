@@ -1,13 +1,11 @@
 #pragma once
 
 #include "boards_hardware/IBoardHardware.hpp"
-#include "driver/i2c_master.h"
 
 // Manny board hardware map
 static constexpr gpio_num_t MANNY_I2C_SDA_PIN = GPIO_NUM_11;
 static constexpr gpio_num_t MANNY_I2C_SCL_PIN = GPIO_NUM_12;
 static constexpr i2c_port_t MANNY_I2C_PORT = I2C_NUM_0;
-static constexpr int MANNY_I2C_FREQUENCY_HZ = 100000;
 
 static constexpr gpio_num_t MANNY_DROGUE_ACTUATOR_PIN = GPIO_NUM_5;
 static constexpr gpio_num_t MANNY_MAIN_ACTUATOR_PIN = GPIO_NUM_4;
@@ -42,7 +40,7 @@ public:
 
 private:
     bool is_initialized;
-    I2CBus* i2c_handler;
+    I2CBus _i2c_bus;
     ISPIHandler* spi_handler;
 
 public:
@@ -50,11 +48,6 @@ public:
     ~MannyBoard() override;
 
     void init() override;
-
-    int get_i2c_port() const override;
-    int get_i2c_sda_pin() const override;
-    int get_i2c_scl_pin() const override;
-    int get_i2c_frequency_hz() const override;
 
     int get_gps_tx_pin() const override;
     int get_gps_rx_pin() const override;
@@ -78,14 +71,14 @@ public:
     int get_battery_divider_adc_pin() const override;
     int get_bno055_i2c_address() const override;
 
-    I2CBus* get_i2c_handler() const override;
     ISPIHandler* get_spi_handler() const override;
-    void set_i2c_handler(I2CBus* handler) override;
     void set_spi_handler(ISPIHandler* handler) override;
 
     int get_lora_cs_pin() const override;
 
     bool is_armed() const override;
+
+    I2CBus* get_i2c_bus(Sensor sensor) override;
 
     void init_sensor_test_pins() override;
     void signal_sensor_ok(Sensor sensor) override;

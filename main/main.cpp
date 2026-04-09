@@ -20,8 +20,8 @@
 // Configuration and pins
 #include <config.h>
 #include <pins.h>
-#include "board.h"
-#include <I2CBus.hpp>
+#include <board.h>
+#include <utils.h>
 
 // Interfaces
 #include <ISensor.hpp>
@@ -66,7 +66,6 @@ StatusManager statusManager(ledController, buzzerController);
 
 // Board hardware instance
 Board board;
-I2CBus i2c_bus;
 
 // Define the system model
 std::shared_ptr<RocketModel> rocketModel = nullptr;
@@ -88,8 +87,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
                           std::shared_ptr<LIS3DHTRSensor>& accl,
                           std::shared_ptr<MS561101BA03>& baro1,
                           std::shared_ptr<MS561101BA03>& baro2,
-                          std::shared_ptr<GPS>& gps,
-                          I2CBus* i2c);
+                          std::shared_ptr<GPS>& gps);
 void GPSfix(std::shared_ptr<GPS> gps);
 void printSystemInfo();
 void testRoutine();
@@ -129,11 +127,6 @@ void setup()
     // uart(PORT_NO, RX_BUF_SIZE, TX_BUF_SIZE, QUEUE_SIZE, &uart_queue, INTERRUPT_FLAGS);
     ESP_ERROR_CHECK(uart_driver_install((uart_port_t)CONFIG_ESP_CONSOLE_UART_NUM, 256, 0, 0, NULL, 0));
 
-    i2c_bus.init((i2c_port_t)board.get_i2c_port(),
-                 (gpio_num_t)board.get_i2c_sda_pin(),
-                 (gpio_num_t)board.get_i2c_scl_pin());
-    board.set_i2c_handler(&i2c_bus);
-
     // Initialize components
     LOG_INFO("Main", "Initializing sensors...");
     std::shared_ptr<BNO055Sensor> bno055 = nullptr;
@@ -141,7 +134,7 @@ void setup()
     std::shared_ptr<MS561101BA03> baro1 = nullptr;
     std::shared_ptr<MS561101BA03> baro2 = nullptr;
     std::shared_ptr<GPS> gps = nullptr;
-    initializeComponents(bno055, accl, baro1, baro2, gps, &i2c_bus);
+    initializeComponents(bno055, accl, baro1, baro2, gps);
     LOG_INFO("Main", "All components initialized");
 
     // Initialize logger
@@ -207,10 +200,10 @@ void loop()
     bool ledState = false;
 
     // Heartbeat every 2 seconds
-    if (millis() - lastHeartbeat > 2000)
+    if (Utils::millis() - lastHeartbeat > 2000)
     {
-        LOG_INFO("Main", "Last heartbeat at %lu ms - System running", millis());
-        lastHeartbeat = millis();
+        LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::millis());
+        lastHeartbeat = Utils::millis();
         ledState = !ledState;
         gpio_set_level(LED_BUILT_IN, ledState);
 
@@ -258,7 +251,7 @@ void testFSMTransitions(RocketFSM &fsm)
     const TickType_t xFrequency = pdMS_TO_TICKS(1000); // 1 second
 
     RocketState lastLoggedState = RocketState::INACTIVE;
-    unsigned long testStartTime = millis();
+    unsigned long testStartTime = Utils::millis();
     while (true)
     {
         RocketState currentState = fsm.getCurrentState();
@@ -266,17 +259,17 @@ void testFSMTransitions(RocketFSM &fsm)
         // Only log when state changes or every 10 seconds
         static unsigned long lastPeriodicLog = 0;
         bool stateChanged = (currentState != lastLoggedState);
-        bool periodicLog = (millis() - lastPeriodicLog > 10000);
+        bool periodicLog = (Utils::millis() - lastPeriodicLog > 10000);
 
         if (stateChanged || periodicLog)
         {
             LOG_INFO("Test", "State: %s (runtime: %lu ms, uptime: %.1f sec)",
                      fsm.getStateString(currentState),
-                     millis(),
-                     (millis() - testStartTime) / 1000.0);
+                     Utils::millis(),
+                     (Utils::millis() - testStartTime) / 1000.0);
 
             if (periodicLog)
-                lastPeriodicLog = millis();
+                lastPeriodicLog = Utils::millis();
 
             lastLoggedState = currentState;
         }
@@ -286,7 +279,7 @@ void testFSMTransitions(RocketFSM &fsm)
         {
             LOG_INFO("Test", "=== FSM TEST COMPLETED SUCCESSFULLY ===");
             LOG_INFO("Test", "All states were visited in the correct order!");
-            LOG_INFO("Test", "Total test duration: %.1f seconds", (millis() - testStartTime) / 1000.0);
+            LOG_INFO("Test", "Total test duration: %.1f seconds", (Utils::millis() - testStartTime) / 1000.0);
             vTaskDelete(NULL);
         }
         // Use FreeRTOS delay for precise timing
@@ -365,8 +358,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
                           std::shared_ptr<LIS3DHTRSensor>& accl,
                           std::shared_ptr<MS561101BA03>& baro1,
                           std::shared_ptr<MS561101BA03>& baro2,
-                          std::shared_ptr<GPS>& gps,
-                          I2CBus* i2c)
+                          std::shared_ptr<GPS>& gps)
 {
     LOG_INFO("Init", "\n--- Initializing Components ---");
 
@@ -385,7 +377,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize barometers
-    baro1 = std::make_shared<MS561101BA03>(i2c, MS56_I2C_ADDR_1);
+    baro1 = std::make_shared<MS561101BA03>(board.get_i2c_bus(IBoardHardware::Sensor::BARO1), MS56_I2C_ADDR_1);
     if (baro1 && baro1->init())
     {
         LOG_INFO("Init", "Barometer 1 initialized");
@@ -395,7 +387,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
-    baro2 = std::make_shared<MS561101BA03>(i2c, MS56_I2C_ADDR_2);
+    baro2 = std::make_shared<MS561101BA03>(board.get_i2c_bus(IBoardHardware::Sensor::BARO2), MS56_I2C_ADDR_2);
     if (baro2 && baro2->init())
     {
         LOG_INFO("Init", "Barometer 2 initialized");
@@ -406,7 +398,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize accelerometer
-    accl = std::make_shared<LIS3DHTRSensor>(i2c);
+    accl = std::make_shared<LIS3DHTRSensor>(board.get_i2c_bus(IBoardHardware::Sensor::ACC));
     if (accl && accl->init())
     {
         LOG_INFO("Init", "LIS3DHTR (Accelerometer) initialized");
@@ -436,7 +428,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_INFO("Init", "SD card initialized");
         sdCard->openFile("test.txt");
         LOG_INFO("Init", "Testing SD card write...");
-        std::string content = "SD card write test successful! Timestamp: " + std::to_string(millis()) + " ms";
+        std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms";
         if (sdCard->writeFile("test.txt", content))
         {
             LOG_INFO("Init", "SD card write test successful");
@@ -504,9 +496,9 @@ void GPSfix(std::shared_ptr<GPS> gps)
         LOG_INFO("GPS", "Checking GPS lock...");
 
         bool gpsLocked = false;
-        unsigned long startTime = millis();
+        unsigned long startTime = Utils::millis();
 
-        while (!gpsLocked && (millis() - startTime < GPS_FIX_TIMEOUT_MS))
+        while (!gpsLocked && (Utils::millis() - startTime < GPS_FIX_TIMEOUT_MS))
         {
             auto gpsDataUpdate = gps->updateData();
             if (gpsDataUpdate)
@@ -773,7 +765,7 @@ bool testSDCard()
 
     if (sdCard->openFile(TEST_FILE))
     {
-        std::string content = "SD card write test successful! Timestamp: " + std::to_string(millis()) + " ms\n";
+        std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms\n";
         if (sdCard->writeFile(TEST_FILE, content))
         {
             LOG_INFO("Test", "SD card write test successful");
@@ -945,11 +937,6 @@ void printSystemInfo()
     printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
     printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
     printf("--- End System Information ---\n");
-}
-
-// ESP-IDF millis() equivalent. Temporary definition.
-unsigned long millis_() {
-    return esp_timer_get_time() / 1000ULL;
 }
 
 // The ESP-IDF entry point, which must be C-linkage

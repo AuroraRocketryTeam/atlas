@@ -1,4 +1,5 @@
 #include <BNO055Sensor.hpp>
+#include <utils.h>
 
 BNO055Sensor::BNO055Sensor()
 {
@@ -8,7 +9,7 @@ BNO055Sensor::BNO055Sensor()
 bool BNO055Sensor::init()
 {
     int attempts = 0;
-    uint start = millis();
+    uint start = Utils::millis();
     bool initialized = false;
     
     while (attempts++ < SENSOR_LOOKUP_MAX_ATTEMPTS) {
@@ -24,11 +25,11 @@ bool BNO055Sensor::init()
             return false;
         }
         
-        uint end = millis();
+        uint end = Utils::millis();
         while (end - start < SENSOR_LOOKUP_TIMEOUT) {
-            end = millis();
+            end = Utils::millis();
         }
-        start = millis();
+        start = Utils::millis();
     }
     
     if (!initialized) {
@@ -101,7 +102,7 @@ bool BNO055Sensor::updateData()
     _data->quaternion_z = quaternion[3];
 
     // Update timestamp
-    _data->timestamp = millis();
+    _data->timestamp = Utils::millis();
 
     return true;
 }

@@ -2,9 +2,10 @@
 #include "SimulationTask.hpp"
 #include <sstream>
 #include <algorithm>
+#include <utils.h>
 
 bool SimulationTask::_firstTime = true;
-unsigned long SimulationTask::_startTime = millis();
+unsigned long SimulationTask::_startTime = Utils::millis();
 SD SimulationTask::_sdManager;
 std::string SimulationTask::_csvFilePath;
 uint32_t SimulationTask::_filePosition = 0;  // Track current line number
@@ -53,7 +54,7 @@ SimulationTask::~SimulationTask() {
 
 void SimulationTask::onTaskStart() {
     if (_firstTime) {
-        _startTime = millis();
+        _startTime = Utils::millis();
     }
     
     // If resuming from a previous position, skip to the correct line
@@ -83,7 +84,7 @@ void SimulationTask::reset() {
     // Reset simulation to beginning
     _filePosition = 0;
     _firstTime = true;
-    _startTime = millis();
+    _startTime = Utils::millis();
     if (_fileInitialized) {
         _sdManager.closeFile();
         _sdManager.openFile(_csvFilePath);

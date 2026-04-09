@@ -1,7 +1,7 @@
 #include "MS561101BA03.hpp"
 #include "freertos/FreeRTOS.h"
-// TODO: swap millis()
-#include <Arduino.h>
+
+#include <utils.h>
 
 MS561101BA03::MS561101BA03(I2CBus* bus, uint8_t address) : _address(address), _dev_handle(nullptr)
 {
@@ -52,7 +52,7 @@ bool MS561101BA03::updateData()
     // Calculate compensated pressure and temperature
     calculatePressureAndTemperature(D1, D2, _data->pressure, _data->temperature);
 
-    _data->timestamp = millis();
+    _data->timestamp = Utils::millis();
 
     return true;
 }

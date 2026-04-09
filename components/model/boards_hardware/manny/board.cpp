@@ -1,6 +1,6 @@
 #include "board.h"
 
-MannyBoard::MannyBoard() : is_initialized(false), i2c_handler(nullptr), spi_handler(nullptr) {}
+MannyBoard::MannyBoard() : is_initialized(false), spi_handler(nullptr) {}
 
 MannyBoard::~MannyBoard() = default;
 
@@ -24,23 +24,13 @@ void MannyBoard::init() {
     gpio_config(&actuators_gpio_config);
     gpio_config(&led_gpio_config);
 
+    _i2c_bus.init(MANNY_I2C_PORT, MANNY_I2C_SDA_PIN, MANNY_I2C_SCL_PIN);
+
     is_initialized = true;
 }
 
-int MannyBoard::get_i2c_port() const {
-    return static_cast<int>(MANNY_I2C_PORT);
-}
-
-int MannyBoard::get_i2c_sda_pin() const {
-    return static_cast<int>(MANNY_I2C_SDA_PIN);
-}
-
-int MannyBoard::get_i2c_scl_pin() const {
-    return static_cast<int>(MANNY_I2C_SCL_PIN);
-}
-
-int MannyBoard::get_i2c_frequency_hz() const {
-    return MANNY_I2C_FREQUENCY_HZ;
+I2CBus* MannyBoard::get_i2c_bus(Sensor sensor) {
+    return &_i2c_bus;
 }
 
 int MannyBoard::get_gps_tx_pin() const {
@@ -115,16 +105,8 @@ int MannyBoard::get_bno055_i2c_address() const {
     return MANNY_BNO055_I2C_ADDRESS;
 }
 
-I2CBus* MannyBoard::get_i2c_handler() const {
-    return i2c_handler;
-}
-
 ISPIHandler* MannyBoard::get_spi_handler() const {
     return spi_handler;
-}
-
-void MannyBoard::set_i2c_handler(I2CBus* handler) {
-    i2c_handler = handler;
 }
 
 void MannyBoard::set_spi_handler(ISPIHandler* handler) {

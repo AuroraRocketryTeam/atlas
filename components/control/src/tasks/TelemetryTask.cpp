@@ -1,4 +1,5 @@
 #include "TelemetryTask.hpp"
+#include <utils.h>
 
 constexpr float TROPOSPHERE_HEIGHT = 11000.f; // Troposphere height [m]
 constexpr float a = 0.0065f;                  // Troposphere temperature gradient [deg/m]
@@ -34,7 +35,7 @@ void TelemetryTask::onTaskStart()
 {
     LOG_INFO("Telemetry", "Task started with stack: %u bytes", config.stackSize);
     LOG_INFO("Telemetry", "Transmitter: %s", _transmitter ? "OK" : "NULL");
-    _lastTransmitTime = millis();
+    _lastTransmitTime = Utils::millis();
 }
 
 void TelemetryTask::onTaskStop()
@@ -55,7 +56,7 @@ void TelemetryTask::taskFunction()
         if (!running)
             break;
 
-        uint32_t now = millis();
+        uint32_t now = Utils::millis();
 
         // Check if it's time to transmit
         if (now - _lastTransmitTime >= _transmitIntervalMs)
@@ -132,7 +133,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         memset(&packet, 0, sizeof(TelemetryPacket));
 
         // Add timestamp and validity
-        packet.timestamp = millis();
+        packet.timestamp = Utils::millis();
         packet.dataValid = true;
 
         auto bno055Data = _rocketModel->getBNO055Data();
