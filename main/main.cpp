@@ -1,8 +1,6 @@
 // Standard libraries
 #include "driver/gpio.h"
 #include <Arduino.h>
-#include <Wire.h>
-#include <HardwareSerial.h>
 #include <variant>
 #include <string>
 #include <cstring>
@@ -22,6 +20,8 @@
 // Configuration and pins
 #include <config.h>
 #include <pins.h>
+#include "board.h"
+#include <I2CBus.hpp>
 
 // Interfaces
 #include <ISensor.hpp>
@@ -64,6 +64,10 @@ LEDController ledController(LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN);
 BuzzerController buzzerController(BUZZER_PIN);
 StatusManager statusManager(ledController, buzzerController);
 
+// Board hardware instance
+Board board;
+I2CBus i2c_bus;
+
 // Define the system model
 std::shared_ptr<RocketModel> rocketModel = nullptr;
 
@@ -80,11 +84,12 @@ std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
 void testFSMTransitions(RocketFSM &fsm);
-void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
-                          std::shared_ptr<LIS3DHTRSensor> accl,
-                          std::shared_ptr<MS561101BA03> baro1,
-                          std::shared_ptr<MS561101BA03> baro2,
-                          std::shared_ptr<GPS> gps);
+void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
+                          std::shared_ptr<LIS3DHTRSensor>& accl,
+                          std::shared_ptr<MS561101BA03>& baro1,
+                          std::shared_ptr<MS561101BA03>& baro2,
+                          std::shared_ptr<GPS>& gps,
+                          I2CBus* i2c);
 void GPSfix(std::shared_ptr<GPS> gps);
 void printSystemInfo();
 void testRoutine();
@@ -104,12 +109,9 @@ void setup()
     gpio_set_level(LED_RED_PIN, HIGH);
     
     // Signal initialization start
-    gpio_config(&arming_gpio_config);
+    board.init();
     gpio_set_level(LED_RED_PIN, HIGH);
 
-    // Initialize basic hardware
-    Serial.begin(SERIAL_BAUD_RATE);
-    
     // Initialize controllers
     ledController.init();
     buzzerController.init();
@@ -121,11 +123,16 @@ void setup()
     statusManager.setSystemCode(PRE_FLIGHT_MODE);
 
     LOG_INFO("Main", "\n=== Aurora Rocketry Flight Software ===");
+    LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
     LOG_INFO("Main", "Initializing system...");
 
-    // Initialize I2C
-    Wire.begin();
-    LOG_INFO("Main", "I2C initialized");
+    // uart(PORT_NO, RX_BUF_SIZE, TX_BUF_SIZE, QUEUE_SIZE, &uart_queue, INTERRUPT_FLAGS);
+    ESP_ERROR_CHECK(uart_driver_install((uart_port_t)CONFIG_ESP_CONSOLE_UART_NUM, 256, 0, 0, NULL, 0));
+
+    i2c_bus.init((i2c_port_t)board.get_i2c_port(),
+                 (gpio_num_t)board.get_i2c_sda_pin(),
+                 (gpio_num_t)board.get_i2c_scl_pin());
+    board.set_i2c_handler(&i2c_bus);
 
     // Initialize components
     LOG_INFO("Main", "Initializing sensors...");
@@ -134,7 +141,7 @@ void setup()
     std::shared_ptr<MS561101BA03> baro1 = nullptr;
     std::shared_ptr<MS561101BA03> baro2 = nullptr;
     std::shared_ptr<GPS> gps = nullptr;
-    initializeComponents(bno055, accl, baro1, baro2, gps);
+    initializeComponents(bno055, accl, baro1, baro2, gps, &i2c_bus);
     LOG_INFO("Main", "All components initialized");
 
     // Initialize logger
@@ -171,9 +178,9 @@ void setup()
 
     // Wait for arming pin to be enabled before starting FSM
     statusManager.setSystemCode(PRE_FLIGHT_MODE);
-    while (gpio_get_level(ARMING_PIN) == LOW)
+    while (!board.is_armed())
     {
-        LOG_WARNING("Main", "System not armed! Waiting for arming signal on pin %d...", ARMING_PIN);
+        LOG_WARNING("Main", "System not armed! Waiting for arming signal...");
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 
@@ -354,11 +361,12 @@ static bool initializeWifiStaForEspNow()
     return true;
 }
 
-void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
-                          std::shared_ptr<LIS3DHTRSensor> accl,
-                          std::shared_ptr<MS561101BA03> baro1,
-                          std::shared_ptr<MS561101BA03> baro2,
-                          std::shared_ptr<GPS> gps)
+void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
+                          std::shared_ptr<LIS3DHTRSensor>& accl,
+                          std::shared_ptr<MS561101BA03>& baro1,
+                          std::shared_ptr<MS561101BA03>& baro2,
+                          std::shared_ptr<GPS>& gps,
+                          I2CBus* i2c)
 {
     LOG_INFO("Init", "\n--- Initializing Components ---");
 
@@ -377,7 +385,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
     }
 
     // Initialize barometers
-    baro1 = std::make_shared<MS561101BA03>(MS56_I2C_ADDR_1);
+    baro1 = std::make_shared<MS561101BA03>(i2c, MS56_I2C_ADDR_1);
     if (baro1 && baro1->init())
     {
         LOG_INFO("Init", "Barometer 1 initialized");
@@ -387,7 +395,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
         LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
-    baro2 = std::make_shared<MS561101BA03>(MS56_I2C_ADDR_2);
+    baro2 = std::make_shared<MS561101BA03>(i2c, MS56_I2C_ADDR_2);
     if (baro2 && baro2->init())
     {
         LOG_INFO("Init", "Barometer 2 initialized");
@@ -398,7 +406,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
     }
 
     // Initialize accelerometer
-    accl = std::make_shared<LIS3DHTRSensor>();
+    accl = std::make_shared<LIS3DHTRSensor>(i2c);
     if (accl && accl->init())
     {
         LOG_INFO("Init", "LIS3DHTR (Accelerometer) initialized");
@@ -601,18 +609,15 @@ static void toUpperString(std::string &s)
 // Modified waitForUserInput with buzzer patterns
 bool waitForUserInput(const char *message)
 {
-    std::string full_message = std::string(message) + "\n Or type REBOOT to restart the system.";
-    Serial.println(full_message.c_str());
+    printf("%s\n Or type REBOOT to restart the system.\n", message);
     statusManager.setSystemCode(WAITING_INPUT);
 
     while (true)
     {
-        if (Serial.available())
+        char buffer[64] = {0};
+        if (fgets(buffer, sizeof(buffer), stdin) != nullptr)
         {
-            char buffer[64] = {0};
-            size_t len = Serial.readBytesUntil('\n', buffer, sizeof(buffer) - 1);
-            buffer[len] = '\0';
-            std::string input(buffer, len);
+            std::string input(buffer);
             trimString(input);
             toUpperString(input);
 
@@ -629,32 +634,18 @@ bool waitForUserInput(const char *message)
             if (input == "REBOOT")
             {
                 LOG_WARNING("Test", "System is going to reboot, are you sure?");
-                LOG_WARNING("Test", "Type REBOOT to confirm reboot, or anything else to cancel.");
+                LOG_WARNING("Test", "Type REBOOT to confirm or anything else to cancel.");
 
-                // Clear any existing serial input
-                while (Serial.available())
-                {
-                    Serial.read();
-                }
-
-                unsigned long waitStart = millis();
+                char confirmBuffer[64] = {0};
                 std::string confirm;
-                while (millis() - waitStart < 10000) // Wait up to 10 seconds
+                if (fgets(confirmBuffer, sizeof(confirmBuffer), stdin) != nullptr)
                 {
-                    if (Serial.available())
-                    {
-                        char confirmBuffer[64] = {0};
-                        size_t confirmLen = Serial.readBytesUntil('\n', confirmBuffer, sizeof(confirmBuffer) - 1);
-                        confirmBuffer[confirmLen] = '\0';
-                        confirm.assign(confirmBuffer, confirmLen);
-                        break;
-                    }
-                    vTaskDelay(pdMS_TO_TICKS(100));
+                    confirm.assign(confirmBuffer);
                 }
 
                 if (confirm.empty())
                 {
-                    LOG_INFO("Test", "Reboot timeout - continuing normal operation.");
+                    LOG_INFO("Test", "No confirmation - continuing normal operation.");
                     continue;
                 }
                 trimString(confirm);
@@ -720,7 +711,7 @@ bool testSensors()
     {
         LOG_INFO("Test", "Verifica output dei sensori...");
 
-        gpio_config(&sensors_gpio_config);
+        board.init_sensor_test_pins();
 
         // Testing IMU accelerometer
         auto bnoData = rocketModel->getBNO055Data();
@@ -731,25 +722,22 @@ bool testSensors()
                     (double)accelImuX,
                     (double)accelImuY,
                     (double)accelImuZ);
-        // gpio_set_level(IMU_S, HIGH);
+        // board.signal_sensor_ok(IBoardHardware::Sensor::IMU);
 
         // Testing barometers
         auto baro1Data = rocketModel->getMS561101BA03Data_1();
         auto pressureBaro1 = baro1Data->pressure;
         LOG_INFO("Test", "Barometer 1 Pressure: %.2f hPa", (double)pressureBaro1);
-        // gpio_set_level(BAR1_S, HIGH);
-        
+        // board.signal_sensor_ok(IBoardHardware::Sensor::BARO1);
 
         auto baro2Data = rocketModel->getMS561101BA03Data_2();
         auto pressureBaro2 = baro2Data->pressure;
         LOG_INFO("Test", "Barometer 2 Pressure: %.2f hPa", (double)pressureBaro2);
-        // gpio_set_level(BAR2_S, HIGH);
+        // board.signal_sensor_ok(IBoardHardware::Sensor::BARO2);
 
         // Testing LIS3DHTR accelerometer
-        // Note: LIS3DHTR data is not exposed through public getters in Nemesis
-        // The sensor is being updated and logged internally
         LOG_INFO("Test", "LIS3DHTR Accelerometer: Data logged internally");
-        gpio_set_level(ACC_S, HIGH);
+        board.signal_sensor_ok(IBoardHardware::Sensor::ACC);
     }
 
     // After all tests, go to user input
@@ -759,9 +747,6 @@ bool testSensors()
 bool testActuators()
 {
     LOG_INFO("Test", "\n[STEP 3] Test attuatori");
-
-    pinMode(DROGUE_ACTUATOR_PIN, OUTPUT);
-    pinMode(MAIN_ACTUATOR_PIN, OUTPUT);
 
     LOG_INFO("Test", "Accensione attuatori uno per volta...");
 
@@ -842,25 +827,19 @@ void testRoutine()
         // Menu is BLUE with no buzzer
         statusManager.setSystemCode(TEST_MENU);
 
-        Serial.println("\n=== MENU TEST ===");
-        Serial.println("1 - Test alimentazione e LED");
-        Serial.println("2 - Test sensori");
-        Serial.println("3 - Test attuatori");
-        Serial.println("4 - Test SD Card");
-        Serial.println("5 - Test telemetria");
-        Serial.println("6 - Esegui tutti i test in sequenza");
-        Serial.println("7 - Esci dal menu test");
-        Serial.println("Inserisci il numero del test da eseguire:");
-
-        while (!Serial.available())
-        {
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
+        printf("\n=== MENU TEST ===\n");
+        printf("1 - Test alimentazione e LED\n");
+        printf("2 - Test sensori\n");
+        printf("3 - Test attuatori\n");
+        printf("4 - Test SD Card\n");
+        printf("5 - Test telemetria\n");
+        printf("6 - Esegui tutti i test in sequenza\n");
+        printf("7 - Esci dal menu test\n");
+        printf("Inserisci il numero del test da eseguire:\n");
 
         char buffer[32] = {0};
-        size_t len = Serial.readBytesUntil('\n', buffer, sizeof(buffer) - 1);
-        buffer[len] = '\0';
-        std::string input(buffer, len);
+        fgets(buffer, sizeof(buffer), stdin);
+        std::string input(buffer);
         trimString(input);
         int choice = std::atoi(input.c_str());
         bool testPassed = false;
@@ -937,7 +916,7 @@ void testRoutine()
             statusManager.setSystemCode(SYSTEM_OK);
             return;
         default:
-            Serial.println("Scelta non valida. Riprova.");
+            printf("Scelta non valida. Riprova.\n");
             continue;
         }
 
@@ -952,20 +931,20 @@ void testRoutine()
 
 void printSystemInfo()
 {
-    Serial.println("\n--- System Information ---");
-    Serial.printf("ESP32 Chip: %s\n", ESP.getChipModel());
-    Serial.printf("CPU Frequency: %lu MHz\n", (unsigned long)ESP.getCpuFreqMHz());
-    Serial.printf("Total Heap: %lu bytes\n", (unsigned long)ESP.getHeapSize());
-    Serial.printf("Free Heap: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
-    Serial.printf("PSRAM Total: %lu bytes\n", (unsigned long)ESP.getPsramSize());
-    Serial.printf("PSRAM Free: %lu bytes\n", (unsigned long)ESP.getFreePsram());
-    Serial.printf("Flash Size: %lu bytes\n", (unsigned long)ESP.getFlashChipSize());
-    Serial.printf("SDK Version: %s\n", ESP.getSdkVersion());
+    printf("--- System Information ---\n");
+    printf("ESP32 Chip: %s\n", ESP.getChipModel());
+    printf("CPU Frequency: %lu MHz\n", (unsigned long)ESP.getCpuFreqMHz());
+    printf("Total Heap: %lu bytes\n", (unsigned long)ESP.getHeapSize());
+    printf("Free Heap: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
+    printf("PSRAM Total: %lu bytes\n", (unsigned long)ESP.getPsramSize());
+    printf("PSRAM Free: %lu bytes\n", (unsigned long)ESP.getFreePsram());
+    printf("Flash Size: %lu bytes\n", (unsigned long)ESP.getFlashChipSize());
+    printf("SDK Version: %s\n", ESP.getSdkVersion());
 
     // FreeRTOS information
-    Serial.printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
-    Serial.printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
-    Serial.println("--- End System Information ---");
+    printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
+    printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
+    printf("--- End System Information ---\n");
 }
 
 // ESP-IDF millis() equivalent. Temporary definition.

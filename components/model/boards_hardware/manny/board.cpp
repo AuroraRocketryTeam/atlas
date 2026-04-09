@@ -1,4 +1,4 @@
-#include "boards_hardware/manny/MannyBoard.hpp"
+#include "board.h"
 
 MannyBoard::MannyBoard() : is_initialized(false), i2c_handler(nullptr), spi_handler(nullptr) {}
 
@@ -22,7 +22,7 @@ void MannyBoard::init() {
     };
 
     gpio_config(&actuators_gpio_config);
-    gpio_config(&led_gpio_config);    
+    gpio_config(&led_gpio_config);
 
     is_initialized = true;
 }
@@ -115,7 +115,7 @@ int MannyBoard::get_bno055_i2c_address() const {
     return MANNY_BNO055_I2C_ADDRESS;
 }
 
-I2CHandler* MannyBoard::get_i2c_handler() const {
+I2CBus* MannyBoard::get_i2c_handler() const {
     return i2c_handler;
 }
 
@@ -123,7 +123,7 @@ ISPIHandler* MannyBoard::get_spi_handler() const {
     return spi_handler;
 }
 
-void MannyBoard::set_i2c_handler(I2CHandler* handler) {
+void MannyBoard::set_i2c_handler(I2CBus* handler) {
     i2c_handler = handler;
 }
 
@@ -138,3 +138,7 @@ int MannyBoard::get_lora_cs_pin() const {
 bool MannyBoard::is_armed() const {
     return true;
 }
+
+void MannyBoard::init_sensor_test_pins() {}
+
+void MannyBoard::signal_sensor_ok(IBoardHardware::Sensor sensor) {}

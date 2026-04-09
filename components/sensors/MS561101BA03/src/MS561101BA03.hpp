@@ -1,6 +1,6 @@
 #pragma once
 #include <ISensor.hpp>
-#include <Wire.h>
+#include <I2CBus.hpp>
 #include <PressureSensorData.hpp>
 
 // MS5611 Commands
@@ -25,7 +25,9 @@
 class MS561101BA03 : public ISensor
 {
 public:
-    MS561101BA03(uint8_t address = 0x77);
+    MS561101BA03(I2CBus* bus, uint8_t address = 0x77);
+    ~MS561101BA03();
+
     bool init() override;
     bool updateData() override;
 
@@ -39,8 +41,9 @@ public:
 private:
     // I2C address of the sensor
     uint8_t _address;
+    i2c_master_dev_handle_t _dev_handle;
     uint16_t _calibrationData[8];
-    
+
     bool readCalibrationData();
     void reset();
     uint32_t readADC();

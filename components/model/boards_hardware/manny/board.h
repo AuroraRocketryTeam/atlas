@@ -1,7 +1,7 @@
 #pragma once
 
 #include "boards_hardware/IBoardHardware.hpp"
-#include "driver/i2c.h"
+#include "driver/i2c_master.h"
 
 // Manny board hardware map
 static constexpr gpio_num_t MANNY_I2C_SDA_PIN = GPIO_NUM_11;
@@ -36,12 +36,13 @@ static constexpr int MANNY_GPS_RX_PIN = 16;
 
 // Hardware note: main and drogue outputs are valid only when board supply is 6.4V.
 
-static const char* TAG = "Manny";
-
 class MannyBoard : public IBoardHardware {
+public:
+    static constexpr const char* BOARD_NAME = "Manny";
+
 private:
     bool is_initialized;
-    I2CHandler* i2c_handler;
+    I2CBus* i2c_handler;
     ISPIHandler* spi_handler;
 
 public:
@@ -77,12 +78,17 @@ public:
     int get_battery_divider_adc_pin() const override;
     int get_bno055_i2c_address() const override;
 
-    I2CHandler* get_i2c_handler() const override;
+    I2CBus* get_i2c_handler() const override;
     ISPIHandler* get_spi_handler() const override;
-    void set_i2c_handler(I2CHandler* handler) override;
+    void set_i2c_handler(I2CBus* handler) override;
     void set_spi_handler(ISPIHandler* handler) override;
 
     int get_lora_cs_pin() const override;
 
     bool is_armed() const override;
+
+    void init_sensor_test_pins() override;
+    void signal_sensor_ok(Sensor sensor) override;
 };
+
+using Board = MannyBoard;

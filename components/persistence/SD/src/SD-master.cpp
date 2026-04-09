@@ -1,6 +1,7 @@
 #include "SD-master.hpp"
 #include <sys/stat.h>
 #include <dirent.h>
+#include <unistd.h>
 
 /**
  * @brief A wrapper for SD card initialization

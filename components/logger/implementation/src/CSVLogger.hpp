@@ -1,8 +1,8 @@
 #ifndef CSV_LOGGER_HPP
 #define CSV_LOGGER_HPP
 
-#include <Arduino.h>
 #include <nlohmann/json.hpp>
+#include <cstdio>
 #include <SD-master.hpp> // La tua classe SD personalizzata
 
 using json = nlohmann::json;
@@ -18,7 +18,7 @@ public:
     
     bool init() {
         if (!sdCard.init()) {
-            Serial.println("Errore inizializzazione SD per CSV Logger");
+            printf("Errore inizializzazione SD per CSV Logger\n");
             return false;
         }
         return true;
@@ -45,9 +45,9 @@ public:
         
         if (sdCard.writeFile(filename, header)) {
             headerWritten = true;
-            Serial.println("Header CSV scritto");
+            printf("Header CSV scritto\n");
         } else {
-            Serial.println("Errore scrittura header CSV");
+            printf("Errore scrittura header CSV\n");
         }
         sdCard.closeFile();
     }
@@ -281,7 +281,7 @@ public:
         
         // Scrivi su SD
         if (!sdCard.appendFile(filename, csvLine)) {
-            Serial.println("Errore scrittura CSV");
+            printf("Errore scrittura CSV\n");
         }
         sdCard.closeFile();
     }

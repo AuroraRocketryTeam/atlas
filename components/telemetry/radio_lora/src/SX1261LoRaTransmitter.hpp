@@ -4,7 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <variant>
 #include <string>
-#include <Arduino.h>
+#include <cstdio>
 #include <ITransmitter.hpp>
 #include <ResponseStatusContainer.hpp>
 
@@ -83,48 +83,47 @@ public:
      * @return ResponseStatusContainer with the initialization status.
      */
     ResponseStatusContainer init() override {
-        Serial.print("Initializing SX1261... ");
+        printf("Initializing SX1261... ");
 
         // Initialize the module
         int state = radio.begin();
         if (state != RADIOLIB_ERR_NONE) {
-            Serial.print("failed, code: ");
-            Serial.println(state);
+            printf("failed, code: %d\n", state);
             return ResponseStatusContainer(state, String("Errore inizializzazione SX1261, codice: ") + String(state));
         }
-                
+
         if (radio.setFrequency(frequency) != RADIOLIB_ERR_NONE) {
             return ResponseStatusContainer(01, "Errore impostazione frequenza");
         }
-        Serial.println("Frequenza: " + String(frequency) + " MHz");
-        
+        printf("Frequenza: %.1f MHz\n", frequency);
+
         if (radio.setOutputPower(power) != RADIOLIB_ERR_NONE) {
             return ResponseStatusContainer(02, "Errore impostazione potenza");
         }
-        Serial.println("Potenza: " + String(power) + " dBm");
-        
+        printf("Potenza: %d dBm\n", power);
+
         if (radio.setBandwidth(bandwidth) != RADIOLIB_ERR_NONE) {
             return ResponseStatusContainer(03, "Errore impostazione bandwidth");
         }
-        Serial.println("Bandwidth: " + String(bandwidth) + " kHz");
-        
+        printf("Bandwidth: %.1f kHz\n", bandwidth);
+
         if (radio.setSpreadingFactor(spreadingFactor) != RADIOLIB_ERR_NONE) {
             return ResponseStatusContainer(04, "Errore impostazione spreading factor");
         }
-        Serial.println("Spreading Factor: SF" + String(spreadingFactor));
-        
+        printf("Spreading Factor: SF%u\n", spreadingFactor);
+
         if (radio.setCodingRate(codingRate) != RADIOLIB_ERR_NONE) {
             return ResponseStatusContainer(05, "Errore impostazione coding rate");
         }
-        Serial.println("Coding Rate: 4/" + String(codingRate));
-        
+        printf("Coding Rate: 4/%u\n", codingRate);
+
         if (radio.setSyncWord(syncWord) != RADIOLIB_ERR_NONE) {
             return ResponseStatusContainer(06, "Errore impostazione sync word");
         }
-        Serial.println("Sync Word: 0x" + String(syncWord, HEX));
-        
+        printf("Sync Word: 0x%02X\n", syncWord);
+
         initialized = true;
-        Serial.println("LoRa SX1261 inizializzato correttamente!");
+        printf("LoRa SX1261 inizializzato correttamente!\n");
         
         return ResponseStatusContainer(00, "SX1261 inizializzato correttamente");
     }
@@ -148,30 +147,24 @@ public:
             {"timestamp", millis()},
             {"payload", dataStr}
         };
-        
+
         std::string packetStr = packet.dump();
-        
-        Serial.print("Lora transmission (");
-        Serial.print(packetStr.length());
-        Serial.print(" bytes): ");
-        
+
         // Mostra solo i primi 100 caratteri per evitare spam
         if (packetStr.length() > 100) {
-            Serial.print(packetStr.substr(0, 100).c_str());
-            Serial.println("...");
+            printf("Lora transmission (%zu bytes): %.100s...\n", packetStr.length(), packetStr.c_str());
         } else {
-            Serial.println(packetStr.c_str());
+            printf("Lora transmission (%zu bytes): %s\n", packetStr.length(), packetStr.c_str());
         }
-        
+
         // Trasmetti
         int state = radio.transmit(packetStr.c_str());
-        
+
         if (state == RADIOLIB_ERR_NONE) {
-            Serial.println("Lora transmission completed!");
+            printf("Lora transmission completed!\n");
             return ResponseStatusContainer(state, String("Transmission completed, ID: ") + String(packetCounter - 1));
         } else {
-            Serial.print("Lora transmission error, code: ");
-            Serial.println(state);
+            printf("Lora transmission error, code: %d\n", state);
             return ResponseStatusContainer(state, String("Transmission error, code: ") + String(state));
         }
     }
@@ -246,20 +239,16 @@ public:
         
         std::string compactStr = compactData.dump();
 
-        Serial.print("Compact transmission (");
-        Serial.print(compactStr.length());
-        Serial.print(" bytes): ");
-        Serial.println(compactStr.c_str());
-        
+        printf("Compact transmission (%zu bytes): %s\n", compactStr.length(), compactStr.c_str());
+
         // Trasmetti
         int state = radio.transmit(compactStr.c_str());
-        
+
         if (state == RADIOLIB_ERR_NONE) {
-            Serial.println("Compact transmission completed!");
+            printf("Compact transmission completed!\n");
             return ResponseStatusContainer(state, "Compact transmission completed");
         } else {
-            Serial.print("Compact transmission error, code: ");
-            Serial.println(state);
+            printf("Compact transmission error, code: %d\n", state);
             return ResponseStatusContainer(state, String("Compact transmission error, code: ") + String(state));
         }
     }
@@ -293,9 +282,9 @@ public:
      */
     void printStats() {
         if (!initialized) {
-            Serial.println("LoRa non inizializzato");
+            printf("LoRa non inizializzato\n");
             return;
         }
-        Serial.println("=== LoRa SX1261 Statistics ===");
+        printf("=== LoRa SX1261 Statistics ===\n");
     }
 };

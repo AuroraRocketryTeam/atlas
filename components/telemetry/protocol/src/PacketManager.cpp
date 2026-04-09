@@ -1,6 +1,7 @@
 #include "PacketManager.hpp"
 #include "Packet.hpp"
 #include <cstring>
+#include <cstdio>
 #include <algorithm>
 #include <vector>
 #include <Arduino.h>
@@ -101,8 +102,8 @@ Packet PacketManager::deserialize(const uint8_t *data, size_t length)
 
         if (computedCrc != receivedCrc)
         {
-            Serial.printf("PacketManager::deserialize - CRC mismatch: recv=0x%04X calc=0x%04X\n",
-                          receivedCrc, computedCrc);
+            printf("PacketManager::deserialize - CRC mismatch: recv=0x%04X calc=0x%04X\n",
+                   receivedCrc, computedCrc);
             // leave pkt as-is; callers can inspect header/flags or crc to detect errors
         }
     }

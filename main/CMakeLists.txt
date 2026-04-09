@@ -20,6 +20,7 @@ idf_component_register(
         LIS3DHTR
         MPRLS
         MS561101BA03
+        I2C
         Termoresistenze
         filters_kalman
         protocol

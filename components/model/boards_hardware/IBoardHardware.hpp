@@ -1,9 +1,8 @@
 #pragma once
 
 #include "driver/gpio.h"
+#include <I2CBus.hpp>
 
-// TO DELETE!!! TEMPORARY HANDLER CLASS TO AVOID ERRORS!!!
-class I2CHandler;
 class ISPIHandler;
 
 class IBoardHardware {
@@ -38,12 +37,17 @@ public:
     virtual int get_battery_divider_adc_pin() const = 0;
     virtual int get_bno055_i2c_address() const = 0;
 
-    virtual I2CHandler* get_i2c_handler() const = 0;
+    virtual I2CBus* get_i2c_handler() const = 0;
     virtual ISPIHandler* get_spi_handler() const = 0;
-    virtual void set_i2c_handler(I2CHandler* handler) = 0;
+    virtual void set_i2c_handler(I2CBus* handler) = 0;
     virtual void set_spi_handler(ISPIHandler* handler) = 0;
 
     virtual int get_lora_cs_pin() const = 0;
 
     virtual bool is_armed() const = 0;
+
+    enum class Sensor { IMU, BARO1, BARO2, ACC };
+
+    virtual void init_sensor_test_pins() = 0;
+    virtual void signal_sensor_ok(Sensor sensor) = 0;
 };

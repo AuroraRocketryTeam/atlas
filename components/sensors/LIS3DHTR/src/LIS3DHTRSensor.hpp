@@ -4,30 +4,24 @@
 #include <AccelerometerSensorData.hpp>
 #include <config.h>
 #include <memory>
-#include "driver/i2c.h"
+#include <I2CBus.hpp>
 #include "lis3dh_reg.h"
-
-// Custom handle to pass ESP-IDF specific info to the ST driver
-typedef struct {
-    i2c_port_t i2c_port;
-    uint8_t i2c_address;
-} esp_sensor_handle_t;
 
 class LIS3DHTRSensor : public ISensor
 {
 public:
-    LIS3DHTRSensor(i2c_port_t port = I2C_NUM_0, uint8_t address = 0x18);
-    
+    LIS3DHTRSensor(I2CBus* bus, uint8_t address = 0x18);
+    ~LIS3DHTRSensor();
+
     bool init() override;
     bool updateData() override;
     std::shared_ptr<AccelerometerSensorData> getData();
 
 private:
-    // Holds port and address
-    esp_sensor_handle_t _handle; 
+    i2c_master_dev_handle_t _dev_handle;
     // The ST driver context
-    stmdev_ctx_t _dev_ctx;       
-    
+    stmdev_ctx_t _dev_ctx;
+
     std::shared_ptr<AccelerometerSensorData> _data;
 
     // Static wrappers required by ST driver

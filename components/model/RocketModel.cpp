@@ -19,9 +19,6 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     _heightGainSpeed(std::make_shared<float>(0.0f)),
     _currentHeight(std::make_shared<float>(0.0f))
 {
-    Serial.begin(SERIAL_BAUD_RATE);
-    Serial.setRxBufferSize(2048);
-
     // Configure and Initialize ADC unit
     adc_oneshot_unit_init_cfg_t adc1_config = {};
     adc1_config.unit_id  = ADC_UNIT_1;

@@ -1,4 +1,5 @@
 #include "KalmanFilter.hpp"
+#include <cstdio>
 
 KalmanFilter::KalmanFilter(Eigen::Vector3f gravity_value, Eigen::Vector3f magnetometer_value) {
     //calibration phase
@@ -123,14 +124,13 @@ std::vector<std::vector<float>> KalmanFilter::step(float dt, float omega[3], flo
     // Monitor memory before operation
     size_t heap_before = ESP.getFreeHeap();
     size_t stack_before = uxTaskGetStackHighWaterMark(NULL);
-    
-    Serial.print("Iteration: "); Serial.print(iteration_count);
-    Serial.print(", Heap before: "); Serial.print(heap_before);
-    Serial.print(", Stack free: "); Serial.println(stack_before);
-    
+
+    printf("Iteration: %lu, Heap before: %zu, Stack free: %zu\n",
+           iteration_count, heap_before, stack_before);
+
     if (heap_before < min_free_heap) {
         min_free_heap = heap_before;
-        Serial.print("New minimum heap: "); Serial.println(min_free_heap);
+        printf("New minimum heap: %zu\n", min_free_heap);
     }
     
     // Reset watchdog
@@ -147,7 +147,7 @@ std::vector<std::vector<float>> KalmanFilter::step(float dt, float omega[3], flo
     float hx[EKF_M] = {0};
     
     // Check heap after each major allocation
-    Serial.print("After fx/hx: "); Serial.println(ESP.getFreeHeap());
+    printf("After fx/hx: %lu\n", ESP.getFreeHeap());
     
     // Biases
     Eigen::Vector3f bias_a(ekf.x[10], ekf.x[11], ekf.x[12]);
@@ -169,7 +169,7 @@ std::vector<std::vector<float>> KalmanFilter::step(float dt, float omega[3], flo
         theta = omega_norm * dt;
     }
     
-    Serial.print("After Eigen ops: "); Serial.println(ESP.getFreeHeap());
+    printf("After Eigen ops: %lu\n", ESP.getFreeHeap());
     
     Eigen::Quaternionf delta_q(Eigen::AngleAxisf(theta, axis));
     Eigen::Quaternionf q_nominal(ekf.x[6], ekf.x[7], ekf.x[8], ekf.x[9]);
@@ -179,7 +179,7 @@ std::vector<std::vector<float>> KalmanFilter::step(float dt, float omega[3], flo
     
     Eigen::Vector3f accel_abs = q_rot * (accel_z - bias_a) - gravity;
     
-    Serial.print("After quaternion ops: "); Serial.println(ESP.getFreeHeap());
+    printf("After quaternion ops: %lu\n", ESP.getFreeHeap());
     
     // Check if this function call is the culprit
     Eigen::Matrix<float,3,4> Hq = computeHqAccelJacobian(
@@ -187,7 +187,7 @@ std::vector<std::vector<float>> KalmanFilter::step(float dt, float omega[3], flo
         Eigen::Vector3f(accel_abs[0], accel_abs[1], accel_abs[2])
     );
     
-    Serial.print("After Hq computation: "); Serial.println(ESP.getFreeHeap());
+    printf("After Hq computation: %lu\n", ESP.getFreeHeap());
     
     // Use stack arrays (should be fine for this size)
     float H[EKF_M*EKF_N] = {
@@ -218,21 +218,21 @@ std::vector<std::vector<float>> KalmanFilter::step(float dt, float omega[3], flo
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
     };
     
-    Serial.print("After H/F arrays: "); Serial.println(ESP.getFreeHeap());
+    printf("After H/F arrays: %lu\n", ESP.getFreeHeap());
     
     float z[EKF_M] = {accel[0], accel[1], accel[2], omega_x, omega_y, omega_z};
     
-    Serial.println("Before run_model");
+    printf("Before run_model\n");
     run_model(dt, fx, hx, omega_x, omega_y, omega_z, accel);
-    Serial.print("After run_model: "); Serial.println(ESP.getFreeHeap());
-    
-    Serial.println("Before ekf_predict");
+    printf("After run_model: %lu\n", ESP.getFreeHeap());
+
+    printf("Before ekf_predict\n");
     ekf_predict(&ekf, fx, F, Q_diag);
-    Serial.print("After ekf_predict: "); Serial.println(ESP.getFreeHeap());
-    
-    Serial.println("Before ekf_update");
+    printf("After ekf_predict: %lu\n", ESP.getFreeHeap());
+
+    printf("Before ekf_update\n");
     ekf_update(&ekf, z, hx, H, R);
-    Serial.print("After ekf_update: "); Serial.println(ESP.getFreeHeap());
+    printf("After ekf_update: %lu\n", ESP.getFreeHeap());
     
     // Try to avoid std::vector fragmentation by pre-allocating
     // and reusing static vectors
@@ -255,12 +255,10 @@ std::vector<std::vector<float>> KalmanFilter::step(float dt, float omega[3], flo
     result[2][0] = ekf.x[6]; result[2][1] = ekf.x[7]; result[2][2] = ekf.x[8];
     
     size_t heap_after = ESP.getFreeHeap();
-    Serial.print("Heap after: "); Serial.println(heap_after);
-    
+    printf("Heap after: %zu\n", heap_after);
+
     if (heap_before - heap_after > 100) {
-        Serial.print("WARNING: Memory leak detected! Lost ");
-        Serial.print(heap_before - heap_after);
-        Serial.println(" bytes");
+        printf("WARNING: Memory leak detected! Lost %zu bytes\n", heap_before - heap_after);
     }
     
     return result;
