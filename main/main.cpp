@@ -837,8 +837,60 @@ bool testTelemetry()
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
+bool configureE220()
+{
+    LOG_INFO("LoRa", "Configuring E220...");
+
+    gpio_reset_pin(MANNY_LORA_M0_PIN);
+    gpio_reset_pin(MANNY_LORA_M1_PIN);
+    gpio_reset_pin(MANNY_LORA_AUX_PIN);
+    gpio_reset_pin(MANNY_LORA_TX_PIN);
+    gpio_reset_pin(MANNY_LORA_RX_PIN);
+
+    LoRa_E220 e220(MANNY_LORA_RX_PIN, MANNY_LORA_TX_PIN, &Serial2,
+                   MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN,
+                   UART_BPS_RATE_9600, SERIAL_8N1);
+    e220.begin();
+
+    auto csc = e220.getConfiguration();
+    if (csc.status.code != E220_SUCCESS) {
+        LOG_ERROR("LoRa", "getConfiguration failed: %s", csc.status.getResponseDescription().c_str());
+        csc.close();
+        Serial2.end();
+        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    }
+    auto config = *(Configuration *)csc.data;
+    csc.close();
+
+    config.ADDL = 0x03;
+    config.ADDH = 0x00;
+    config.CHAN = 23;
+
+    config.SPED.uartBaudRate  = UART_BPS_115200;
+    config.SPED.airDataRate   = AIR_DATA_RATE_100_96;
+    config.SPED.uartParity    = MODE_00_8N1;
+
+    config.OPTION.subPacketSetting  = SPS_200_00;
+    config.OPTION.RSSIAmbientNoise  = RSSI_AMBIENT_NOISE_DISABLED;
+    config.OPTION.transmissionPower = POWER_17;
+
+    config.TRANSMISSION_MODE.enableRSSI        = RSSI_ENABLED;
+    config.TRANSMISSION_MODE.fixedTransmission = FT_FIXED_TRANSMISSION;
+    config.TRANSMISSION_MODE.enableLBT         = LBT_DISABLED;
+    config.TRANSMISSION_MODE.WORPeriod         = WOR_2000_011;
+
+    auto rs = e220.setConfiguration(config, WRITE_CFG_PWR_DWN_SAVE);
+    if (rs.code == E220_SUCCESS)
+        LOG_INFO("LoRa", "E220 configurato con successo.");
+    else
+        LOG_ERROR("LoRa", "setConfiguration fallito: %s", rs.getResponseDescription().c_str());
+
+    Serial2.end();
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
 // E220 connector test to identify the pins
-// 
+//
 // Pattern: All high, then N bursts of (0,5s H/L)
 bool testE220Connector()
 {
@@ -894,10 +946,11 @@ void testRoutine()
         printf("2 - Test sensori\n");
         printf("3 - Test attuatori\n");
         printf("4 - Test SD Card\n");
-        printf("5 - Test telemetria\n");
-        printf("6 - Test connettore E220\n");
-        printf("7 - Esegui tutti i test in sequenza\n");
-        printf("8 - Esci dal menu test\n");
+        printf("5 - Configura E220 (one time)\n");
+        printf("6 - Test telemetria\n");
+        printf("7 - Test connettore E220\n");
+        printf("8 - Esegui tutti i test in sequenza\n");
+        printf("9 - Esci dal menu test\n");
         printf("Inserisci il numero del test da eseguire:\n");
 
         char buffer[32] = {0};
@@ -939,16 +992,22 @@ void testRoutine()
         case 5:
             do
             {
-                testPassed = testTelemetry();
+                testPassed = configureE220();
             } while (!testPassed);
             break;
         case 6:
             do
             {
-                testPassed = testE220Connector();
+                testPassed = testTelemetry();
             } while (!testPassed);
             break;
         case 7:
+            do
+            {
+                testPassed = testE220Connector();
+            } while (!testPassed);
+            break;
+        case 8:
             // Show all tests pattern
             statusManager.playBlockingPattern(TEST_ALL, 2000);
 
@@ -978,7 +1037,7 @@ void testRoutine()
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
             break;
-        case 8:
+        case 9:
             // Exit test mode with success pattern
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
@@ -989,7 +1048,7 @@ void testRoutine()
             continue;
         }
 
-        if (choice >= 1 && choice <= 7)
+        if (choice >= 1 && choice <= 8)
         {
             LOG_INFO("Test", "Test completato con successo!");
             // Show success pattern before returning to menu

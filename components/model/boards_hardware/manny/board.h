@@ -32,13 +32,6 @@ static constexpr gpio_num_t MANNY_ARMING_PIN = GPIO_NUM_NC;
 static constexpr gpio_num_t MANNY_GPS_TX_PIN = GPIO_NUM_17;
 static constexpr gpio_num_t MANNY_GPS_RX_PIN = GPIO_NUM_16;
 
-// E220 pinout from GND: GND, VCC, AUX, TXD, RXD, M1, M0
-// J7 pin 1             -> GND
-// J7 pin 2 = GPIO40    -> E220 AUX (1 burst)
-// J7 pin 3 = GPIO39    -> E220 TXD (2 bursts)
-// J7 pin 4 = GPIO38    -> E220 RXD (3 bursts)
-// J7 pin 5 = GPIO41    -> E220 M1  (4 bursts)
-// J7 pin 6 = GPIO42    -> E220 M0  (5 bursts)
 static constexpr gpio_num_t MANNY_LORA_AUX_PIN = GPIO_NUM_40;
 static constexpr gpio_num_t MANNY_LORA_RX_PIN  = GPIO_NUM_39;
 static constexpr gpio_num_t MANNY_LORA_TX_PIN  = GPIO_NUM_38;
