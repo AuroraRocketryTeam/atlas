@@ -1,9 +1,9 @@
 #include <BNO055Sensor.hpp>
 #include <utils.h>
 
-BNO055Sensor::BNO055Sensor()
+BNO055Sensor::BNO055Sensor(I2CBus* bus, uint8_t address)
+    : _bno_interface(bus, address)
 {
-    _bno_interface = BNO055SensorInterface();
 }
 
 bool BNO055Sensor::init()

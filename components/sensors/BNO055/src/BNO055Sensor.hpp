@@ -11,7 +11,7 @@ class BNO055Sensor : public ISensor
 {
 public:
     /** @brief Construct a new BNO055 sensor wrapper. */
-    BNO055Sensor();
+    BNO055Sensor(I2CBus* bus, uint8_t address);
 
     /**
      * @brief Initialize the BNO055 device and prepare it for measurements.

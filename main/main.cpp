@@ -674,40 +674,17 @@ bool testPowerAndLEDs()
 bool testSensors()
 {
     LOG_INFO("Test", "\n[STEP 2] Test sensori");
-    bool testFailed = false;
     bool imu_ok = rocketModel->updateBNO055();
     bool baro1_ok = rocketModel->updateMS561101BA03_1();
     bool baro2_ok = rocketModel->updateMS561101BA03_2();
     bool accl_ok = rocketModel->updateLIS3DHTR();
 
+    board.init_sensor_test_pins();
     if (!imu_ok)
     {
-        testFailed = true;
         statusManager.playBlockingPattern(IMU_FAIL, 2000);
         LOG_ERROR("Test", "Errore: IMU non inizializzata.");
-    }
-    if (!baro1_ok)
-    {
-        statusManager.playBlockingPattern(BARO1_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
-    }
-    if (!baro2_ok)
-    {
-        statusManager.playBlockingPattern(BARO2_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
-    }
-    if (!accl_ok)
-    {
-        statusManager.playBlockingPattern(IMU_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
-    }
-
-    if (!testFailed)
-    {
-        LOG_INFO("Test", "Verifica output dei sensori...");
-
-        board.init_sensor_test_pins();
-
+    } else {
         // Testing IMU accelerometer
         auto bnoData = rocketModel->getBNO055Data();
         auto accelImuX = bnoData->acceleration_x;
@@ -718,18 +695,32 @@ bool testSensors()
                     (double)accelImuY,
                     (double)accelImuZ);
         // board.signal_sensor_ok(IBoardHardware::Sensor::IMU);
-
-        // Testing barometers
+    }
+    if (!baro1_ok)
+    {
+        statusManager.playBlockingPattern(BARO1_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
+    } else {
         auto baro1Data = rocketModel->getMS561101BA03Data_1();
         auto pressureBaro1 = baro1Data->pressure;
         LOG_INFO("Test", "Barometer 1 Pressure: %.2f hPa", (double)pressureBaro1);
         // board.signal_sensor_ok(IBoardHardware::Sensor::BARO1);
-
+    }
+    if (!baro2_ok)
+    {
+        statusManager.playBlockingPattern(BARO2_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
+    } else {
         auto baro2Data = rocketModel->getMS561101BA03Data_2();
         auto pressureBaro2 = baro2Data->pressure;
         LOG_INFO("Test", "Barometer 2 Pressure: %.2f hPa", (double)pressureBaro2);
         // board.signal_sensor_ok(IBoardHardware::Sensor::BARO2);
-
+    }
+    if (!accl_ok)
+    {
+        statusManager.playBlockingPattern(IMU_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
+    } else {
         // Testing LIS3DHTR accelerometer
         LOG_INFO("Test", "LIS3DHTR Accelerometer: Data logged internally");
         board.signal_sensor_ok(IBoardHardware::Sensor::ACC);

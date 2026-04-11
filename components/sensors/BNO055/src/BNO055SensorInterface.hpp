@@ -4,8 +4,7 @@ extern "C" {
   #include "bno055.h"
 }
 #include <config.h>
-#include <Wire.h>
-#include <Arduino.h>
+#include <I2CBus.hpp>
 #include <vector>
 
 // I2C communication functions are now private static members of BNO055SensorInterface
@@ -19,86 +18,89 @@ class BNO055SensorInterface
 {
 private:
     bno055_t bno;
+    i2c_master_dev_handle_t _dev_handle;
+
+    // Static handle used by the callbacks
+    static i2c_master_dev_handle_t s_dev_handle;
 
     // Private static I2C bus functions
     static s8 BNO055_I2C_bus_write(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt);
     static s8 BNO055_I2C_bus_read(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt);
     static void BNO055_delay_msek(u32 msek);
 
-public:    
+public:
     /**
-     * @brief Default constructor for BNO055SensorInterface, the actual sensor structure will be initialized in init()
+     * @brief Constructor for BNO055SensorInterface
+     * @param bus Pointer to the I2C bus to use
+     * @param address I2C address of the sensor
      */
-    BNO055SensorInterface();
-    
+    BNO055SensorInterface(I2CBus* bus, uint8_t address);
+    ~BNO055SensorInterface();
+
     /**
      * @brief Initialize the BNO055 sensor
      * @return true if initialization successful, false otherwise
      */
     bool init();
-    
+
     /**
      * @brief Check if all sensor components are calibrated
      * @return the minimum calibration value among all sensors (accel, mag, gyro, system), from 0 (not calibrated) to 3 (fully calibrated)
      */
     uint8_t check_calibration();
-    
+
     // ========== INDIVIDUAL CALIBRATION FUNCTIONS ==========
     /**
      * @brief Check accelerometer calibration status
      * @return the calibration value of the accelerometer, from 0 (not calibrated) to 3 (fully calibrated)
      */
     uint8_t check_calibration_accel();
-    
+
     /**
      * @brief Check magnetometer calibration status
      * @return the calibration value of the magnetometer, from 0 (not calibrated) to 3 (fully calibrated)
      * @note Magnetometer calibration typically requires figure-8 movements !!! Look for how to start the actual calibration
      */
     uint8_t check_calibration_mag();
-    
+
     /**
      * @brief Check gyroscope calibration status
      * @return the calibration value of the gyroscope, from 0 (not calibrated) to 3 (fully calibrated)
      * @note Gyroscope calibration requires the sensor to remain stationary
      */
     uint8_t check_calibration_gyro();
-    
+
     /**
      * @brief Check system-wide calibration status
      * @return the calibration value of the system, from 0 (not calibrated) to 3 (fully calibrated)
      */
     uint8_t check_calibration_sys();
-    
+
     // ========== SELF-TEST FUNCTIONS ==========
     /**
      * @brief Perform accelerometer hardware self-test
      * @return true if accelerometer hardware test passes (result = 0x01), false if fails (result = 0x00)
      */
     bool selftest_accel();
-    
+
     /**
      * @brief Perform magnetometer hardware self-test
      * @return true if magnetometer hardware test passes (result = 0x01), false if fails (result = 0x00)
      */
     bool selftest_mag();
-    
+
     /**
      * @brief Perform gyroscope hardware self-test
      * @return true if gyroscope hardware test passes (result = 0x01), false if fails (result = 0x00)
      */
     bool selftest_gyro();
-    
-    /**
-     * @brief Perform microcontroller unit hardware self-test
-     * @return true if MCU hardware test passes (result = 0x01), false if fails (result = 0x00)
-     */
+
     /**
      * @brief Perform microcontroller unit hardware self-test
      * @return true if MCU hardware test passes (result = 0x01), false if fails (result = 0x00)
      */
     bool selftest_mcu();
-    
+
     // ========== SYSTEM STATUS AND ERROR CHECKING ==========
     /**
      * @brief Check if the system is running properly
@@ -113,35 +115,31 @@ public:
      *          - 6: System running without fusion (GOOD)
      */
     bool check_system_status();
-    
+
     /**
      * @brief Check if there are any system errors
      * @return true if no system errors detected (error code = 0), false if errors present
      */
     bool check_system_error();
-    
+
     /**
      * @brief Check if the main clock is running properly
      * @return true if main clock is operational (status = 1), false otherwise
      */
     bool check_clock_status();
-    
+
     /**
      * @brief Get the specific system error code for diagnosis
      * @return System error code (0 = no error, >0 = specific error condition)
      */
     uint8_t get_system_error_code();
-    
-    /**
-     * @brief Get the specific system status code for diagnosis
-     * @return System status code (see check_system_status() for code meanings)
-     */
+
     /**
      * @brief Get the specific system status code for diagnosis
      * @return System status code (see check_system_status() for code meanings)
      */
     uint8_t get_system_status_code();
-    
+
     // ========== OPERATION AND POWER MODE MANAGEMENT ==========
     /**
      * @brief Set the sensor operation mode
@@ -163,14 +161,14 @@ public:
      *          - BNO055_OPERATION_MODE_NDOF (0x0C): 9DOF fusion (recommended for rockets)
      */
     bool set_operation_mode(uint8_t mode);
-    
+
     /**
      * @brief Get the current sensor operation mode
      * @param mode Pointer to store the current operation mode
      * @return true if mode retrieved successfully, false otherwise
      */
     bool get_operation_mode(uint8_t* mode);
-    
+
     /**
      * @brief Set the sensor power mode
      * @param mode Power mode to set
@@ -181,33 +179,28 @@ public:
      *          - BNO055_POWER_MODE_SUSPEND (0x02): Suspend mode
      */
     bool set_power_mode(uint8_t mode);
-    
+
     /**
      * @brief Get the current sensor power mode
      * @param mode Pointer to store the current power mode
      * @return true if power mode retrieved successfully, false otherwise
      */
     bool get_power_mode(uint8_t* mode);
-    
+
     /**
      * @brief Set the accelerometer power mode
      * @param mode Accelerometer power mode (0x00-0x05)
      * @return true if power mode set successfully, false otherwise
      */
     bool set_accel_power_mode(uint8_t mode);
-    
+
     /**
      * @brief Set the magnetometer power mode
      * @param mode Magnetometer power mode (0x00-0x03)
      * @return true if power mode set successfully, false otherwise
      */
     bool set_mag_power_mode(uint8_t mode);
-    
-    /**
-     * @brief Set the gyroscope power mode
-     * @param mode Gyroscope power mode (0x00-0x04)
-     * @return true if power mode set successfully, false otherwise
-     */
+
     /**
      * @brief Set the gyroscope power mode
      * @param mode Gyroscope power mode (0x00-0x04)
@@ -216,7 +209,7 @@ public:
     bool set_gyro_power_mode(uint8_t mode);
 
     // ========== SENSOR DATA READING FUNCTIONS ==========
-    
+
     /**
      * @brief Get the current accelerometer data
      * @return Accelerometer data structure containing x, y, z acceleration values
