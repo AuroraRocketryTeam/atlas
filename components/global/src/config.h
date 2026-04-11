@@ -40,8 +40,6 @@
 
 #define SERIAL_BAUD_RATE 115200 // Serial baud rate
 
-// #define TRANSMITTER_CONFIG_MODE_ENABLE // Enable configuration mode for the transmitter (needs to be tested on new hardware)
-
 // Number of log entries to batch before writing to SD card
 #define BATCH_SIZE 30
 

@@ -1,6 +1,9 @@
+// TODO: LoRa E220 init uses Arduino Serial in this library.
+// Will be replaced with ESP-IDF UART (uart_driver_install / uart_write_bytes).
+
 #include "TaskManager.hpp"
 #include <config.h>
-#include <config.h>
+#include <board.h>
 
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          SemaphoreHandle_t modelMutex,
@@ -28,6 +31,21 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
     else
     {
         LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
+    }
+
+
+    // Initialize LoRa transmitter
+    // Serial1 is used by GPS, so LoRa uses Serial2
+    _loraTransmitter = std::make_shared<E220LoRaTransmitter>(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN, MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
+    auto loraInit = _loraTransmitter->init();
+    if (loraInit.getCode() == E220_SUCCESS)
+    {
+        LOG_INFO("TaskMgr", "LoRa E220 initialized successfully");
+    }
+    else
+    {
+        LOG_ERROR("TaskMgr", "LoRa E220 init failed: %s", loraInit.getDescription().c_str());
+        _loraTransmitter = nullptr; // disable LoRa if init failed
     }
 }
 
@@ -73,13 +91,18 @@ void TaskManager::initializeTasks()
         _logger,
         _loggerMutex);
 
-    // Create TelemetryTask with ESP-NOW transmitter
+    // Create TelemetryTask with ESP-NOW and LoRa transmitters
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
-    _tasks[TaskType::TELEMETRY] = std::make_unique<TelemetryTask>(
+    auto telemetryTask = std::make_unique<TelemetryTask>(
         _rocketModel,
         _modelMutex,
         _espNowTransmitter,
         TELEMETRY_INTERVAL_MS);
+    if (_loraTransmitter)
+    {
+        telemetryTask->setLoRaTransmitter(_loraTransmitter);
+    }
+    _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
 
     _tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
         _rocketModel,

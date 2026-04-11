@@ -117,6 +117,26 @@ gpio_num_t MannyBoard::get_lora_cs_pin() const {
     return GPIO_NUM_NC;
 }
 
+gpio_num_t MannyBoard::get_lora_aux_pin() const {
+    return MANNY_LORA_AUX_PIN;
+}
+
+gpio_num_t MannyBoard::get_lora_m0_pin() const {
+    return MANNY_LORA_M0_PIN;
+}
+
+gpio_num_t MannyBoard::get_lora_m1_pin() const {
+    return MANNY_LORA_M1_PIN;
+}
+
+gpio_num_t MannyBoard::get_lora_tx_pin() const {
+    return MANNY_LORA_TX_PIN;
+}
+
+gpio_num_t MannyBoard::get_lora_rx_pin() const {
+    return MANNY_LORA_RX_PIN;
+}
+
 bool MannyBoard::is_armed() const {
     return true;
 }

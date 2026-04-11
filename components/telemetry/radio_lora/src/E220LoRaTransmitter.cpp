@@ -1,5 +1,6 @@
 #include "E220LoRaTransmitter.hpp"
 #include <pins.h>
+#include <Logger.hpp>
 
 /**
  * @brief Initialize the LoRa module with default configuration.
@@ -8,41 +9,33 @@
  */
 ResponseStatusContainer E220LoRaTransmitter::init()
 {
-#ifdef TRANSMITTER_CONFIG_MODE_ENABLE
-    auto configurationStatus = this->getConfiguration();
-    auto configuration = *(Configuration *)configurationStatus.data;
+    // GPIO 41/42 are JTAG pins so they need to be reassigned.
+    // For a VERY werid reason, if we don't reset them,
+    // only the first configuration of the chip will work.
+    LOG_DEBUG("LoRa", "Init. Resetting JTAG pins...");
+    if (_m0Pin != GPIO_NUM_NC) gpio_reset_pin(_m0Pin);
+    if (_m1Pin != GPIO_NUM_NC) gpio_reset_pin(_m1Pin);
 
-    configuration.ADDL = 0x03;
-    configuration.ADDH = 0x00;
-
-    configuration.CHAN = 23;
-
-    configuration.SPED.uartBaudRate = UART_BPS_115200;
-    configuration.SPED.airDataRate = AIR_DATA_RATE_100_96;
-    configuration.SPED.uartParity = MODE_00_8N1;
-
-    configuration.OPTION.subPacketSetting = SPS_200_00;
-    configuration.OPTION.RSSIAmbientNoise = RSSI_AMBIENT_NOISE_DISABLED;
-    configuration.OPTION.transmissionPower = POWER_17;
-
-    configuration.TRANSMISSION_MODE.enableRSSI = RSSI_ENABLED;
-    configuration.TRANSMISSION_MODE.fixedTransmission = FT_FIXED_TRANSMISSION;
-    configuration.TRANSMISSION_MODE.enableLBT = LBT_DISABLED;
-    configuration.TRANSMISSION_MODE.WORPeriod = WOR_2000_011;
-
-    configurationStatus.close();
-    return this->configure(configuration);
-#else
     auto res = transmitter.begin();
     auto description = res ? "LoRa module initialized successfully." : "Failed to initialize LoRa module.";
     return ResponseStatusContainer(res, description);
-#endif
 }
 
 ResponseStatusContainer E220LoRaTransmitter::init(Configuration config)
 {
+    LOG_DEBUG("LoRa", "Init. Resetting JTAG pins...");
+    if (_m0Pin != GPIO_NUM_NC) gpio_reset_pin(_m0Pin);
+    if (_m1Pin != GPIO_NUM_NC) gpio_reset_pin(_m1Pin);
+
     transmitter.begin();
-    return this->configure(config);
+    LOG_INFO("LoRa", "Reconfiguring transmitter...");
+    auto result = this->configure(config);
+
+    if (_serial && _rxPin != GPIO_NUM_NC && _txPin != GPIO_NUM_NC) {
+        _serial->begin(115200, SERIAL_8N1, _rxPin, _txPin);
+    }
+
+    return result;
 }
 
 /**
@@ -53,33 +46,27 @@ ResponseStatusContainer E220LoRaTransmitter::init(Configuration config)
  */
 std::vector<uint8_t> convertToByteArray(const TransmitDataType &data)
 {
+    // Binary: return as-is.
+    if (std::holds_alternative<std::vector<uint8_t>>(data))
+        return std::get<std::vector<uint8_t>>(data);
+
+    // Text: convert to string and append terminator.
     std::string sData;
     const char terminator = 0x17;
     if (std::holds_alternative<char *>(data))
-    {
         sData = std::get<char *>(data);
-    }
     else if (std::holds_alternative<String>(data))
-    {
         sData = std::get<String>(data).c_str();
-    }
     else if (std::holds_alternative<std::string>(data))
-    {
         sData = std::get<std::string>(data);
-    }
     else if (std::holds_alternative<nlohmann::json>(data))
-    {
         sData = std::get<nlohmann::json>(data).dump();
-    }
     else
-    {
         return {};
-    }
-    // Aggiungi il terminatore null se non è già presente
+
     if (sData.back() != terminator)
-    {
         sData += terminator;
-    }
+
     return std::vector<uint8_t>(sData.begin(), sData.end());
 }
 
@@ -141,7 +128,7 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
                                                      &packet, sizeof(Packet));
         /* Delay per evitare collisioni (perdita di pacchetti),
             empiricamente il minimo è 10ms. */
-        delay(10);
+        vTaskDelay(pdMS_TO_TICKS(10));
 
         if (rc.code != E220_SUCCESS)
         {

@@ -18,6 +18,7 @@
 #include "TelemetryTask.hpp"
 #include "BarometerTask.hpp"
 #include <EspNowTransmitter.hpp>
+#include <E220LoRaTransmitter.hpp>
 
 //#define SIMULATION_DATA // Comment this out to use real sensors
 
@@ -118,4 +119,5 @@ private:
     
     // Telemetry
     std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
+    std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
 };

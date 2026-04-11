@@ -36,6 +36,11 @@ public:
     virtual void set_spi_handler(ISPIHandler* handler) = 0;
 
     virtual gpio_num_t get_lora_cs_pin() const = 0;
+    virtual gpio_num_t get_lora_aux_pin() const = 0;
+    virtual gpio_num_t get_lora_m0_pin() const = 0;
+    virtual gpio_num_t get_lora_m1_pin() const = 0;
+    virtual gpio_num_t get_lora_tx_pin() const = 0;
+    virtual gpio_num_t get_lora_rx_pin() const = 0;
 
     virtual bool is_armed() const = 0;
 

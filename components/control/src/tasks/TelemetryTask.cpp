@@ -73,16 +73,30 @@ void TelemetryTask::taskFunction()
 
                 LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
 
-                // Transmit message
+                // Transmit via ESP-NOW
                 if (transmitMessage(message))
                 {
                     _messagesCreated++;
-                    LOG_INFO("Telemetry", "Packet %lu transmitted successfully", _messagesCreated);
+                    LOG_INFO("Telemetry", "Packet %lu transmitted via ESP-NOW", _messagesCreated);
                 }
                 else
                 {
                     _transmitErrors++;
-                    LOG_WARNING("Telemetry", "Failed to transmit packet (errors: %lu)", _transmitErrors);
+                    LOG_WARNING("Telemetry", "Failed to transmit packet via ESP-NOW (errors: %lu)", _transmitErrors);
+                }
+
+                // Transmit via LoRa
+                if (_loraTransmitter && running)
+                {
+                    auto result = _loraTransmitter->transmit(message);
+                    if (result.getCode() == E220_SUCCESS)
+                    {
+                        LOG_INFO("Telemetry", "Packet %lu transmitted via LoRa", _messagesCreated);
+                    }
+                    else
+                    {
+                        LOG_WARNING("Telemetry", "LoRa transmit failed: %s", result.getDescription().c_str());
+                    }
                 }
             }
         }
@@ -137,40 +151,45 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         packet.dataValid = true;
 
         auto bno055Data = _rocketModel->getBNO055Data();
+        if (bno055Data) {
+            packet.imu.accel_x = bno055Data->acceleration_x;
+            packet.imu.accel_y = bno055Data->acceleration_y;
+            packet.imu.accel_z = bno055Data->acceleration_z;
+            LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
+            packet.imu.gyro_x = bno055Data->orientation_x;
+            packet.imu.gyro_y = bno055Data->orientation_y;
+            packet.imu.gyro_z = bno055Data->orientation_z;
+        } else {
+            LOG_WARNING("Telemetry", "BNO055 data not available");
+        }
 
-        // IMU data - accelerometer
-        packet.imu.accel_x = bno055Data->acceleration_x;
-        packet.imu.accel_y = bno055Data->acceleration_y;
-        packet.imu.accel_z = bno055Data->acceleration_z;
-        LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
-
-        // IMU data - gyroscope (orientation)
-        packet.imu.gyro_x = bno055Data->orientation_x;
-        packet.imu.gyro_y = bno055Data->orientation_y;
-        packet.imu.gyro_z = bno055Data->orientation_z;
-
-        // Barometer 1
         auto baro1Data = _rocketModel->getMS561101BA03Data_1();
-        
-        packet.baro1.pressure = baro1Data->pressure;
-        packet.baro1.temperature = baro1Data->temperature;
+        if (baro1Data) {
+            packet.baro1.pressure = baro1Data->pressure;
+            packet.baro1.temperature = baro1Data->temperature;
+        } else {
+            LOG_WARNING("Telemetry", "Barometer 1 data not available");
+        }
 
-        // Barometer 2
         auto baro2Data = _rocketModel->getMS561101BA03Data_2();
+        if (baro2Data) {
+            packet.baro2.pressure = baro2Data->pressure;
+            packet.baro2.temperature = baro2Data->temperature;
+        } else {
+            LOG_WARNING("Telemetry", "Barometer 2 data not available");
+        }
 
-        packet.baro2.pressure = baro2Data->pressure;
-        packet.baro2.temperature = baro2Data->temperature;
-
-        // GPS data
         auto gpsData = _rocketModel->getGPSData();
+        if (gpsData) {
+            packet.gps.latitude = gpsData->latitude;
+            packet.gps.longitude = gpsData->longitude;
+            packet.gps.altitude = gpsData->altitude;
+            LOG_DEBUG("Telemetry", "GPS ALT: %.2f LAT: %.6f LON: %.6f",
+                      packet.gps.altitude, packet.gps.latitude, packet.gps.longitude);
+        } else {
+            LOG_WARNING("Telemetry", "GPS data not available");
+        }
 
-        packet.gps.latitude = gpsData->latitude;
-        packet.gps.longitude = gpsData->longitude;
-        packet.gps.altitude = gpsData->altitude;
-
-        LOG_DEBUG("TELEMETRY", "GPS ALT: %.2f", packet.gps.altitude);
-        LOG_DEBUG("TELEMETRY", "GPS LAT: %.6f", packet.gps.latitude);
-        LOG_DEBUG("TELEMETRY", "GPS LON: %.6f", packet.gps.longitude);
     }
     catch (const std::exception &e)
     {

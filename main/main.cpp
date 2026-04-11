@@ -50,6 +50,7 @@
 
 // Main system
 #include <RocketFSM.hpp>
+#include <E220LoRaTransmitter.hpp>
 
 /**
  * @brief Uncomment to enable sensor calibration routine at startup.
@@ -70,9 +71,6 @@ StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
 std::shared_ptr<RocketModel> rocketModel = nullptr;
-
-// Type definitions
-using TransmitDataType = std::variant<char *, std::string, nlohmann::json>;
 
 std::shared_ptr<SD> sdCard = nullptr;
 
@@ -369,7 +367,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     LOG_INFO("Init", "Initializing sensors...");
 
     // Initialize BNO055 (IMU)
-    bno055 = std::make_shared<BNO055Sensor>();
+    bno055 = std::make_shared<BNO055Sensor>(board.get_i2c_bus(IBoardHardware::Sensor::IMU), board.get_bno055_i2c_address());
     if (bno055 && bno055->init())
     {
         LOG_INFO("Init", "BNO055 (IMU) initialized");
@@ -743,7 +741,7 @@ bool testSensors()
 
 bool testActuators()
 {
-    LOG_INFO("Test", "\n[STEP 3] Test attuatori");
+    LOG_INFO("Test", "[STEP 3] Test attuatori");
 
     LOG_INFO("Test", "Accensione attuatori uno per volta...");
 
@@ -803,12 +801,79 @@ bool testSDCard()
 
 bool testTelemetry()
 {
-    LOG_INFO("Test", "\n[STEP 5] Test telemetria");
-    LOG_INFO("Test", "Inizializzazione antenne e verifica collegamento...");
-    LOG_INFO("Test", "Verificare sul monitor ricezione pacchetti LORA.");
-
-    // Test LORA patterns
+    LOG_INFO("Test", "[STEP 5] Test telemetria");
     statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+
+    // Serial1 is used by GPS
+    E220LoRaTransmitter lora(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN, MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
+
+    LOG_INFO("Test", "Inizializzazione E220...");
+    auto initResult = lora.init();
+    if (initResult.getCode() != E220_SUCCESS)
+    {
+        LOG_ERROR("Test", "LoRa init fallita: %s", initResult.getDescription().c_str());
+        // I know it's an obvious fail, but returning false would just end up in a loop
+        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    }
+    LOG_INFO("Test", "LoRa init OK");
+
+    for (int i = 1; i <= 3; i++)
+    {
+        std::string payload = "LORA_TEST_" + std::to_string(i);
+        LOG_INFO("Test", "Invio pacchetto %d: %s", i, payload.c_str());
+        auto result = lora.transmit(payload);
+        if (result.getCode() == E220_SUCCESS)
+        {
+            LOG_INFO("Test", "Pacchetto %d inviato.", i);
+        }
+        else
+        {
+            LOG_ERROR("Test", "Invio pacchetto %d fallito: %s", i, result.getDescription().c_str());
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+
+    LOG_INFO("Test", "Verificare ricezione 3 pacchetti LORA_TEST_1/2/3 sulla ground station.");
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
+// E220 connector test to identify the pins
+// 
+// Pattern: All high, then N bursts of (0,5s H/L)
+bool testE220Connector()
+{
+    LOG_INFO("Test", "[STEP 6] LoRa Connector Test");
+
+    const gpio_num_t pins[]   = {GPIO_NUM_40, GPIO_NUM_39, GPIO_NUM_38, GPIO_NUM_41, GPIO_NUM_42};
+    const char*      names[]  = {"GPIO40 AUX", "GPIO39 RX<E220TX", "GPIO38 TX>E220RX", "GPIO41 M1", "GPIO42 M0"};
+
+    for (int i = 0; i < 5; i++) {
+        // Release from JTAG function
+        gpio_set_direction(pins[i], GPIO_MODE_OUTPUT);
+        gpio_set_level(pins[i], 0);
+    }
+
+    LOG_INFO("Test", "1: All pins high 3s");
+    for (int i = 0; i < 5; i++) gpio_set_level(pins[i], 1);
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    for (int i = 0; i < 5; i++) gpio_set_level(pins[i], 0);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    int bursts = 1, b;
+    for (int i = 0; i < 5; i++, bursts = i + 1) {
+        LOG_INFO("Test", "%s: %d burst(s)", names[i], bursts);
+        for (b = 0; b < bursts; b++) {
+            gpio_set_level(pins[i], 1);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            gpio_set_level(pins[i], 0);
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+    }
+
+    // Reset pins for safety
+    for (int i = 0; i < 5; i++) {
+        gpio_reset_pin(pins[i]);
+    }
 
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
@@ -830,8 +895,9 @@ void testRoutine()
         printf("3 - Test attuatori\n");
         printf("4 - Test SD Card\n");
         printf("5 - Test telemetria\n");
-        printf("6 - Esegui tutti i test in sequenza\n");
-        printf("7 - Esci dal menu test\n");
+        printf("6 - Test connettore E220\n");
+        printf("7 - Esegui tutti i test in sequenza\n");
+        printf("8 - Esci dal menu test\n");
         printf("Inserisci il numero del test da eseguire:\n");
 
         char buffer[32] = {0};
@@ -877,6 +943,12 @@ void testRoutine()
             } while (!testPassed);
             break;
         case 6:
+            do
+            {
+                testPassed = testE220Connector();
+            } while (!testPassed);
+            break;
+        case 7:
             // Show all tests pattern
             statusManager.playBlockingPattern(TEST_ALL, 2000);
 
@@ -906,7 +978,7 @@ void testRoutine()
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
             break;
-        case 7:
+        case 8:
             // Exit test mode with success pattern
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
@@ -917,7 +989,7 @@ void testRoutine()
             continue;
         }
 
-        if (choice >= 1 && choice <= 6)
+        if (choice >= 1 && choice <= 7)
         {
             LOG_INFO("Test", "Test completato con successo!");
             // Show success pattern before returning to menu

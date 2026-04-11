@@ -45,10 +45,10 @@ public:
      * 
      * @return A json object.
      */
-    json toJSON() const { 
+    json toJSON() const {
         json j;
         j["type"] = this->getSource();
-        j["content"] = this->data->toJSON();
+        j["content"] = this->data ? this->data->toJSON() : nullptr;
         return j;
     }
 };
