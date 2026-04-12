@@ -424,7 +424,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     // Inizializza la scheda SD
     LOG_INFO("Init", "Initializing SD card for logging...");
     sdCard = std::make_shared<SD>();
-    if (sdCard && sdCard->init())
+    if (sdCard && sdCard->init(board.get_spi_bus()))
     {
         LOG_INFO("Init", "SD card initialized");
         sdCard->openFile("test.txt");
@@ -828,7 +828,7 @@ bool testTelemetry()
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
-void testI2CScan()
+bool testI2CScan()
 {
     LOG_INFO("Test", "Scanning I2C bus...");
 
@@ -836,7 +836,7 @@ void testI2CScan()
     I2CBus* bus = board.get_i2c_bus(IBoardHardware::Sensor::IMU);
     if (!bus) {
         LOG_ERROR("Test", "I2C bus not available.");
-        return;
+        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
     }
 
     struct KnownDevice { const char* name; uint8_t addr; };
@@ -862,6 +862,8 @@ void testI2CScan()
         }
     }
     if (!found) printf("No devices found.\n");
+
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
 bool configureE220()

@@ -9,7 +9,7 @@ MS561101BA03::MS561101BA03(SPIBus* bus, gpio_num_t cs_pin)
 
     spi_device_interface_config_t dev_cfg = {
         .mode           = 0,           // SPI mode 0 (CPOL=0, CPHA=0)
-        .clock_speed_hz = 20_000_000,    // 20 MHz (MS5611 max)
+        .clock_speed_hz = 20'000'000,    // 20 MHz (MS5611 max)
         .spics_io_num   = cs_pin,
         .queue_size     = 1,
     };

@@ -8,10 +8,10 @@
  *
  * @return true if the SD card is initialized, false otherwise
  */
-bool SD::init()
+bool SD::init(SPIBus* bus)
 {
     esp_err_t ret;
-    
+
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {};
     mount_config.format_if_mount_failed = false; // if mount fails, do not format the card
     mount_config.max_files = 5; // max number of open files simultaneously
@@ -21,25 +21,11 @@ bool SD::init()
 
     // Use settings defined above to initialize SD card and mount FAT filesystem
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-
-    spi_bus_config_t bus_cfg = {};
-    bus_cfg.mosi_io_num = SD_SI;
-    bus_cfg.miso_io_num = SD_SO;
-    bus_cfg.sclk_io_num = SD_CLK;
-    bus_cfg.quadwp_io_num = SD_QUADWP;
-    bus_cfg.quadhd_io_num = SD_QUADHD;
-    bus_cfg.max_transfer_sz = SD_MAX_TRANSFER_SIZE;
-
-    ret = spi_bus_initialize(static_cast<spi_host_device_t>(host.slot), &bus_cfg, SDSPI_DEFAULT_DMA);
-    if (ret != ESP_OK) {
-        LOG_ERROR("SD-Task", "Failed to initialize bus.");
-        return false;
-    }
-
+    host.slot = bus->get_host();
     // This initializes the slot without card detect (CD) and write protect (WP) signals.
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
     slot_config.gpio_cs = (gpio_num_t)SD_CS;
-    slot_config.host_id = static_cast<spi_host_device_t>(host.slot);
+    slot_config.host_id = bus->get_host();
 
     LOG_INFO("SD-Task", "Mounting filesystem");
     ret = esp_vfs_fat_sdspi_mount(mount_point.c_str(), &host, &slot_config, &mount_config, &card);
