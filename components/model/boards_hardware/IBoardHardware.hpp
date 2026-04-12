@@ -2,6 +2,7 @@
 
 #include "driver/gpio.h"
 #include <I2CBus.hpp>
+#include <SPIBus.hpp>
 
 class ISPIHandler;
 
@@ -42,11 +43,15 @@ public:
     virtual gpio_num_t get_lora_tx_pin() const = 0;
     virtual gpio_num_t get_lora_rx_pin() const = 0;
 
+    virtual gpio_num_t get_barometer2_cs_pin() const = 0;
+
     virtual bool is_armed() const = 0;
 
     enum class Sensor { IMU, BARO1, BARO2, ACC };
 
     virtual I2CBus* get_i2c_bus(Sensor sensor) = 0;
+    virtual SPIBus* get_spi_bus() = 0;
+
 
     virtual void init_sensor_test_pins() = 0;
     virtual void signal_sensor_ok(Sensor sensor) = 0;

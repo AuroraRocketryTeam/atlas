@@ -378,7 +378,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize barometers
-    baro1 = std::make_shared<MS561101BA03>(board.get_i2c_bus(IBoardHardware::Sensor::BARO1), MS56_I2C_ADDR_1);
+    baro1 = std::make_shared<MS561101BA03>(board.get_spi_bus(), MANNY_BAROMETER_CS_PIN);
     if (baro1 && baro1->init())
     {
         LOG_INFO("Init", "Barometer 1 initialized");
@@ -388,7 +388,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
-    baro2 = std::make_shared<MS561101BA03>(board.get_i2c_bus(IBoardHardware::Sensor::BARO2), MS56_I2C_ADDR_2);
+    baro2 = std::make_shared<MS561101BA03>(board.get_spi_bus(), board.get_barometer2_cs_pin());
     if (baro2 && baro2->init())
     {
         LOG_INFO("Init", "Barometer 2 initialized");
@@ -575,7 +575,7 @@ void showTestPattern(int testNumber, StatusManager &statusManager)
     case 5:
         statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
         break;
-    case 6:
+    case 9:
         statusManager.playBlockingPattern(TEST_ALL, 2000);
         break;
     default:
@@ -828,6 +828,42 @@ bool testTelemetry()
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
+void testI2CScan()
+{
+    LOG_INFO("Test", "Scanning I2C bus...");
+
+    // TODO: implement second bus
+    I2CBus* bus = board.get_i2c_bus(IBoardHardware::Sensor::IMU);
+    if (!bus) {
+        LOG_ERROR("Test", "I2C bus not available.");
+        return;
+    }
+
+    struct KnownDevice { const char* name; uint8_t addr; };
+    // Device possible addresses from docs
+    static const KnownDevice known[] = {
+        { "BNO055 IMU", 0x28 },
+        { "BNO055 IMU 2", 0x29 },
+        { "LIS3DHTR", 0x18 },
+        { "LIS3DHTR 2", 0x19 },
+    };
+
+    bool found = false;
+    for (uint8_t addr = 0x08; addr <= 0x77; addr++) {
+        if (i2c_master_probe(*bus->get_handle(), addr, 10) == ESP_OK) {
+            found = true;
+            const char* label = nullptr;
+            for (auto& d : known)
+                if (d.addr == addr) { label = d.name; break; }
+            if (label)
+                printf("Found: 0x%02X %s\n", addr, label);
+            else
+                printf("Unknown: 0x%02X\n", addr);
+        }
+    }
+    if (!found) printf("No devices found.\n");
+}
+
 bool configureE220()
 {
     LOG_INFO("LoRa", "Configuring E220...");
@@ -937,11 +973,12 @@ void testRoutine()
         printf("2 - Test sensori\n");
         printf("3 - Test attuatori\n");
         printf("4 - Test SD Card\n");
-        printf("5 - Configura E220 (one time)\n");
-        printf("6 - Test telemetria\n");
-        printf("7 - Test connettore E220\n");
-        printf("8 - Esegui tutti i test in sequenza\n");
-        printf("9 - Esci dal menu test\n");
+        printf("5 - I2C scan\n");
+        printf("6 - Configura E220 (one-time setup)\n");
+        printf("7 - Test telemetria\n");
+        printf("8 - Test connettore E220\n");
+        printf("9 - Esegui tutti i test in sequenza\n");
+        printf("0 - Esci dal menu test\n");
         printf("Inserisci il numero del test da eseguire:\n");
 
         char buffer[32] = {0};
@@ -983,22 +1020,28 @@ void testRoutine()
         case 5:
             do
             {
-                testPassed = configureE220();
+                testPassed = testI2CScan();
             } while (!testPassed);
             break;
         case 6:
             do
             {
-                testPassed = testTelemetry();
+                testPassed = configureE220();
             } while (!testPassed);
             break;
         case 7:
             do
             {
-                testPassed = testE220Connector();
+                testPassed = testTelemetry();
             } while (!testPassed);
             break;
         case 8:
+            do
+            {
+                testPassed = testE220Connector();
+            } while (!testPassed);
+            break;
+        case 9:
             // Show all tests pattern
             statusManager.playBlockingPattern(TEST_ALL, 2000);
 
@@ -1028,7 +1071,7 @@ void testRoutine()
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
             break;
-        case 9:
+        case 0:
             // Exit test mode with success pattern
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
@@ -1039,7 +1082,7 @@ void testRoutine()
             continue;
         }
 
-        if (choice >= 1 && choice <= 8)
+        if (choice >= 1 && choice <= 9)
         {
             LOG_INFO("Test", "Test completato con successo!");
             // Show success pattern before returning to menu

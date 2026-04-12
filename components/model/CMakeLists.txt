@@ -12,5 +12,5 @@ endif()
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "." "boards_hardware" ${BOARD_INCLUDE_DIRS}
-    REQUIRES global data I2C BNO055 MPRLS LIS3DHTR MS561101BA03 GPS Termoresistenze core implementation
+    REQUIRES global data I2C SPI BNO055 MPRLS LIS3DHTR MS561101BA03 GPS Termoresistenze core implementation
 )

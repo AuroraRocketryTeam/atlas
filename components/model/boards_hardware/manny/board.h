@@ -23,6 +23,7 @@ static constexpr gpio_num_t MANNY_SPI_MOSI_PIN = GPIO_NUM_37;
 static constexpr gpio_num_t MANNY_SPI_MISO_PIN = GPIO_NUM_13;
 static constexpr gpio_num_t MANNY_SPI_CLK_PIN = GPIO_NUM_17;
 static constexpr gpio_num_t MANNY_BAROMETER_CS_PIN = GPIO_NUM_6;
+static constexpr gpio_num_t MANNY_BAROMETER2_CS_PIN = GPIO_NUM_NC;
 
 static constexpr gpio_num_t MANNY_BATTERY_DIVIDER_ADC_PIN = GPIO_NUM_1;
 static constexpr int MANNY_BNO055_I2C_ADDRESS = 0x29;
@@ -47,6 +48,7 @@ public:
 private:
     bool is_initialized;
     I2CBus _i2c_bus;
+    SPIBus _spi_bus;
     ISPIHandler* spi_handler;
 
 public:
@@ -87,9 +89,13 @@ public:
     gpio_num_t get_lora_tx_pin() const override;
     gpio_num_t get_lora_rx_pin() const override;
 
+    gpio_num_t get_barometer2_cs_pin() const override;
+
     bool is_armed() const override;
 
     I2CBus* get_i2c_bus(Sensor sensor) override;
+    SPIBus* get_spi_bus() override;
+
 
     void init_sensor_test_pins() override;
     void signal_sensor_ok(Sensor sensor) override;

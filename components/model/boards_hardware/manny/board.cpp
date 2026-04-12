@@ -25,12 +25,21 @@ void MannyBoard::init() {
     gpio_config(&led_gpio_config);
 
     _i2c_bus.init(MANNY_I2C_PORT, MANNY_I2C_SDA_PIN, MANNY_I2C_SCL_PIN);
+    _spi_bus.init(SPI2_HOST, MANNY_SPI_MOSI_PIN, MANNY_SPI_MISO_PIN, MANNY_SPI_CLK_PIN);
 
     is_initialized = true;
 }
 
 I2CBus* MannyBoard::get_i2c_bus(Sensor sensor) {
     return &_i2c_bus;
+}
+
+SPIBus* MannyBoard::get_spi_bus() {
+    return &_spi_bus;
+}
+
+gpio_num_t MannyBoard::get_barometer2_cs_pin() const {
+    return MANNY_BAROMETER2_CS_PIN;
 }
 
 gpio_num_t MannyBoard::get_gps_tx_pin() const {

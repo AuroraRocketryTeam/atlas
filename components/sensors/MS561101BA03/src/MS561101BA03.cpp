@@ -1,26 +1,25 @@
 #include "MS561101BA03.hpp"
 #include "freertos/FreeRTOS.h"
-
+#include "freertos/task.h"
 #include <utils.h>
 
-MS561101BA03::MS561101BA03(I2CBus* bus, uint8_t address) : _address(address), _dev_handle(nullptr)
+MS561101BA03::MS561101BA03(SPIBus* bus, gpio_num_t cs_pin)
 {
     memset(_calibrationData, 0, sizeof(_calibrationData));
 
-    i2c_device_config_t dev_cfg = {
-        // from the MS5611 datasheet, 7 bit address
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address  = address,
-        // TODO: check this. I found 400khz on the datasheet as maximum freq
-        .scl_speed_hz    = 400000,
+    spi_device_interface_config_t dev_cfg = {
+        .mode           = 0,           // SPI mode 0 (CPOL=0, CPHA=0)
+        .clock_speed_hz = 20_000_000,    // 20 MHz (MS5611 max)
+        .spics_io_num   = cs_pin,
+        .queue_size     = 1,
     };
-    i2c_master_bus_add_device(*bus->get_handle(), &dev_cfg, &_dev_handle);
+    spi_bus_add_device(bus->get_host(), &dev_cfg, &_dev_handle);
 }
 
 MS561101BA03::~MS561101BA03()
 {
     if (_dev_handle) {
-        i2c_master_bus_rm_device(_dev_handle);
+        spi_bus_remove_device(_dev_handle);
     }
 }
 
@@ -75,34 +74,47 @@ bool MS561101BA03::readCalibrationData()
 
 uint16_t MS561101BA03::readPROM(uint8_t address)
 {
-    uint8_t cmd = address;
-    uint8_t buf[2] = {};
+    // The sensor does not send data until it has received and
+    // clocked the address byte, so we read starting from rx[1]
+    spi_transaction_t t = {};
+    t.length    = 24; // 3 bytes
+    t.rxlength  = 24;
+    t.flags     = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+    t.tx_data[0] = address;
+    t.tx_data[1] = 0x00;
+    t.tx_data[2] = 0x00;
 
-    esp_err_t err = i2c_master_transmit_receive(_dev_handle, &cmd, 1, buf, 2, 100);
-    if (err != ESP_OK) {
-        return 0;
-    }
+    esp_err_t err = spi_device_polling_transmit(_dev_handle, &t);
+    if (err != ESP_OK) return 0;
 
-    return ((uint16_t)buf[0] << 8) | buf[1];
+    return ((uint16_t)t.rx_data[1] << 8) | t.rx_data[2];
 }
-
 void MS561101BA03::writeCommand(uint8_t command)
 {
-    i2c_master_transmit(_dev_handle, &command, 1, 100);
+    spi_transaction_t t = {};
+    t.length    = 8; // one byte
+    t.flags     = SPI_TRANS_USE_TXDATA;  // only write
+    t.tx_data[0] = command;
+    spi_device_polling_transmit(_dev_handle, &t);
 }
 
 uint32_t MS561101BA03::readADC()
 {
-    uint8_t cmd = MS5611_CMD_ADC_READ;
-    uint8_t buf[3] = {};
+    // The sensor does not send data until it has received and
+    // clocked the command byte, so we read starting from rx[1]
+    spi_transaction_t t = {};
+    t.length    = 32;   // 4 bytes
+    t.rxlength  = 32;
+    t.flags     = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+    t.tx_data[0] = MS5611_CMD_ADC_READ;
+    t.tx_data[1] = 0x00;
+    t.tx_data[2] = 0x00;
+    t.tx_data[3] = 0x00;
 
-    // read 3 bytes
-    esp_err_t err = i2c_master_transmit_receive(_dev_handle, &cmd, 1, buf, 3, 100);
-    if (err != ESP_OK) {
-        return 0;
-    }
+    esp_err_t err = spi_device_polling_transmit(_dev_handle, &t);
+    if (err != ESP_OK) return 0;
 
-    return ((uint32_t)buf[0] << 16) | ((uint32_t)buf[1] << 8) | buf[2];
+    return ((uint32_t)t.rx_data[1] << 16) | ((uint32_t)t.rx_data[2] << 8) | t.rx_data[3];
 }
 
 uint32_t MS561101BA03::readRawPressure()

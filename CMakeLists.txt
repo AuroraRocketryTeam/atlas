@@ -35,6 +35,7 @@ set(EXTRA_COMPONENT_DIRS
 
     # protocols
     ${CMAKE_SOURCE_DIR}/components/protocols/I2C
+    ${CMAKE_SOURCE_DIR}/components/protocols/SPI
 
     # third_party
     ${CMAKE_SOURCE_DIR}/components/third_party/nlohmann_json

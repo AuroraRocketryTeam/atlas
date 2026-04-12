@@ -22,6 +22,7 @@ idf_component_register(
         MPRLS
         MS561101BA03
         I2C
+        SPI
         Termoresistenze
         filters_kalman
         protocol
