@@ -1,6 +1,8 @@
 # Atlas ESP-IDF — Default SDK configuration
 # Target: ESP32-S3 (Arduino Nano ESP32)
 
+CONFIG_IDF_TARGET="esp32s3"
+
 # --- COMPILER SETTINGS ---
 
 # C++ exceptions and RTTI (Required for Arduino libraries) [To be removed when pure esp-idf porting is complete]
