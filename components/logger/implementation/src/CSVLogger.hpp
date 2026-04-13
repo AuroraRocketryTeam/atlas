@@ -9,16 +9,17 @@ using json = nlohmann::json;
 
 class CSVLogger {
 private:
-    SD sdCard;
+    std::shared_ptr<SD> sdCard;
     bool headerWritten = false;
     std::string filename;
-    
+
 public:
-    CSVLogger(std::string fileName) : filename(fileName) {}
-    
+    CSVLogger(std::string fileName, std::shared_ptr<SD> sd)
+        : filename(fileName), sdCard(sd) {}
+
     bool init() {
-        if (!sdCard.init()) {
-            printf("Errore inizializzazione SD per CSV Logger\n");
+        if (!sdCard) {
+            printf("Errore inizializzazione SD per CSV Logger: SD non fornita\n");
             return false;
         }
         return true;
@@ -43,13 +44,13 @@ public:
                            "voltage_adc,voltage_v,voltage_perc,"
                            "gps_available\n";
         
-        if (sdCard.writeFile(filename, header)) {
+        if (sdCard->writeFile(filename, header)) {
             headerWritten = true;
             printf("Header CSV scritto\n");
         } else {
             printf("Errore scrittura header CSV\n");
         }
-        sdCard.closeFile();
+        sdCard->closeFile();
     }
     
     void logSensorData(const json& allData, unsigned long timestamp) {
@@ -280,10 +281,10 @@ public:
                              (data.gps_available ? "1" : "0") + "\n";
         
         // Scrivi su SD
-        if (!sdCard.appendFile(filename, csvLine)) {
+        if (!sdCard->appendFile(filename, csvLine)) {
             printf("Errore scrittura CSV\n");
         }
-        sdCard.closeFile();
+        sdCard->closeFile();
     }
 };
 
