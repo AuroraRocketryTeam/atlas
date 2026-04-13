@@ -83,9 +83,10 @@ void TaskManager::initializeTasks()
         _sd);
     _tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
         // Using a different simulation file where at the end of each line there is a
-        // pipe symbol, this was needed as the readLine function had problem recognizing 
-        // the \n character, so separating each line 
+        // pipe symbol, this was needed as the readLine function had problem recognizing
+        // the \n character, so separating each line
         "/simulated_sensors_full_piped.csv",
+        _sd,
         _rocketModel,
         _modelMutex,
         _logger,
