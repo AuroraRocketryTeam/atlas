@@ -1,3 +1,5 @@
+# TODO: Can we remove the MCU choice? 
+
 menu "Atlas Configuration"
     choice ATLAS_MCU
         bool "Target MCU"
@@ -6,6 +8,15 @@ menu "Atlas Configuration"
             bool "ESP32-S3 WROOM"
 
         config ATLAS_MCU_ARDUINO_ESP32
-            bool "Arduino Nano ESP32"   
+            bool "Arduino Nano ESP32"
+    endchoice
+
+    choice COMPILE_BOARD
+        prompt "Target Board"
+
+        config COMPILE_BOARD_MANNY
+            bool "Manny"
+            help
+                Manny flight computer board.
     endchoice
 endmenu

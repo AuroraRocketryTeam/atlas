@@ -9,6 +9,7 @@
 #include "driver/spi_common.h"
 #include "Logger.hpp"
 #include "pins.h"
+#include <SPIBus.hpp>
 
 /**
  * @brief Class to handle SD card operations.
@@ -23,7 +24,7 @@ private:
     const std::string mount_point = "/sdcard";
 
 public:
-    bool init();
+    bool init(SPIBus* bus);
 
     /**
      * @brief Initialize the SD card.

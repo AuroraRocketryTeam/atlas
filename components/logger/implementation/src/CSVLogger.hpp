@@ -1,24 +1,25 @@
 #ifndef CSV_LOGGER_HPP
 #define CSV_LOGGER_HPP
 
-#include <Arduino.h>
 #include <nlohmann/json.hpp>
+#include <cstdio>
 #include <SD-master.hpp> // La tua classe SD personalizzata
 
 using json = nlohmann::json;
 
 class CSVLogger {
 private:
-    SD sdCard;
+    std::shared_ptr<SD> sdCard;
     bool headerWritten = false;
     std::string filename;
-    
+
 public:
-    CSVLogger(std::string fileName) : filename(fileName) {}
-    
+    CSVLogger(std::string fileName, std::shared_ptr<SD> sd)
+        : filename(fileName), sdCard(sd) {}
+
     bool init() {
-        if (!sdCard.init()) {
-            Serial.println("Errore inizializzazione SD per CSV Logger");
+        if (!sdCard) {
+            printf("Errore inizializzazione SD per CSV Logger: SD non fornita\n");
             return false;
         }
         return true;
@@ -43,13 +44,13 @@ public:
                            "voltage_adc,voltage_v,voltage_perc,"
                            "gps_available\n";
         
-        if (sdCard.writeFile(filename, header)) {
+        if (sdCard->writeFile(filename, header)) {
             headerWritten = true;
-            Serial.println("Header CSV scritto");
+            printf("Header CSV scritto\n");
         } else {
-            Serial.println("Errore scrittura header CSV");
+            printf("Errore scrittura header CSV\n");
         }
-        sdCard.closeFile();
+        sdCard->closeFile();
     }
     
     void logSensorData(const json& allData, unsigned long timestamp) {
@@ -280,10 +281,10 @@ public:
                              (data.gps_available ? "1" : "0") + "\n";
         
         // Scrivi su SD
-        if (!sdCard.appendFile(filename, csvLine)) {
-            Serial.println("Errore scrittura CSV");
+        if (!sdCard->appendFile(filename, csvLine)) {
+            printf("Errore scrittura CSV\n");
         }
-        sdCard.closeFile();
+        sdCard->closeFile();
     }
 };
 

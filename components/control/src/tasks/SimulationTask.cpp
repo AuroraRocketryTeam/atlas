@@ -2,15 +2,17 @@
 #include "SimulationTask.hpp"
 #include <sstream>
 #include <algorithm>
+#include <utils.h>
 
 bool SimulationTask::_firstTime = true;
-unsigned long SimulationTask::_startTime = millis();
-SD SimulationTask::_sdManager;
+unsigned long SimulationTask::_startTime = Utils::millis();
+std::shared_ptr<SD> SimulationTask::_sdManager = nullptr;
 std::string SimulationTask::_csvFilePath;
 uint32_t SimulationTask::_filePosition = 0;  // Track current line number
 bool SimulationTask::_fileInitialized = false;
 
 SimulationTask::SimulationTask(const std::string& csvFilePathPar,
+                                std::shared_ptr<SD> sd,
                                 std::shared_ptr<RocketModel> rocketModel,
                                 SemaphoreHandle_t modelMutex,
                                 std::shared_ptr<RocketLogger> logger,
@@ -21,21 +23,22 @@ SimulationTask::SimulationTask(const std::string& csvFilePathPar,
 
     // Only initialize SD and open file once for all instances
     if (!_fileInitialized) {
+        _sdManager = sd;
         _csvFilePath = csvFilePathPar;
         _firstTime = true;
         _filePosition = 0;
 
         LOG_INFO("SimulationTask", "Opening CSV file: %s", _csvFilePath.c_str());
-        
-        if (!_sdManager.init()) {
-            LOG_ERROR("SimulationTask", "Failed to initialize SD card");
+
+        if (!_sdManager) {
+            LOG_ERROR("SimulationTask", "SD card not provided");
             return;
         }
-        if (!_sdManager.fileExists(_csvFilePath)) {
+        if (!_sdManager->fileExists(_csvFilePath)) {
             LOG_ERROR("SimulationTask", "CSV file does not exist: %s", _csvFilePath.c_str());
             return;
         }
-        if (!_sdManager.openFile(_csvFilePath)) {
+        if (!_sdManager->openFile(_csvFilePath)) {
             LOG_ERROR("SimulationTask", "Failed to open CSV file: %s", _csvFilePath.c_str());
             return;
         }
@@ -53,22 +56,22 @@ SimulationTask::~SimulationTask() {
 
 void SimulationTask::onTaskStart() {
     if (_firstTime) {
-        _startTime = millis();
+        _startTime = Utils::millis();
     }
     
     // If resuming from a previous position, skip to the correct line
     if (_filePosition > 0) {
         LOG_INFO("SimulationTask", "Seeking to line number: %u", _filePosition);
         // Rewind file to start
-        _sdManager.closeFile();
-        _sdManager.openFile(_csvFilePath);
+        _sdManager->closeFile();
+        _sdManager->openFile(_csvFilePath);
         
         // Skip header
-        _sdManager.readLine();
+        _sdManager->readLine();
         
         // Skip lines until we reach _filePosition
         for (uint32_t i = 1; i < _filePosition; i++) {
-            _sdManager.readLine();
+            _sdManager->readLine();
         }
         LOG_INFO("SimulationTask", "Resumed at line %u", _filePosition);
     }
@@ -83,10 +86,10 @@ void SimulationTask::reset() {
     // Reset simulation to beginning
     _filePosition = 0;
     _firstTime = true;
-    _startTime = millis();
+    _startTime = Utils::millis();
     if (_fileInitialized) {
-        _sdManager.closeFile();
-        _sdManager.openFile(_csvFilePath);
+        _sdManager->closeFile();
+        _sdManager->openFile(_csvFilePath);
         LOG_INFO("SimulationTask", "Reset simulation to beginning");
     }
 }
@@ -113,12 +116,12 @@ void SimulationTask::taskFunction() {
     try {
         while (running) {
             if (_firstTime) {
-                std::string header = _sdManager.readLine(); // skip header
+                std::string header = _sdManager->readLine(); // skip header
                 _firstTime = false;
                 _filePosition = 1; // After header, we're at line 1
             }
             
-            std::string line = _sdManager.readLine();
+            std::string line = _sdManager->readLine();
             
             // Preprocess the line: trim whitespace and newlines
             std::string lineStr = trimString(line);

@@ -1,5 +1,6 @@
 #include "MPRLSSensor.hpp"
 #include <config.h>
+#include <utils.h>
 
 MPRLSSensor::MPRLSSensor()
 {
@@ -9,13 +10,13 @@ MPRLSSensor::MPRLSSensor()
 bool MPRLSSensor::init()
 {
     int attempts = 0;
-    uint start = millis();
+    uint start = Utils::millis();
     while (!_mprls.begin() && attempts++ < SENSOR_LOOKUP_MAX_ATTEMPTS)
     {
-        uint end = millis();
+        uint end = Utils::millis();
         if (end - start > SENSOR_LOOKUP_TIMEOUT)
         {
-            start = millis();
+            start = Utils::millis();
         }
     }
     if (attempts >= SENSOR_LOOKUP_MAX_ATTEMPTS)
@@ -32,7 +33,7 @@ bool MPRLSSensor::updateData()
 
     _data->pressure = _mprls.readPressure();
 
-    _data->timestamp = millis();
+    _data->timestamp = Utils::millis();
 
     if (isnan(_data->pressure)) {
         return false;

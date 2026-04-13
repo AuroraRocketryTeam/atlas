@@ -3,6 +3,7 @@
 #include "BaseTask.hpp"
 #include <RocketModel.hpp>
 #include "EspNowTransmitter.hpp"
+#include "E220LoRaTransmitter.hpp"
 #include "Logger.hpp"
 #include <Packet.hpp>
 #include <PacketManager.hpp>
@@ -67,6 +68,7 @@ private:
     std::shared_ptr<RocketModel> _rocketModel;
     SemaphoreHandle_t _modelMutex;
     std::shared_ptr<EspNowTransmitter> _transmitter;
+    std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
 
     uint32_t _transmitIntervalMs;
     uint32_t _lastTransmitTime;
@@ -98,6 +100,9 @@ public:
      * @param errors Output: number of transmission errors.
      */
     void getStats(uint32_t &messages, uint32_t &packets, uint32_t &errors) const;
+
+    /** @brief Set LoRa transmitter. Will be used only if present. */
+    void setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter) { _loraTransmitter = transmitter; }
 
 protected:
     void taskFunction() override;

@@ -1,8 +1,5 @@
 // Standard libraries
-#include "driver/gpio.h"
 #include <Arduino.h>
-#include <Wire.h>
-#include <HardwareSerial.h>
 #include <variant>
 #include <string>
 #include <cstring>
@@ -20,8 +17,12 @@
 #include <nvs_flash.h>
 
 // Configuration and pins
+#include "driver/gpio.h"
+#include "driver/usb_serial_jtag.h"
 #include <config.h>
 #include <pins.h>
+#include <board.h>
+#include <utils.h>
 
 // Interfaces
 #include <ISensor.hpp>
@@ -49,6 +50,7 @@
 
 // Main system
 #include <RocketFSM.hpp>
+#include <E220LoRaTransmitter.hpp>
 
 /**
  * @brief Uncomment to enable sensor calibration routine at startup.
@@ -59,16 +61,16 @@
 #define ENABLE_TEST_ROUTINE
 #define TEST_FILE "/test.txt"
 
+// Board hardware instance
+Board board;
+
 // Create controller instances
-LEDController ledController(LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN);
-BuzzerController buzzerController(BUZZER_PIN);
+LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
+BuzzerController buzzerController(board.get_buzzer_pin());
 StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
 std::shared_ptr<RocketModel> rocketModel = nullptr;
-
-// Type definitions
-using TransmitDataType = std::variant<char *, std::string, nlohmann::json>;
 
 std::shared_ptr<SD> sdCard = nullptr;
 
@@ -80,11 +82,11 @@ std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
 void testFSMTransitions(RocketFSM &fsm);
-void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
-                          std::shared_ptr<LIS3DHTRSensor> accl,
-                          std::shared_ptr<MS561101BA03> baro1,
-                          std::shared_ptr<MS561101BA03> baro2,
-                          std::shared_ptr<GPS> gps);
+void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
+                          std::shared_ptr<LIS3DHTRSensor>& accl,
+                          std::shared_ptr<MS561101BA03>& baro1,
+                          std::shared_ptr<MS561101BA03>& baro2,
+                          std::shared_ptr<GPS>& gps);
 void GPSfix(std::shared_ptr<GPS> gps);
 void printSystemInfo();
 void testRoutine();
@@ -103,13 +105,15 @@ void setup()
     gpio_set_level(LED_BUILT_IN, LOW);
     gpio_set_level(LED_RED_PIN, HIGH);
     
+    // Install driver for blocking reads of Utils::readLine
+    // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+    usb_serial_jtag_driver_config_t usb_cfg = { .tx_buffer_size = 1024, .rx_buffer_size = 1024 };
+    ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_cfg));
+
     // Signal initialization start
-    gpio_config(&arming_gpio_config);
+    board.init();
     gpio_set_level(LED_RED_PIN, HIGH);
 
-    // Initialize basic hardware
-    Serial.begin(SERIAL_BAUD_RATE);
-    
     // Initialize controllers
     ledController.init();
     buzzerController.init();
@@ -121,11 +125,8 @@ void setup()
     statusManager.setSystemCode(PRE_FLIGHT_MODE);
 
     LOG_INFO("Main", "\n=== Aurora Rocketry Flight Software ===");
+    LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
     LOG_INFO("Main", "Initializing system...");
-
-    // Initialize I2C
-    Wire.begin();
-    LOG_INFO("Main", "I2C initialized");
 
     // Initialize components
     LOG_INFO("Main", "Initializing sensors...");
@@ -171,9 +172,9 @@ void setup()
 
     // Wait for arming pin to be enabled before starting FSM
     statusManager.setSystemCode(PRE_FLIGHT_MODE);
-    while (gpio_get_level(ARMING_PIN) == LOW)
+    while (!board.is_armed())
     {
-        LOG_WARNING("Main", "System not armed! Waiting for arming signal on pin %d...", ARMING_PIN);
+        LOG_WARNING("Main", "System not armed! Waiting for arming signal...");
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 
@@ -200,10 +201,10 @@ void loop()
     bool ledState = false;
 
     // Heartbeat every 2 seconds
-    if (millis() - lastHeartbeat > 2000)
+    if (Utils::millis() - lastHeartbeat > 2000)
     {
-        LOG_INFO("Main", "Last heartbeat at %lu ms - System running", millis());
-        lastHeartbeat = millis();
+        LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::millis());
+        lastHeartbeat = Utils::millis();
         ledState = !ledState;
         gpio_set_level(LED_BUILT_IN, ledState);
 
@@ -251,7 +252,7 @@ void testFSMTransitions(RocketFSM &fsm)
     const TickType_t xFrequency = pdMS_TO_TICKS(1000); // 1 second
 
     RocketState lastLoggedState = RocketState::INACTIVE;
-    unsigned long testStartTime = millis();
+    unsigned long testStartTime = Utils::millis();
     while (true)
     {
         RocketState currentState = fsm.getCurrentState();
@@ -259,17 +260,17 @@ void testFSMTransitions(RocketFSM &fsm)
         // Only log when state changes or every 10 seconds
         static unsigned long lastPeriodicLog = 0;
         bool stateChanged = (currentState != lastLoggedState);
-        bool periodicLog = (millis() - lastPeriodicLog > 10000);
+        bool periodicLog = (Utils::millis() - lastPeriodicLog > 10000);
 
         if (stateChanged || periodicLog)
         {
             LOG_INFO("Test", "State: %s (runtime: %lu ms, uptime: %.1f sec)",
                      fsm.getStateString(currentState),
-                     millis(),
-                     (millis() - testStartTime) / 1000.0);
+                     Utils::millis(),
+                     (Utils::millis() - testStartTime) / 1000.0);
 
             if (periodicLog)
-                lastPeriodicLog = millis();
+                lastPeriodicLog = Utils::millis();
 
             lastLoggedState = currentState;
         }
@@ -279,7 +280,7 @@ void testFSMTransitions(RocketFSM &fsm)
         {
             LOG_INFO("Test", "=== FSM TEST COMPLETED SUCCESSFULLY ===");
             LOG_INFO("Test", "All states were visited in the correct order!");
-            LOG_INFO("Test", "Total test duration: %.1f seconds", (millis() - testStartTime) / 1000.0);
+            LOG_INFO("Test", "Total test duration: %.1f seconds", (Utils::millis() - testStartTime) / 1000.0);
             vTaskDelete(NULL);
         }
         // Use FreeRTOS delay for precise timing
@@ -354,11 +355,11 @@ static bool initializeWifiStaForEspNow()
     return true;
 }
 
-void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
-                          std::shared_ptr<LIS3DHTRSensor> accl,
-                          std::shared_ptr<MS561101BA03> baro1,
-                          std::shared_ptr<MS561101BA03> baro2,
-                          std::shared_ptr<GPS> gps)
+void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
+                          std::shared_ptr<LIS3DHTRSensor>& accl,
+                          std::shared_ptr<MS561101BA03>& baro1,
+                          std::shared_ptr<MS561101BA03>& baro2,
+                          std::shared_ptr<GPS>& gps)
 {
     LOG_INFO("Init", "\n--- Initializing Components ---");
 
@@ -366,7 +367,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
     LOG_INFO("Init", "Initializing sensors...");
 
     // Initialize BNO055 (IMU)
-    bno055 = std::make_shared<BNO055Sensor>();
+    bno055 = std::make_shared<BNO055Sensor>(board.get_i2c_bus(IBoardHardware::Sensor::IMU), board.get_bno055_i2c_address());
     if (bno055 && bno055->init())
     {
         LOG_INFO("Init", "BNO055 (IMU) initialized");
@@ -377,7 +378,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
     }
 
     // Initialize barometers
-    baro1 = std::make_shared<MS561101BA03>(MS56_I2C_ADDR_1);
+    baro1 = std::make_shared<MS561101BA03>(board.get_spi_bus(), MANNY_BAROMETER_CS_PIN);
     if (baro1 && baro1->init())
     {
         LOG_INFO("Init", "Barometer 1 initialized");
@@ -387,7 +388,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
         LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
-    baro2 = std::make_shared<MS561101BA03>(MS56_I2C_ADDR_2);
+    baro2 = std::make_shared<MS561101BA03>(board.get_spi_bus(), board.get_barometer2_cs_pin());
     if (baro2 && baro2->init())
     {
         LOG_INFO("Init", "Barometer 2 initialized");
@@ -398,7 +399,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
     }
 
     // Initialize accelerometer
-    accl = std::make_shared<LIS3DHTRSensor>();
+    accl = std::make_shared<LIS3DHTRSensor>(board.get_i2c_bus(IBoardHardware::Sensor::ACC));
     if (accl && accl->init())
     {
         LOG_INFO("Init", "LIS3DHTR (Accelerometer) initialized");
@@ -423,12 +424,12 @@ void initializeComponents(std::shared_ptr<BNO055Sensor> bno055,
     // Inizializza la scheda SD
     LOG_INFO("Init", "Initializing SD card for logging...");
     sdCard = std::make_shared<SD>();
-    if (sdCard && sdCard->init())
+    if (sdCard && sdCard->init(board.get_spi_bus()))
     {
         LOG_INFO("Init", "SD card initialized");
         sdCard->openFile("test.txt");
         LOG_INFO("Init", "Testing SD card write...");
-        std::string content = "SD card write test successful! Timestamp: " + std::to_string(millis()) + " ms";
+        std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms";
         if (sdCard->writeFile("test.txt", content))
         {
             LOG_INFO("Init", "SD card write test successful");
@@ -496,9 +497,9 @@ void GPSfix(std::shared_ptr<GPS> gps)
         LOG_INFO("GPS", "Checking GPS lock...");
 
         bool gpsLocked = false;
-        unsigned long startTime = millis();
+        unsigned long startTime = Utils::millis();
 
-        while (!gpsLocked && (millis() - startTime < GPS_FIX_TIMEOUT_MS))
+        while (!gpsLocked && (Utils::millis() - startTime < GPS_FIX_TIMEOUT_MS))
         {
             auto gpsDataUpdate = gps->updateData();
             if (gpsDataUpdate)
@@ -574,7 +575,7 @@ void showTestPattern(int testNumber, StatusManager &statusManager)
     case 5:
         statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
         break;
-    case 6:
+    case 9:
         statusManager.playBlockingPattern(TEST_ALL, 2000);
         break;
     default:
@@ -601,18 +602,15 @@ static void toUpperString(std::string &s)
 // Modified waitForUserInput with buzzer patterns
 bool waitForUserInput(const char *message)
 {
-    std::string full_message = std::string(message) + "\n Or type REBOOT to restart the system.";
-    Serial.println(full_message.c_str());
+    printf("%s\n Or type REBOOT to restart the system.\n", message);
     statusManager.setSystemCode(WAITING_INPUT);
 
     while (true)
     {
-        if (Serial.available())
+        char buffer[64] = {0};
+        Utils::readLine(buffer, sizeof(buffer));
         {
-            char buffer[64] = {0};
-            size_t len = Serial.readBytesUntil('\n', buffer, sizeof(buffer) - 1);
-            buffer[len] = '\0';
-            std::string input(buffer, len);
+            std::string input(buffer);
             trimString(input);
             toUpperString(input);
 
@@ -629,32 +627,15 @@ bool waitForUserInput(const char *message)
             if (input == "REBOOT")
             {
                 LOG_WARNING("Test", "System is going to reboot, are you sure?");
-                LOG_WARNING("Test", "Type REBOOT to confirm reboot, or anything else to cancel.");
+                LOG_WARNING("Test", "Type REBOOT to confirm or anything else to cancel.");
 
-                // Clear any existing serial input
-                while (Serial.available())
-                {
-                    Serial.read();
-                }
-
-                unsigned long waitStart = millis();
-                std::string confirm;
-                while (millis() - waitStart < 10000) // Wait up to 10 seconds
-                {
-                    if (Serial.available())
-                    {
-                        char confirmBuffer[64] = {0};
-                        size_t confirmLen = Serial.readBytesUntil('\n', confirmBuffer, sizeof(confirmBuffer) - 1);
-                        confirmBuffer[confirmLen] = '\0';
-                        confirm.assign(confirmBuffer, confirmLen);
-                        break;
-                    }
-                    vTaskDelay(pdMS_TO_TICKS(100));
-                }
+                char confirmBuffer[64] = {0};
+                Utils::readLine(confirmBuffer, sizeof(confirmBuffer));
+                std::string confirm(confirmBuffer);
 
                 if (confirm.empty())
                 {
-                    LOG_INFO("Test", "Reboot timeout - continuing normal operation.");
+                    LOG_INFO("Test", "No confirmation - continuing normal operation.");
                     continue;
                 }
                 trimString(confirm);
@@ -678,50 +659,32 @@ bool waitForUserInput(const char *message)
 bool testPowerAndLEDs()
 {
     LOG_INFO("Test", "\n[STEP 1] Verifica alimentazione e LED di stato");
-    LOG_INFO("Test", "Controllare manualmente:");
-    LOG_INFO("Test", " - LED di alimentazione componenti accesi");
-    LOG_INFO("Test", " - LED presenza SD acceso");
-    LOG_INFO("Test", " - LED attuatori visibili");
+    LOG_INFO("Test", "3 lampeggi rossi...");
+
+    for (int i = 0; i < 3; i++) {
+        ledController.setColor(ART_LED_RED);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        ledController.setOff();
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
 bool testSensors()
 {
     LOG_INFO("Test", "\n[STEP 2] Test sensori");
-    bool testFailed = false;
     bool imu_ok = rocketModel->updateBNO055();
     bool baro1_ok = rocketModel->updateMS561101BA03_1();
     bool baro2_ok = rocketModel->updateMS561101BA03_2();
     bool accl_ok = rocketModel->updateLIS3DHTR();
 
+    board.init_sensor_test_pins();
     if (!imu_ok)
     {
-        testFailed = true;
         statusManager.playBlockingPattern(IMU_FAIL, 2000);
         LOG_ERROR("Test", "Errore: IMU non inizializzata.");
-    }
-    if (!baro1_ok)
-    {
-        statusManager.playBlockingPattern(BARO1_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
-    }
-    if (!baro2_ok)
-    {
-        statusManager.playBlockingPattern(BARO2_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
-    }
-    if (!accl_ok)
-    {
-        statusManager.playBlockingPattern(IMU_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
-    }
-
-    if (!testFailed)
-    {
-        LOG_INFO("Test", "Verifica output dei sensori...");
-
-        gpio_config(&sensors_gpio_config);
-
+    } else {
         // Testing IMU accelerometer
         auto bnoData = rocketModel->getBNO055Data();
         auto accelImuX = bnoData->acceleration_x;
@@ -731,25 +694,36 @@ bool testSensors()
                     (double)accelImuX,
                     (double)accelImuY,
                     (double)accelImuZ);
-        // gpio_set_level(IMU_S, HIGH);
-
-        // Testing barometers
+        // board.signal_sensor_ok(IBoardHardware::Sensor::IMU);
+    }
+    if (!baro1_ok)
+    {
+        statusManager.playBlockingPattern(BARO1_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
+    } else {
         auto baro1Data = rocketModel->getMS561101BA03Data_1();
         auto pressureBaro1 = baro1Data->pressure;
         LOG_INFO("Test", "Barometer 1 Pressure: %.2f hPa", (double)pressureBaro1);
-        // gpio_set_level(BAR1_S, HIGH);
-        
-
+        // board.signal_sensor_ok(IBoardHardware::Sensor::BARO1);
+    }
+    if (!baro2_ok)
+    {
+        statusManager.playBlockingPattern(BARO2_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
+    } else {
         auto baro2Data = rocketModel->getMS561101BA03Data_2();
         auto pressureBaro2 = baro2Data->pressure;
         LOG_INFO("Test", "Barometer 2 Pressure: %.2f hPa", (double)pressureBaro2);
-        // gpio_set_level(BAR2_S, HIGH);
-
+        // board.signal_sensor_ok(IBoardHardware::Sensor::BARO2);
+    }
+    if (!accl_ok)
+    {
+        statusManager.playBlockingPattern(IMU_FAIL, 2000);
+        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
+    } else {
         // Testing LIS3DHTR accelerometer
-        // Note: LIS3DHTR data is not exposed through public getters in Nemesis
-        // The sensor is being updated and logged internally
         LOG_INFO("Test", "LIS3DHTR Accelerometer: Data logged internally");
-        gpio_set_level(ACC_S, HIGH);
+        board.signal_sensor_ok(IBoardHardware::Sensor::ACC);
     }
 
     // After all tests, go to user input
@@ -758,10 +732,7 @@ bool testSensors()
 
 bool testActuators()
 {
-    LOG_INFO("Test", "\n[STEP 3] Test attuatori");
-
-    pinMode(DROGUE_ACTUATOR_PIN, OUTPUT);
-    pinMode(MAIN_ACTUATOR_PIN, OUTPUT);
+    LOG_INFO("Test", "[STEP 3] Test attuatori");
 
     LOG_INFO("Test", "Accensione attuatori uno per volta...");
 
@@ -788,7 +759,7 @@ bool testSDCard()
 
     if (sdCard->openFile(TEST_FILE))
     {
-        std::string content = "SD card write test successful! Timestamp: " + std::to_string(millis()) + " ms\n";
+        std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms\n";
         if (sdCard->writeFile(TEST_FILE, content))
         {
             LOG_INFO("Test", "SD card write test successful");
@@ -821,12 +792,169 @@ bool testSDCard()
 
 bool testTelemetry()
 {
-    LOG_INFO("Test", "\n[STEP 5] Test telemetria");
-    LOG_INFO("Test", "Inizializzazione antenne e verifica collegamento...");
-    LOG_INFO("Test", "Verificare sul monitor ricezione pacchetti LORA.");
-
-    // Test LORA patterns
+    LOG_INFO("Test", "[STEP 5] Test telemetria");
     statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+
+    // Serial1 is used by GPS
+    E220LoRaTransmitter lora(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN, MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
+
+    LOG_INFO("Test", "Inizializzazione E220...");
+    auto initResult = lora.init();
+    if (initResult.getCode() != E220_SUCCESS)
+    {
+        LOG_ERROR("Test", "LoRa init fallita: %s", initResult.getDescription().c_str());
+        // I know it's an obvious fail, but returning false would just end up in a loop
+        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    }
+    LOG_INFO("Test", "LoRa init OK");
+
+    for (int i = 1; i <= 3; i++)
+    {
+        std::string payload = "LORA_TEST_" + std::to_string(i);
+        LOG_INFO("Test", "Invio pacchetto %d: %s", i, payload.c_str());
+        auto result = lora.transmit(payload);
+        if (result.getCode() == E220_SUCCESS)
+        {
+            LOG_INFO("Test", "Pacchetto %d inviato.", i);
+        }
+        else
+        {
+            LOG_ERROR("Test", "Invio pacchetto %d fallito: %s", i, result.getDescription().c_str());
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+
+    LOG_INFO("Test", "Verificare ricezione 3 pacchetti LORA_TEST_1/2/3 sulla ground station.");
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
+bool testI2CScan()
+{
+    LOG_INFO("Test", "Scanning I2C bus...");
+
+    // TODO: implement second bus
+    I2CBus* bus = board.get_i2c_bus(IBoardHardware::Sensor::IMU);
+    if (!bus) {
+        LOG_ERROR("Test", "I2C bus not available.");
+        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    }
+
+    struct KnownDevice { const char* name; uint8_t addr; };
+    // Device possible addresses from docs
+    static const KnownDevice known[] = {
+        { "BNO055 IMU", 0x28 },
+        { "BNO055 IMU 2", 0x29 },
+        { "LIS3DHTR", 0x18 },
+        { "LIS3DHTR 2", 0x19 },
+    };
+
+    bool found = false;
+    for (uint8_t addr = 0x08; addr <= 0x77; addr++) {
+        if (i2c_master_probe(*bus->get_handle(), addr, 10) == ESP_OK) {
+            found = true;
+            const char* label = nullptr;
+            for (auto& d : known)
+                if (d.addr == addr) { label = d.name; break; }
+            if (label)
+                printf("Found: 0x%02X %s\n", addr, label);
+            else
+                printf("Unknown: 0x%02X\n", addr);
+        }
+    }
+    if (!found) printf("No devices found.\n");
+
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
+bool configureE220()
+{
+    LOG_INFO("LoRa", "Configuring E220...");
+
+    gpio_reset_pin(MANNY_LORA_M0_PIN);
+    gpio_reset_pin(MANNY_LORA_M1_PIN);
+    gpio_reset_pin(MANNY_LORA_AUX_PIN);
+    gpio_reset_pin(MANNY_LORA_TX_PIN);
+    gpio_reset_pin(MANNY_LORA_RX_PIN);
+
+    LoRa_E220 e220(MANNY_LORA_RX_PIN, MANNY_LORA_TX_PIN, &Serial2,
+                   MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN,
+                   UART_BPS_RATE_9600, SERIAL_8N1);
+    e220.begin();
+
+    auto csc = e220.getConfiguration();
+    if (csc.status.code != E220_SUCCESS) {
+        LOG_ERROR("LoRa", "getConfiguration failed: %s", csc.status.getResponseDescription().c_str());
+        csc.close();
+        Serial2.end();
+        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    }
+    auto config = *(Configuration *)csc.data;
+    csc.close();
+
+    config.ADDL = 0x03;
+    config.ADDH = 0x00;
+    config.CHAN = 23;
+
+    config.SPED.uartBaudRate  = UART_BPS_115200;
+    config.SPED.airDataRate   = AIR_DATA_RATE_100_96;
+    config.SPED.uartParity    = MODE_00_8N1;
+
+    config.OPTION.subPacketSetting  = SPS_200_00;
+    config.OPTION.RSSIAmbientNoise  = RSSI_AMBIENT_NOISE_DISABLED;
+    config.OPTION.transmissionPower = POWER_17;
+
+    config.TRANSMISSION_MODE.enableRSSI        = RSSI_ENABLED;
+    config.TRANSMISSION_MODE.fixedTransmission = FT_FIXED_TRANSMISSION;
+    config.TRANSMISSION_MODE.enableLBT         = LBT_DISABLED;
+    config.TRANSMISSION_MODE.WORPeriod         = WOR_2000_011;
+
+    auto rs = e220.setConfiguration(config, WRITE_CFG_PWR_DWN_SAVE);
+    if (rs.code == E220_SUCCESS)
+        LOG_INFO("LoRa", "E220 configurato con successo.");
+    else
+        LOG_ERROR("LoRa", "setConfiguration fallito: %s", rs.getResponseDescription().c_str());
+
+    Serial2.end();
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
+// E220 connector test to identify the pins
+//
+// Pattern: All high, then N bursts of (0,5s H/L)
+bool testE220Connector()
+{
+    LOG_INFO("Test", "[STEP 6] LoRa Connector Test");
+
+    const gpio_num_t pins[]   = {GPIO_NUM_40, GPIO_NUM_39, GPIO_NUM_38, GPIO_NUM_41, GPIO_NUM_42};
+    const char*      names[]  = {"GPIO40 AUX", "GPIO39 RX<E220TX", "GPIO38 TX>E220RX", "GPIO41 M1", "GPIO42 M0"};
+
+    for (int i = 0; i < 5; i++) {
+        // Release from JTAG function
+        gpio_set_direction(pins[i], GPIO_MODE_OUTPUT);
+        gpio_set_level(pins[i], 0);
+    }
+
+    LOG_INFO("Test", "1: All pins high 3s");
+    for (int i = 0; i < 5; i++) gpio_set_level(pins[i], 1);
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    for (int i = 0; i < 5; i++) gpio_set_level(pins[i], 0);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    int bursts = 1, b;
+    for (int i = 0; i < 5; i++, bursts = i + 1) {
+        LOG_INFO("Test", "%s: %d burst(s)", names[i], bursts);
+        for (b = 0; b < bursts; b++) {
+            gpio_set_level(pins[i], 1);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            gpio_set_level(pins[i], 0);
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+    }
+
+    // Reset pins for safety
+    for (int i = 0; i < 5; i++) {
+        gpio_reset_pin(pins[i]);
+    }
 
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
@@ -842,25 +970,22 @@ void testRoutine()
         // Menu is BLUE with no buzzer
         statusManager.setSystemCode(TEST_MENU);
 
-        Serial.println("\n=== MENU TEST ===");
-        Serial.println("1 - Test alimentazione e LED");
-        Serial.println("2 - Test sensori");
-        Serial.println("3 - Test attuatori");
-        Serial.println("4 - Test SD Card");
-        Serial.println("5 - Test telemetria");
-        Serial.println("6 - Esegui tutti i test in sequenza");
-        Serial.println("7 - Esci dal menu test");
-        Serial.println("Inserisci il numero del test da eseguire:");
-
-        while (!Serial.available())
-        {
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
+        printf("\n=== MENU TEST ===\n");
+        printf("1 - Test alimentazione e LED\n");
+        printf("2 - Test sensori\n");
+        printf("3 - Test attuatori\n");
+        printf("4 - Test SD Card\n");
+        printf("5 - I2C scan\n");
+        printf("6 - Configura E220 (one-time setup)\n");
+        printf("7 - Test telemetria\n");
+        printf("8 - Test connettore E220\n");
+        printf("9 - Esegui tutti i test in sequenza\n");
+        printf("0 - Esci dal menu test\n");
+        printf("Inserisci il numero del test da eseguire:\n");
 
         char buffer[32] = {0};
-        size_t len = Serial.readBytesUntil('\n', buffer, sizeof(buffer) - 1);
-        buffer[len] = '\0';
-        std::string input(buffer, len);
+        Utils::readLine(buffer, sizeof(buffer));
+        std::string input(buffer);
         trimString(input);
         int choice = std::atoi(input.c_str());
         bool testPassed = false;
@@ -897,10 +1022,28 @@ void testRoutine()
         case 5:
             do
             {
-                testPassed = testTelemetry();
+                testPassed = testI2CScan();
             } while (!testPassed);
             break;
         case 6:
+            do
+            {
+                testPassed = configureE220();
+            } while (!testPassed);
+            break;
+        case 7:
+            do
+            {
+                testPassed = testTelemetry();
+            } while (!testPassed);
+            break;
+        case 8:
+            do
+            {
+                testPassed = testE220Connector();
+            } while (!testPassed);
+            break;
+        case 9:
             // Show all tests pattern
             statusManager.playBlockingPattern(TEST_ALL, 2000);
 
@@ -930,18 +1073,18 @@ void testRoutine()
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
             break;
-        case 7:
+        case 0:
             // Exit test mode with success pattern
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
             statusManager.setSystemCode(SYSTEM_OK);
             return;
         default:
-            Serial.println("Scelta non valida. Riprova.");
+            printf("Scelta non valida. Riprova.\n");
             continue;
         }
 
-        if (choice >= 1 && choice <= 6)
+        if (choice >= 1 && choice <= 9)
         {
             LOG_INFO("Test", "Test completato con successo!");
             // Show success pattern before returning to menu
@@ -952,25 +1095,20 @@ void testRoutine()
 
 void printSystemInfo()
 {
-    Serial.println("\n--- System Information ---");
-    Serial.printf("ESP32 Chip: %s\n", ESP.getChipModel());
-    Serial.printf("CPU Frequency: %lu MHz\n", (unsigned long)ESP.getCpuFreqMHz());
-    Serial.printf("Total Heap: %lu bytes\n", (unsigned long)ESP.getHeapSize());
-    Serial.printf("Free Heap: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
-    Serial.printf("PSRAM Total: %lu bytes\n", (unsigned long)ESP.getPsramSize());
-    Serial.printf("PSRAM Free: %lu bytes\n", (unsigned long)ESP.getFreePsram());
-    Serial.printf("Flash Size: %lu bytes\n", (unsigned long)ESP.getFlashChipSize());
-    Serial.printf("SDK Version: %s\n", ESP.getSdkVersion());
+    printf("--- System Information ---\n");
+    printf("ESP32 Chip: %s\n", ESP.getChipModel());
+    printf("CPU Frequency: %lu MHz\n", (unsigned long)ESP.getCpuFreqMHz());
+    printf("Total Heap: %lu bytes\n", (unsigned long)ESP.getHeapSize());
+    printf("Free Heap: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
+    printf("PSRAM Total: %lu bytes\n", (unsigned long)ESP.getPsramSize());
+    printf("PSRAM Free: %lu bytes\n", (unsigned long)ESP.getFreePsram());
+    printf("Flash Size: %lu bytes\n", (unsigned long)ESP.getFlashChipSize());
+    printf("SDK Version: %s\n", ESP.getSdkVersion());
 
     // FreeRTOS information
-    Serial.printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
-    Serial.printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
-    Serial.println("--- End System Information ---");
-}
-
-// ESP-IDF millis() equivalent. Temporary definition.
-unsigned long millis_() {
-    return esp_timer_get_time() / 1000ULL;
+    printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
+    printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
+    printf("--- End System Information ---\n");
 }
 
 // The ESP-IDF entry point, which must be C-linkage

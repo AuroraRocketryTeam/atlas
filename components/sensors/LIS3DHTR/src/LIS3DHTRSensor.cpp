@@ -2,13 +2,14 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char* TAG = "LIS3DHTRSensor";
 
 int32_t LIS3DHTRSensor::platform_write(void *handle, uint8_t reg, const uint8_t *bufp, uint16_t len)
 {
-    esp_sensor_handle_t *sensor = (esp_sensor_handle_t *)handle;
-    
+    i2c_master_dev_handle_t dev = *(i2c_master_dev_handle_t *)handle;
+
     // LIS3DH requires the MSB of the register address to be set to 1 for multiple byte writes
     if (len > 1) reg |= 0x80;
 
@@ -17,7 +18,7 @@ int32_t LIS3DHTRSensor::platform_write(void *handle, uint8_t reg, const uint8_t 
     write_buf[0] = reg;
     memcpy(&write_buf[1], bufp, len);
 
-    esp_err_t err = i2c_master_write_to_device(sensor->i2c_port, sensor->i2c_address, write_buf, len + 1, pdMS_TO_TICKS(100));
+    esp_err_t err = i2c_master_transmit(dev, write_buf, len + 1, 100);
     free(write_buf);
 
     return (err == ESP_OK) ? 0 : -1;
@@ -25,25 +26,37 @@ int32_t LIS3DHTRSensor::platform_write(void *handle, uint8_t reg, const uint8_t 
 
 int32_t LIS3DHTRSensor::platform_read(void *handle, uint8_t reg, uint8_t *bufp, uint16_t len)
 {
-    esp_sensor_handle_t *sensor = (esp_sensor_handle_t *)handle;
-    
+    i2c_master_dev_handle_t dev = *(i2c_master_dev_handle_t *)handle;
+
     // LIS3DH requires the MSB of the register address to be set to 1 for multiple byte reads
     if (len > 1) reg |= 0x80;
 
-    esp_err_t err = i2c_master_write_read_device(sensor->i2c_port, sensor->i2c_address, &reg, 1, bufp, len, pdMS_TO_TICKS(100));
-    
+    esp_err_t err = i2c_master_transmit_receive(dev, &reg, 1, bufp, len, 100);
+
     return (err == ESP_OK) ? 0 : -1;
 }
 
-LIS3DHTRSensor::LIS3DHTRSensor(i2c_port_t port, uint8_t address) 
+LIS3DHTRSensor::LIS3DHTRSensor(I2CBus* bus, uint8_t address)
+    : _dev_handle(nullptr)
 {
-    _handle.i2c_port = port;
-    _handle.i2c_address = address;
+    i2c_device_config_t dev_cfg = {
+        // from the LIS3DH datasheet, 7 bit address
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = address,
+        .scl_speed_hz    = 400000,
+    };
+    i2c_master_bus_add_device(*bus->get_handle(), &dev_cfg, &_dev_handle);
 
-    // Link the ST context to our platform functions
     _dev_ctx.write_reg = platform_write;
     _dev_ctx.read_reg = platform_read;
-    _dev_ctx.handle = (void *)&_handle;
+    _dev_ctx.handle = (void *)&_dev_handle;
+}
+
+LIS3DHTRSensor::~LIS3DHTRSensor()
+{
+    if (_dev_handle) {
+        i2c_master_bus_rm_device(_dev_handle);
+    }
 }
 
 bool LIS3DHTRSensor::init()
@@ -75,7 +88,7 @@ bool LIS3DHTRSensor::updateData()
 
     lis3dh_reg_t reg;
     lis3dh_xl_data_ready_get(&_dev_ctx, &reg.byte);
-    
+
     // Check if new data is available
     if (reg.byte)
     {
@@ -90,9 +103,9 @@ bool LIS3DHTRSensor::updateData()
         _data->acceleration_x = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[0]) * 0.001f * GRAVITY;
         _data->acceleration_y = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[1]) * 0.001f * GRAVITY;
         _data->acceleration_z = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[2]) * 0.001f * GRAVITY;
-        
+
         _data->timestamp = (uint32_t)(esp_timer_get_time() / 1000ULL);
-        
+
         return true;
     }
     return false;

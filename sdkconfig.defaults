@@ -1,6 +1,8 @@
 # Atlas ESP-IDF — Default SDK configuration
 # Target: ESP32-S3 (Arduino Nano ESP32)
 
+CONFIG_IDF_TARGET="esp32s3"
+
 # --- COMPILER SETTINGS ---
 
 # C++ exceptions and RTTI (Required for Arduino libraries) [To be removed when pure esp-idf porting is complete]
@@ -63,6 +65,11 @@ CONFIG_AUTOSTART_ARDUINO=n
 
 # Partition table — large single factory app
 CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# --- CONSOLE CONFIGURATION ---
+
+# Installs JTAG driver automatically without having to do it manually and binding it to vfs
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # --- ATLAS CONFIGURATION ---
 

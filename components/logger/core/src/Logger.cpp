@@ -1,7 +1,9 @@
 #include "Logger.hpp"
 #include "esp_heap_caps.h"
+// TODO: replace ESP calls
 #include <Arduino.h>
 #include <inttypes.h>
+#include <utils.h>
 
 // Serial mutex for thread-safe printing
 static SemaphoreHandle_t serialMutex = nullptr;
@@ -32,7 +34,7 @@ namespace Logger
             va_start(args, format);
 
             // Add timestamp, log level, and tag
-            unsigned long timestamp = millis();
+            unsigned long timestamp = Utils::millis();
             const char *levelStr = "";
             switch (level)
             {
@@ -53,21 +55,15 @@ namespace Logger
                 break;
             }
 
-            // Print header with timestamp and tag
-            Serial.printf("[%8lu][%s][%s] ", timestamp, levelStr, tag);
-
-            // Print the actual message
             vsnprintf(buffer, sizeof(buffer), format, args);
-            Serial.println(buffer);
+            printf("[%8" PRIu32 "][%s][%s] %s\n", timestamp, levelStr, tag, buffer);
 
             va_end(args);
             xSemaphoreGive(serialMutex);
         }
         else
         {
-            // DEADLOCK DETECTION: Mutex timeout - likely a task was deleted while holding it
-            // Print directly without mutex as emergency fallback (not thread-safe but better than hanging)
-            Serial.printf("[DEADLOCK] Failed to acquire log mutex for: %s\n", tag);
+            printf("[DEADLOCK] Failed to acquire log mutex for: %s\n", tag);
         }
     }
 
@@ -86,30 +82,12 @@ namespace Logger
 
             float fragmentation = 100.0f * (1.0f - (float)largestBlock / freeHeap);
 
-            Serial.printf("\n=== MEMORY DEBUG [%s] ===\n", location);
-            Serial.printf("Free heap: %zu bytes\n", freeHeap);
-            Serial.printf("Min free heap: %" PRIu32 " bytes\n", ESP.getMinFreeHeap());
-            Serial.printf("Max alloc heap: %zu bytes\n", maxAlloc);
-            Serial.printf("Fragmentation: %.2f%%\n", fragmentation);
-            Serial.printf("Largest free block: %zu bytes\n", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-            Serial.printf("==========================\n\n");
+            printf("\n=== MEMORY DEBUG [%s] ===\n", location);
+            printf("Free heap:       %zu bytes\n", freeHeap);
+            printf("Largest block:   %zu bytes\n", largestBlock);
+            printf("Fragmentation:   %.2f%%\n", fragmentation);
+            printf("=========================\n\n");
 
-            if (fragmentation > 20.0f)
-            {
-                Serial.println("[WARNING] High memory fragmentation detected!");
-            }
-            if (freeHeap < 10000)
-            {
-                Serial.println("[WARNING] Low free heap memory!");
-            }
-            if (maxAlloc < 5000)
-            {
-                Serial.println("[WARNING] Low maximum allocatable block!");
-            }
-            if (largestBlock < 2000)
-            {
-                Serial.println("[WARNING] Very small largest free block!");
-            }
             xSemaphoreGive(serialMutex);
         }
     }

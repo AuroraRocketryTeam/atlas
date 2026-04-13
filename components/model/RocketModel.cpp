@@ -19,9 +19,6 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     _heightGainSpeed(std::make_shared<float>(0.0f)),
     _currentHeight(std::make_shared<float>(0.0f))
 {
-    Serial.begin(SERIAL_BAUD_RATE);
-    Serial.setRxBufferSize(2048);
-
     // Configure and Initialize ADC unit
     adc_oneshot_unit_init_cfg_t adc1_config = {};
     adc1_config.unit_id  = ADC_UNIT_1;
@@ -57,7 +54,6 @@ bool RocketModel::updateBNO055() {
     bool result = _bno->updateData();
 
     _bnoData = _bno->getData();
-    _logger->logSensorData(_bnoData);
 
     return result;
 }
@@ -66,7 +62,6 @@ bool RocketModel::updateLIS3DHTR() {
     bool result = _lis3dh->updateData();
 
     _lis3dhData = _lis3dh->getData();
-    _logger->logSensorData(_lis3dhData);
 
     return result;
 }
@@ -75,7 +70,6 @@ bool RocketModel::updateMS561101BA03_1() {
     bool result = _ms56_1->updateData();
 
     _ms561101ba03Data_1 = _ms56_1->getData();
-    _logger->logSensorData(_ms561101ba03Data_1);
 
     return result;
 }
@@ -84,7 +78,6 @@ bool RocketModel::updateMS561101BA03_2() {
     bool result = _ms56_2->updateData();
 
     _ms561101ba03Data_2 = _ms56_2->getData();
-    _logger->logSensorData(_ms561101ba03Data_2);
 
     return result;
 }
@@ -93,7 +86,6 @@ bool RocketModel::updateGPS() {
     bool result = _gps->updateData();
 
     _gpsData = _gps->getData();
-    _logger->logSensorData(_gpsData);
 
     return result;
 }

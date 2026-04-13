@@ -3,6 +3,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <Logger.hpp>
+#include <utils.h>
 
 EkfTask::~EkfTask() {
     stop();
@@ -33,7 +34,7 @@ void EkfTask::taskFunction() {
             baro2DataCopy = _rocketModel->getMS561101BA03Data_2();
             lisDataCopy = _rocketModel->getLIS3DHTRData();
             gpsDataCopy = _rocketModel->getGPSData();
-            dataTimeStamp = millis();
+            dataTimeStamp = Utils::millis();
 
             xSemaphoreGive(_modelMutex);
         }

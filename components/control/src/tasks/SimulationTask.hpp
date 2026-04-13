@@ -37,6 +37,7 @@ public:
      */
     SimulationTask(
         const std::string& csvFilePath,
+        std::shared_ptr<SD> sd,
         std::shared_ptr<RocketModel> rocketModel,
         SemaphoreHandle_t modelMutex,
         std::shared_ptr<RocketLogger> logger,
@@ -62,7 +63,7 @@ private:
     bool _started = false;
 
     // Shared static variables for simulation state
-    static SD _sdManager;
+    static std::shared_ptr<SD> _sdManager;
     static std::string _csvFilePath;
     static uint32_t _filePosition;
     static bool _fileInitialized;

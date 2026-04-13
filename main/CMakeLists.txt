@@ -6,6 +6,7 @@ idf_component_register(
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         nvs_flash
+        esp_driver_usb_serial_jtag
         global
         data
         control
@@ -20,6 +21,8 @@ idf_component_register(
         LIS3DHTR
         MPRLS
         MS561101BA03
+        I2C
+        SPI
         Termoresistenze
         filters_kalman
         protocol

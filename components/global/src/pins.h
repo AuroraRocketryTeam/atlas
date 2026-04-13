@@ -80,8 +80,6 @@
 #define HOLD_FLASH                  GPIO_NUM_9
 #define WP_FLASH                    GPIO_NUM_14
 
-#define CS_BARO                     GPIO_NUM_6
-
 #endif
 
 // Arbitrary builtin LED

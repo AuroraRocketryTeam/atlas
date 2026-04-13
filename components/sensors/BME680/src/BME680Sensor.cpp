@@ -1,6 +1,6 @@
 #include "BME680Sensor.hpp"
-#include <Wire.h>
 #include <Adafruit_Sensor.h>
+#include <utils.h>
 
 BME680Sensor::BME680Sensor(uint8_t addr)
 {
@@ -11,13 +11,13 @@ BME680Sensor::BME680Sensor(uint8_t addr)
 bool BME680Sensor::init()
 {
     int attempts = 0;
-    uint start = millis();
+    uint start = Utils::millis();
     while (!bme.begin(addr) && attempts++ < SENSOR_LOOKUP_MAX_ATTEMPTS)
     {
-        uint end = millis();
+        uint end = Utils::millis();
         if (end - start > SENSOR_LOOKUP_TIMEOUT)
         {
-            start = millis();
+            start = Utils::millis();
         }
     }
     if (attempts >= SENSOR_LOOKUP_MAX_ATTEMPTS)
@@ -46,7 +46,7 @@ bool BME680Sensor::updateData()
     _data->humidity = bme.humidity;
     _data->pressure = bme.pressure;
     _data->gasResistance = bme.gas_resistance;
-    _data->timestamp = millis();
+    _data->timestamp = Utils::millis();
 
     return true;
 }

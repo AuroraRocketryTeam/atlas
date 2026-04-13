@@ -1,6 +1,5 @@
 #include "Packet.hpp"
-
-#include <Arduino.h>
+#include <cstdio>
 
 void Packet::calculateCRC()
 {
@@ -28,24 +27,20 @@ void Packet::calculateCRC()
 
 void Packet::printPacket()
 {
-    Serial.println("######## HEADER ########");
-    Serial.println("Message ID: " + String(this->header.messageId));
-
-    // Decode flags
     bool som = (this->header.flags & 0x01) != 0;
     bool eom = (this->header.flags & 0x02) != 0;
     bool ackReq = (this->header.flags & 0x04) != 0;
-    Serial.println(String("Flags: 0x") + String(this->header.flags, HEX) + String(" (SOM=") +
-                   String(som ? "1" : "0") + String(", EOM=") + String(eom ? "1" : "0") +
-                   String(", ACKReq=") + String(ackReq ? "1" : "0") + String(")"));
 
-    Serial.println("Total Chunks: " + String(this->header.totalChunks));
-    // chunkIndex is zero-based; present it to humans as 0-based and also show 1-based for convenience
-    Serial.println("Chunk Index (0-based): " + String(this->header.chunkIndex) +
-                   " (1-based: " + String(this->header.chunkIndex + 1) + ")");
-    Serial.println("Payload Size: " + String(this->header.payloadSize));
-    Serial.println("Protocol Version: " + String(this->header.protocolVersion));
-    Serial.println("######## PAYLOAD ########");
+    printf("######## HEADER ########\n");
+    printf("Message ID: %u\n", this->header.messageId);
+    printf("Flags: 0x%02X (SOM=%d, EOM=%d, ACKReq=%d)\n",
+           this->header.flags, som ? 1 : 0, eom ? 1 : 0, ackReq ? 1 : 0);
+    printf("Total Chunks: %u\n", this->header.totalChunks);
+    printf("Chunk Index (0-based): %u (1-based: %u)\n",
+           this->header.chunkIndex, this->header.chunkIndex + 1);
+    printf("Payload Size: %u\n", this->header.payloadSize);
+    printf("Protocol Version: %u\n", this->header.protocolVersion);
+    printf("######## PAYLOAD ########\n");
 
     // Print only the declared payloadSize bytes (rest may be padding)
     int toPrint = this->header.payloadSize;
@@ -53,11 +48,7 @@ void Packet::printPacket()
         toPrint = LORA_MAX_PAYLOAD_SIZE;
     for (int i = 0; i < toPrint; i++)
     {
-        if (this->payload.data[i] < 0x10)
-            Serial.print("0");
-        Serial.print(this->payload.data[i], HEX);
-        Serial.print(" ");
+        printf("%02X ", this->payload.data[i]);
     }
-    Serial.println();
-    Serial.println("CRC: 0x" + String(this->crc, HEX));
+    printf("\nCRC: 0x%04X\n", this->crc);
 }

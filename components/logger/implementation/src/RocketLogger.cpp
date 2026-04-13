@@ -1,5 +1,7 @@
 #include "RocketLogger.hpp"
 #include <new>
+// TODO: Find alternative calls for heap
+#include <Arduino.h>
 
 // Destructor - clean up all dynamically allocated memory
 RocketLogger::~RocketLogger() {

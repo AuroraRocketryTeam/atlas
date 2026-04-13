@@ -1,7 +1,7 @@
 #include "RocketFSM.hpp"
 #include "esp_task_wdt.h"
-#include <Arduino.h>
 #include <pins.h>
+#include <utils.h>
 
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
@@ -126,7 +126,7 @@ void RocketFSM::init()
     // Initialize state
     _currentState = RocketState::INACTIVE;
     _previousState = RocketState::INACTIVE;
-    _stateStartTime = millis();
+    _stateStartTime = Utils::millis();
 
     LOG_INFO("RocketFSM", "Initialization complete - Free heap: %u bytes", ESP.getFreeHeap());
 }
@@ -579,7 +579,7 @@ void RocketFSM::transitionTo(RocketState newState)
         // Update state
         _previousState = _currentState;
         _currentState = newState;
-        _stateStartTime = millis();
+        _stateStartTime = Utils::millis();
 
         // Execute entry action for new state
         if (_stateActions[_currentState])
@@ -661,7 +661,7 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::CALIBRATING:
-        if (millis() - _stateStartTime > 5000U)
+        if (Utils::millis() - _stateStartTime > 5000U)
         {
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
@@ -675,11 +675,11 @@ void RocketFSM::checkTransitions()
             {
                 if (launchHighSince == 0)
                 {
-                    launchHighSince = millis();
+                    launchHighSince = Utils::millis();
                 }
-                else if (millis() - launchHighSince > static_cast<unsigned long>(LIFTOFF_TIMEOUT_MS))
+                else if (Utils::millis() - launchHighSince > static_cast<unsigned long>(LIFTOFF_TIMEOUT_MS))
                 {
-                    _launchDetectionTime = millis();
+                    _launchDetectionTime = Utils::millis();
                     sendEvent(FSMEvent::LAUNCH_DETECTED);
                     launchHighSince = 0;
                 }
@@ -692,12 +692,12 @@ void RocketFSM::checkTransitions()
 
     case RocketState::LAUNCH:
         // After a short delay consider liftoff started (rocket left the launch pad and is accelerating)
-        LOG_INFO("RocketFSM", "Now: %lu, stateStartTime: %lu, LAUNCH: elapsed=%lu ms", millis(), _stateStartTime, millis() - _stateStartTime);
+        LOG_INFO("RocketFSM", "Now: %lu, stateStartTime: %lu, LAUNCH: elapsed=%lu ms", Utils::millis(), _stateStartTime, Utils::millis() - _stateStartTime);
         sendEvent(FSMEvent::LIFTOFF_STARTED);
         break;
 
     case RocketState::ACCELERATED_FLIGHT:
-        if (millis() - _launchDetectionTime >= LAUNCH_TO_BALLISTIC_THRESHOLD)
+        if (Utils::millis() - _launchDetectionTime >= LAUNCH_TO_BALLISTIC_THRESHOLD)
         {
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);
         }
@@ -706,9 +706,9 @@ void RocketFSM::checkTransitions()
     case RocketState::BALLISTIC_FLIGHT:
     {
         //LOG_INFO("RocketFSM", "BALLISTIC_FLIGHT: is rising = %u", *isRising);
-        auto elapsed = millis() - _launchDetectionTime;
+        auto elapsed = Utils::millis() - _launchDetectionTime;
         auto isRising = _rocketModel->getIsRising();
-        //LOG_INFO("RocketFSM", "now: %.3lu, stateStartTime: %.3lu, evaluated: %.3lu, treshold: %.3lu", millis(), stateStartTime, elapsed, LAUNCH_TO_APOGEE_THRESHOLD);
+        //LOG_INFO("RocketFSM", "now: %.3lu, stateStartTime: %.3lu, evaluated: %.3lu, treshold: %.3lu", Utils::millis(), stateStartTime, elapsed, LAUNCH_TO_APOGEE_THRESHOLD);
         if(!*isRising || (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD)){
             sendEvent(FSMEvent::APOGEE_REACHED);
         }
@@ -717,8 +717,8 @@ void RocketFSM::checkTransitions()
     }
 
     case RocketState::APOGEE:
-        LOG_INFO("RocketFSM", "Drogue Opened! %d", millis()-_launchDetectionTime);
-        if (millis() - _stateStartTime > DROGUE_APOGEE_TIMEOUT)
+        LOG_INFO("RocketFSM", "Drogue Opened! %d", Utils::millis()-_launchDetectionTime);
+        if (Utils::millis() - _stateStartTime > DROGUE_APOGEE_TIMEOUT)
         {
             sendEvent(FSMEvent::DROGUE_READY);
         }
@@ -730,7 +730,7 @@ void RocketFSM::checkTransitions()
         LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", *currentHeight);
         if (*currentHeight < MAIN_ALTITUDE_THRESHOLD)
         {
-            LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", *currentHeight, millis() - _stateStartTime);
+            LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", *currentHeight, Utils::millis() - _stateStartTime);
             sendEvent(FSMEvent::STABILIZATION_COMPLETE);
         }
     
@@ -752,7 +752,7 @@ void RocketFSM::checkTransitions()
     }
 
     case RocketState::LANDING:
-        if (millis() - _stateStartTime > 2000U)
+        if (Utils::millis() - _stateStartTime > 2000U)
         {
             sendEvent(FSMEvent::LANDING_COMPLETE);
         }

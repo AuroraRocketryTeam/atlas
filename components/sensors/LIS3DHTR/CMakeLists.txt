@@ -4,5 +4,5 @@ file(GLOB SRCS "src/*.cpp" "src/*.c")
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "src"
-    REQUIRES global data lis3dh_pid
+    REQUIRES global data I2C lis3dh_pid
 )

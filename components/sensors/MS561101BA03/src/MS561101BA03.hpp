@@ -1,6 +1,6 @@
 #pragma once
 #include <ISensor.hpp>
-#include <Wire.h>
+#include <SPIBus.hpp>
 #include <PressureSensorData.hpp>
 
 // MS5611 Commands
@@ -20,27 +20,22 @@
 
 /**
  * @brief MS561101BA03 sensor class
- * 
  */
 class MS561101BA03 : public ISensor
 {
 public:
-    MS561101BA03(uint8_t address = 0x77);
+    MS561101BA03(SPIBus* bus, gpio_num_t cs_pin);
+    ~MS561101BA03();
+
     bool init() override;
     bool updateData() override;
 
-    /**
-     * @brief Getter for the sensor data
-     * 
-     * @return a shared pointer to the PressureSensorData structure containing the latest readings
-     */
     std::shared_ptr<PressureSensorData> getData();
 
 private:
-    // I2C address of the sensor
-    uint8_t _address;
+    spi_device_handle_t _dev_handle = nullptr;
     uint16_t _calibrationData[8];
-    
+
     bool readCalibrationData();
     void reset();
     uint32_t readADC();

@@ -1,24 +1,38 @@
 #include "MS561101BA03.hpp"
-#include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <utils.h>
 
-MS561101BA03::MS561101BA03(uint8_t address) : _address(address)
+MS561101BA03::MS561101BA03(SPIBus* bus, gpio_num_t cs_pin)
 {
     memset(_calibrationData, 0, sizeof(_calibrationData));
+
+    spi_device_interface_config_t dev_cfg = {
+        .mode           = 0,           // SPI mode 0 (CPOL=0, CPHA=0)
+        .clock_speed_hz = 20'000'000,    // 20 MHz (MS5611 max)
+        .spics_io_num   = cs_pin,
+        .queue_size     = 1,
+    };
+    spi_bus_add_device(bus->get_host(), &dev_cfg, &_dev_handle);
+}
+
+MS561101BA03::~MS561101BA03()
+{
+    if (_dev_handle) {
+        spi_bus_remove_device(_dev_handle);
+    }
 }
 
 bool MS561101BA03::init()
 {
-    Wire.begin();
-    
-    // Reset the sensor
     reset();
-    delay(10);
-    
+    vTaskDelay(pdMS_TO_TICKS(10));
+
     // Read calibration data
     if (!readCalibrationData()) {
         return false;
     }
-    
+
     return true;
 }
 
@@ -27,17 +41,17 @@ bool MS561101BA03::updateData()
     // Read raw pressure and temperature
     uint32_t D1 = readRawPressure();
     uint32_t D2 = readRawTemperature();
-    
+
     if (D1 == 0 || D2 == 0) {
         return false;
     }
-    
+
     _data = std::make_shared<PressureSensorData>("MS561101BA03");
 
     // Calculate compensated pressure and temperature
-    calculatePressureAndTemperature(D1, D2, _data->pressure, _data->temperature);    
+    calculatePressureAndTemperature(D1, D2, _data->pressure, _data->temperature);
 
-    _data->timestamp = millis();
+    _data->timestamp = Utils::millis();
 
     return true;
 }
@@ -60,55 +74,60 @@ bool MS561101BA03::readCalibrationData()
 
 uint16_t MS561101BA03::readPROM(uint8_t address)
 {
-    Wire.beginTransmission(_address);
-    Wire.write(address);
-    Wire.endTransmission();
-    
-    Wire.requestFrom(_address, (uint8_t)2);
-    
-    if (Wire.available() >= 2) {
-        uint16_t result = Wire.read() << 8;
-        result |= Wire.read();
-        return result;
-    }
-    
-    return 0;
-}
+    // The sensor does not send data until it has received and
+    // clocked the address byte, so we read starting from rx[1]
+    spi_transaction_t t = {};
+    t.length    = 24; // 3 bytes
+    t.rxlength  = 24;
+    t.flags     = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+    t.tx_data[0] = address;
+    t.tx_data[1] = 0x00;
+    t.tx_data[2] = 0x00;
 
+    esp_err_t err = spi_device_polling_transmit(_dev_handle, &t);
+    if (err != ESP_OK) return 0;
+
+    return ((uint16_t)t.rx_data[1] << 8) | t.rx_data[2];
+}
 void MS561101BA03::writeCommand(uint8_t command)
 {
-    Wire.beginTransmission(_address);
-    Wire.write(command);
-    Wire.endTransmission();
+    spi_transaction_t t = {};
+    t.length    = 8; // one byte
+    t.flags     = SPI_TRANS_USE_TXDATA;  // only write
+    t.tx_data[0] = command;
+    spi_device_polling_transmit(_dev_handle, &t);
 }
 
 uint32_t MS561101BA03::readADC()
 {
-    writeCommand(MS5611_CMD_ADC_READ);
-    
-    Wire.requestFrom(_address, (uint8_t)3);
-    
-    if (Wire.available() >= 3) {
-        uint32_t result = (uint32_t)Wire.read() << 16;
-        result |= (uint32_t)Wire.read() << 8;
-        result |= Wire.read();
-        return result;
-    }
-    
-    return 0;
+    // The sensor does not send data until it has received and
+    // clocked the command byte, so we read starting from rx[1]
+    spi_transaction_t t = {};
+    t.length    = 32;   // 4 bytes
+    t.rxlength  = 32;
+    t.flags     = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+    t.tx_data[0] = MS5611_CMD_ADC_READ;
+    t.tx_data[1] = 0x00;
+    t.tx_data[2] = 0x00;
+    t.tx_data[3] = 0x00;
+
+    esp_err_t err = spi_device_polling_transmit(_dev_handle, &t);
+    if (err != ESP_OK) return 0;
+
+    return ((uint32_t)t.rx_data[1] << 16) | ((uint32_t)t.rx_data[2] << 8) | t.rx_data[3];
 }
 
 uint32_t MS561101BA03::readRawPressure()
 {
     writeCommand(MS5611_CMD_CONV_D1_2048);
-    delay(10); // Wait for conversion
+    vTaskDelay(pdMS_TO_TICKS(10)); // Wait for conversion
     return readADC();
 }
 
 uint32_t MS561101BA03::readRawTemperature()
 {
     writeCommand(MS5611_CMD_CONV_D2_4096);
-    delay(10); // Wait for conversion
+    vTaskDelay(pdMS_TO_TICKS(10)); // Wait for conversion
     return readADC();
 }
 
@@ -121,37 +140,37 @@ void MS561101BA03::calculatePressureAndTemperature(uint32_t D1, uint32_t D2, flo
     uint16_t C4 = _calibrationData[4];
     uint16_t C5 = _calibrationData[5];
     uint16_t C6 = _calibrationData[6];
-    
+
     // Calculate temperature
     int32_t dT = D2 - ((uint32_t)C5 << 8);
     int32_t TEMP = 2000 + (((int64_t)dT * C6) >> 23);
-    
+
     // Calculate pressure
     int64_t OFF = ((int64_t)C2 << 16) + (((int64_t)C4 * dT) >> 7);
     int64_t SENS = ((int64_t)C1 << 15) + (((int64_t)C3 * dT) >> 8);
-    
+
     // Second order temperature compensation
     int32_t T2 = 0;
     int64_t OFF2 = 0;
     int64_t SENS2 = 0;
-    
+
     if (TEMP < 2000) {
         T2 = (dT * dT) >> 31;
         OFF2 = (5 * (TEMP - 2000) * (TEMP - 2000)) >> 1;
         SENS2 = OFF2 >> 1;
-        
+
         if (TEMP < -1500) {
             OFF2 = OFF2 + 7 * (TEMP + 1500) * (TEMP + 1500);
             SENS2 = SENS2 + ((11 * (TEMP + 1500) * (TEMP + 1500)) >> 1);
         }
     }
-    
+
     TEMP = TEMP - T2;
     OFF = OFF - OFF2;
     SENS = SENS - SENS2;
-    
+
     int32_t P = (((D1 * SENS) >> 21) - OFF) >> 15;
-    
+
     temperature = TEMP / 100.0f;
     pressure = P; // Convert to hPa/mbar
 }

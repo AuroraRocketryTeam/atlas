@@ -1,66 +1,70 @@
 #include "BNO055SensorInterface.hpp"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <cstring>
+#include <algorithm>
+
+// Static handle used by the C callbacks
+i2c_master_dev_handle_t BNO055SensorInterface::s_dev_handle = nullptr;
 
 // I2C communication functions for BNO055 low-level API
 s8 BNO055SensorInterface::BNO055_I2C_bus_write(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
 {
-    Wire.beginTransmission(dev_addr);
-    Wire.write(reg_addr);
-    for (u8 i = 0; i < cnt; i++) {
-        Wire.write(reg_data[i]);
-    }
-    u8 result = Wire.endTransmission();
-    return (result == 0) ? BNO055_SUCCESS : BNO055_ERROR;
+    uint8_t buf[cnt + 1];
+    buf[0] = reg_addr;
+    memcpy(&buf[1], reg_data, cnt);
+    esp_err_t err = i2c_master_transmit(s_dev_handle, buf, cnt + 1, pdMS_TO_TICKS(100));
+    return (err == ESP_OK) ? BNO055_SUCCESS : BNO055_ERROR;
 }
 
 s8 BNO055SensorInterface::BNO055_I2C_bus_read(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
 {
-    Wire.beginTransmission(dev_addr);
-    Wire.write(reg_addr);
-    u8 result = Wire.endTransmission();
-    if (result != 0) {
-        return BNO055_ERROR;
-    }
-    
-    Wire.requestFrom(dev_addr, cnt);
-    u8 i = 0;
-    while (Wire.available() && i < cnt) {
-        reg_data[i] = Wire.read();
-        i++;
-    }
-    
-    return (i == cnt) ? BNO055_SUCCESS : BNO055_ERROR;
+    esp_err_t err = i2c_master_transmit_receive(s_dev_handle, &reg_addr, 1, reg_data, cnt, pdMS_TO_TICKS(100));
+    return (err == ESP_OK) ? BNO055_SUCCESS : BNO055_ERROR;
 }
 
 void BNO055SensorInterface::BNO055_delay_msek(u32 msek)
 {
-    delay(msek);
+    vTaskDelay(pdMS_TO_TICKS(msek));
 }
 
-BNO055SensorInterface::BNO055SensorInterface() {}
+BNO055SensorInterface::BNO055SensorInterface(I2CBus* bus, uint8_t address) : _dev_handle(nullptr) {
+    i2c_device_config_t dev_cfg = {
+        // from the BNO055 datasheet, 7 bit address, up to 400kHz
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address  = address,
+        .scl_speed_hz    = 400000,
+    };
+    i2c_master_bus_add_device(*bus->get_handle(), &dev_cfg, &_dev_handle);
+
+    s_dev_handle = _dev_handle;
+
+    bno.bus_write  = BNO055_I2C_bus_write;
+    bno.bus_read   = BNO055_I2C_bus_read;
+    bno.delay_msec = BNO055_delay_msek;
+    bno.dev_addr   = address;
+}
+
+BNO055SensorInterface::~BNO055SensorInterface() {
+    if (_dev_handle) {
+        i2c_master_bus_rm_device(_dev_handle);
+    }
+}
 
 bool BNO055SensorInterface::init()
 {
-    // Initialize I2C communication
-    Wire.begin();
-    
-    // Set up the BNO055 structure with I2C communication functions
-    bno.dev_addr = BNO055_I2C_ADDR;
-    bno.bus_write = &BNO055SensorInterface::BNO055_I2C_bus_write;
-    bno.bus_read = &BNO055SensorInterface::BNO055_I2C_bus_read;
-    bno.delay_msec = &BNO055SensorInterface::BNO055_delay_msek;
-
     // Initialize the sensor
     if (bno055_init(&bno) != BNO055_SUCCESS) {
         return false;
     }
-    
+
     // Set power mode to normal
     if (bno055_set_power_mode(BNO055_POWER_MODE_NORMAL) != BNO055_SUCCESS) {
         return false;
     }
-    
-    delay(50);
-    
+
+    vTaskDelay(pdMS_TO_TICKS(50));
+
     return true;
 }
 
@@ -72,106 +76,106 @@ uint8_t BNO055SensorInterface::check_calibration()
 
 uint8_t BNO055SensorInterface::check_calibration_accel() {
     uint8_t accel_calib = 0;
-    
+
     // Get current accelerometer calibration status from BNO055 registers
     bno055_get_accel_calib_stat(&accel_calib);
-    
+
     return accel_calib;
 }
 
 uint8_t BNO055SensorInterface::check_calibration_mag() {
     uint8_t mag_calib = 0;
-    
+
     // Get current magnetometer calibration status from BNO055 registers
     bno055_get_mag_calib_stat(&mag_calib);
-    
+
     return mag_calib;
 }
 
 uint8_t BNO055SensorInterface::check_calibration_gyro() {
     uint8_t gyro_calib = 0;
-    
+
     // Get current gyroscope calibration status from BNO055 registers
     bno055_get_gyro_calib_stat(&gyro_calib);
-    
+
     return gyro_calib;
 }
 
 uint8_t BNO055SensorInterface::check_calibration_sys() {
     uint8_t sys_calib = 0;
-    
+
     // Get current system calibration status from BNO055 registers
     bno055_get_sys_calib_stat(&sys_calib);
-    
+
     return sys_calib;
 }
 
 bool BNO055SensorInterface::selftest_accel() {
     uint8_t selftest_result = 0;
-    
+
     // Get accelerometer self-test result from register 0x36 bit 0
     bool success = (bno055_get_selftest_accel(&selftest_result) == BNO055_SUCCESS);
-    
+
     // Return true if read was successful and test passed (0x01 = pass, 0x00 = fail)
     return (success && selftest_result == 0x01);
 }
 
 bool BNO055SensorInterface::selftest_mag() {
     uint8_t selftest_result = 0;
-    
+
     // Get magnetometer self-test result from register 0x36 bit 1
     bool success = (bno055_get_selftest_mag(&selftest_result) == BNO055_SUCCESS);
-    
+
     // Return true if read was successful and test passed (0x01 = pass, 0x00 = fail)
     return (success && selftest_result == 0x01);
 }
 
 bool BNO055SensorInterface::selftest_gyro() {
     uint8_t selftest_result = 0;
-    
+
     // Get gyroscope self-test result from register 0x36 bit 2
     bool success = (bno055_get_selftest_gyro(&selftest_result) == BNO055_SUCCESS);
-    
+
     // Return true if read was successful and test passed (0x01 = pass, 0x00 = fail)
     return (success && selftest_result == 0x01);
 }
 
 bool BNO055SensorInterface::selftest_mcu() {
     uint8_t selftest_result = 0;
-    
+
     // Get microcontroller self-test result from register 0x36 bit 3
     bool success = (bno055_get_selftest_mcu(&selftest_result) == BNO055_SUCCESS);
-    
+
     // Return true if read was successful and test passed (0x01 = pass, 0x00 = fail)
     return (success && selftest_result == 0x01);
 }
 
 bool BNO055SensorInterface::check_system_status() {
     uint8_t sys_stat = 0;
-    
+
     // Get system status from register 0x39
     bool success = (bno055_get_sys_stat_code(&sys_stat) == BNO055_SUCCESS);
-    
+
     // Return true if system is running properly (status 5 or 6)
     return (success && (sys_stat == 5 || sys_stat == 6));
 }
 
 bool BNO055SensorInterface::check_system_error() {
     uint8_t sys_error = 0;
-    
+
     // Get system error code from register 0x3A
     bool success = (bno055_get_sys_error_code(&sys_error) == BNO055_SUCCESS);
-    
+
     // Return true if no error (error code 0)
     return (success && sys_error == 0);
 }
 
 bool BNO055SensorInterface::check_clock_status() {
     uint8_t clk_stat = 0;
-    
+
     // Get main clock status from register 0x38
     bool success = (bno055_get_stat_main_clk(&clk_stat) == BNO055_SUCCESS);
-    
+
     // Return true if clock is running properly (status 1)
     return (success && clk_stat == 1);
 }
@@ -218,14 +222,14 @@ bool BNO055SensorInterface::set_gyro_power_mode(uint8_t mode) {
 
 std::vector<float> BNO055SensorInterface::get_accel() {
     struct bno055_accel_t accel;
-    
+
     // The function return a boolean value indicating success or failure
     /*bool res = */bno055_read_accel_xyz(&accel);
-    
+
     // Conversion from raw to meterpersecseq
     struct bno055_accel_float_t accel_msq;
     /*bool res2 = */bno055_convert_float_accel_xyz_msq(&accel_msq);
-    
+
     // Convert the bno055_accel_float_t to an std::vector<float>
     std::vector<float> accel_vector = {accel_msq.x, accel_msq.y, accel_msq.z};
 
@@ -298,7 +302,7 @@ std::vector<float> BNO055SensorInterface::get_euler_deg() {
 
 std::vector<float> BNO055SensorInterface::get_euler_rad() {
     struct bno055_euler_t euler;
-    
+
     // The function return a boolean value indicating success or failure
     /*bool res = */bno055_read_euler_hrp(&euler);
 
@@ -314,7 +318,7 @@ std::vector<float> BNO055SensorInterface::get_euler_rad() {
 
 std::vector<float> BNO055SensorInterface::get_quaternion() {
     struct bno055_quaternion_t quaternion;
-    
+
     /*bool res = */bno055_read_quaternion_wxyz(&quaternion);
 
     // Convert the bno055_quaternion_t to an std::vector<float>
@@ -330,7 +334,7 @@ std::vector<float> BNO055SensorInterface::get_quaternion() {
 
 std::vector<float> BNO055SensorInterface::get_linear_accel() {
     struct bno055_linear_accel_t linear_accel;
-    
+
     /*bool res = */bno055_read_linear_accel_xyz(&linear_accel);
 
     // Conversion from raw to meter per second squared (m/s^2)
@@ -345,7 +349,7 @@ std::vector<float> BNO055SensorInterface::get_linear_accel() {
 
 std::vector<float> BNO055SensorInterface::get_gravity() {
     struct bno055_gravity_t gravity;
-    
+
     /*bool res = */bno055_read_gravity_xyz(&gravity);
 
     // Conversion from raw to meter per second squared (m/s^2)
@@ -361,10 +365,9 @@ std::vector<float> BNO055SensorInterface::get_gravity() {
 // !!! CHECK THE CONVERTION IN PRACTICE
 float BNO055SensorInterface::get_temperature() {
     int8_t raw_temp = 0;
-    
+
     bno055_read_temp_data(&raw_temp);
-    
+
     // Conversion: 1 LSB = 1°C, so just cast to float
     return static_cast<float>(raw_temp);
 }
-
