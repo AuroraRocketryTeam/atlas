@@ -24,8 +24,8 @@ void MannyBoard::init() {
     gpio_config(&actuators_gpio_config);
     gpio_config(&led_gpio_config);
 
-    _i2c_bus.init(MANNY_I2C_PORT, MANNY_I2C_SDA_PIN, MANNY_I2C_SCL_PIN);
-    _spi_bus.init(SPI2_HOST, MANNY_SPI_MOSI_PIN, MANNY_SPI_MISO_PIN, MANNY_SPI_CLK_PIN);
+    ESP_ERROR_CHECK(_i2c_bus.init(MANNY_I2C_PORT, MANNY_I2C_SDA_PIN, MANNY_I2C_SCL_PIN));
+    ESP_ERROR_CHECK(_spi_bus.init(SPI2_HOST, MANNY_SPI_MOSI_PIN, MANNY_SPI_MISO_PIN, MANNY_SPI_CLK_PIN));
 
     is_initialized = true;
 }
