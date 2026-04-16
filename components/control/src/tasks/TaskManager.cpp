@@ -98,6 +98,13 @@ void TaskManager::initializeTasks()
         _modelMutex,
         _logger,
         _loggerMutex);
+        
+    _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
+        _rocketModel,
+        _modelMutex,
+        _logger,
+        _loggerMutex);
+    
 
     // Create TelemetryTask with ESP-NOW and LoRa transmitters
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!

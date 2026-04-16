@@ -11,6 +11,7 @@
 #include "RocketModel.hpp"
 
 #include "SensorTask.hpp"
+#include "AirbrakesTask.hpp"
 #include "SDLoggingTask.hpp"
 #include "EkfTask.hpp"
 #include "GpsTask.hpp"

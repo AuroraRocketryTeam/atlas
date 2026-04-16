@@ -19,7 +19,8 @@ enum class TaskType
     TELEMETRY,
     GPS,
     BAROMETER,
-    LOGGING
+    LOGGING,
+    AIRBRAKES
 };
 
 /**

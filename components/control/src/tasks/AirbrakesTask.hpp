@@ -1,0 +1,29 @@
+#pragma once
+
+#include "BaseTask.hpp"
+#include "RocketModel.hpp"
+#include "RocketLogger.hpp"
+
+#include <memory>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
+class AirbrakesTask : public BaseTask
+{
+public:
+    AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
+                  SemaphoreHandle_t modelMutex,
+                  std::shared_ptr<RocketLogger> logger,
+                  SemaphoreHandle_t loggerMutex);
+
+    void onTaskStart() override;
+    void onTaskStop() override;
+    void taskFunction() override;
+
+private:
+    std::shared_ptr<RocketModel> _rocketModel;
+    SemaphoreHandle_t _modelMutex;
+
+    std::shared_ptr<RocketLogger> _logger;
+    SemaphoreHandle_t _loggerMutex;
+};
