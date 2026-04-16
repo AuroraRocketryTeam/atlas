@@ -74,6 +74,7 @@ StatusManager statusManager(ledController, buzzerController);
 std::shared_ptr<RocketModel> rocketModel = nullptr;
 
 std::shared_ptr<SD> sdCard = nullptr;
+std::shared_ptr<Flash> flash = nullptr;
 
 // Define the RocketLogger
 std::shared_ptr<RocketLogger> logger = nullptr;
@@ -795,11 +796,27 @@ bool testFlashMemory()
 {
     LOG_INFO("Test", "[STEP 5] Test Flash memory");
 
+    flash = std::make_shared<Flash>()
+    
     const uint32_t t0 = Utils::millis();
 
-    Flash flash;
-    LOG_INFO("Test", "Flash: init...");
-    if (!flash.init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+    if (flash && flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+    {
+        LOG_INFO("Init", "External Flash initialized");
+    }
+    else
+    {
+        LOG_ERROR("Init", "Failed to initialize External Flash");
+    }
+
+    if (!flash) {
+        LOG_ERROR("Test", "Flash pointer is null! Initialization failed in setup.");
+        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    }
+
+    LOG_INFO("Test", "Flash: verifying readiness...");
+    // Calling init() again is safe, it returns true if already initialized
+    if (!flash->init())
     {
         LOG_ERROR("Test", "Flash init failed: verify external SPI flash wiring and availability.");
         return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
@@ -811,7 +828,7 @@ bool testFlashMemory()
 
     // Missing file read should return nullptr.
     LOG_INFO("Test", "Flash: read missing file '%s' (expected nullptr)", missingFile.c_str());
-    char *readData = flash.readFile(missingFile);
+    char *readData = flash->readFile(missingFile);
     if (readData != nullptr)
     {
         LOG_ERROR("Test", "Unexpected data returned for missing file.");
@@ -823,7 +840,7 @@ bool testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: write '%s'", testFile.c_str());
-    if (!flash.writeFile(testFile, "Hello, ESP32 Flash Storage!\n"))
+    if (!flash->writeFile(testFile, "Hello, ESP32 Flash Storage!\n"))
     {
         LOG_ERROR("Test", "Flash write failed.");
     }
@@ -833,7 +850,7 @@ bool testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: read '%s'", testFile.c_str());
-    readData = flash.readFile(testFile);
+    readData = flash->readFile(testFile);
     if (readData == nullptr)
     {
         LOG_ERROR("Test", "Flash read failed after write.");
@@ -845,7 +862,7 @@ bool testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: append to '%s'", testFile.c_str());
-    if (!flash.appendFile(testFile, "Appended line.\n"))
+    if (!flash->appendFile(testFile, "Appended line.\n"))
     {
         LOG_ERROR("Test", "Flash append failed.");
     }
@@ -855,7 +872,7 @@ bool testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: read back after append");
-    readData = flash.readFile(testFile);
+    readData = flash->readFile(testFile);
     if (readData != nullptr)
     {
         LOG_INFO("Test", "Flash read after append: %s", readData);
@@ -866,7 +883,7 @@ bool testFlashMemory()
         LOG_ERROR("Test", "Flash read failed after append.");
     }
 
-    if (!flash.fileExists(testFile))
+    if (!flash->fileExists(testFile))
     {
         LOG_ERROR("Test", "Flash file existence check failed.");
     }
@@ -877,11 +894,12 @@ bool testFlashMemory()
 
     const uint32_t t_clear = Utils::millis();
     LOG_INFO("Test", "Flash: clear start (this can take several seconds on full-chip erase)...");
-    if (!flash.clearFlash())
+    
+    if (!flash->clearFlash())
     {
         LOG_ERROR("Test", "Flash clear failed.");
     }
-    else if (flash.fileExists(testFile))
+    else if (flash->fileExists(testFile))
     {
         LOG_ERROR("Test", "Flash clear did not remove test file.");
     }
