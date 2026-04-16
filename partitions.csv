@@ -1,6 +1,30 @@
-# ESP-IDF Partition Table
-# Name, Type, SubType, Offset, Size, Flags
-nvs,data,nvs,,0x6000,
-phy_init,data,phy,,0x1000,
-factory,app,factory,,1500K,
-storage,data,fat,,0x279000,
+# ESP32-S3 Chip 16MB Flash
+# Name,     Type, SubType,  Offset,  Size, Flags
+   nvs,        data, nvs,      ,        0x6000,
+   phy_init,   data, phy,      ,        0x1000,
+   coredump,   data, coredump, ,        256K,
+   factory,    app,  factory,  ,        15M,
+# Note: Leaving Offset empty means the math of where the partition starts is done automatically
+# Note: Of course it is important that the total sum of Sizes doesnt exceed the flash memory (16MB in our case)
+
+# Documentation:
+# NVS (Non-Volatile Storage): used by the ESP32 to save Wi-Fi credentials, 
+# BLE data, and small variables that must survive a reboot.
+
+# PHY_INIT (Physical layer initialization): stores highly specific radio 
+# frequency (RF) calibration data to ensure antennas work reliably.
+
+# COREDUMP is a post-crash debugging storage, if the rocket software panics 
+# or crashes mid-flight, the ESP32 dumps its CPU/memory state here before rebooting.
+
+# FACTORY: The compiled C++ flight software
+# NOTE: 15MB is way too much just for the code which is around 2MB
+
+
+# NOTE REGARD OTA (OVER-THE-AIR) UPDATES:
+# Another common usage for partitioning for memory is for wireless firmware updates. 
+# We could take like 4MB off the factory to update the software via wireless (useful if  
+# the rocket sits on the launchpad):
+#
+# ota_0,    app,  ota_0,    ,        4M,
+# ota_1,    app,  ota_1,    ,        4M,
