@@ -48,8 +48,15 @@ bool Flash::isConfigured() const {
 }
 
 bool Flash::configureHoldAndWpPins() const {
+    uint64_t pin_mask = 0;
+    if (_hold_pin != GPIO_NUM_NC) pin_mask |= (1ULL << _hold_pin);
+    if (_wp_pin != GPIO_NUM_NC) pin_mask |= (1ULL << _wp_pin);
+
+    // If neither pin is used, just return true
+    if (pin_mask == 0) return true;
+
     gpio_config_t cfg = {};
-    cfg.pin_bit_mask = (1ULL << _hold_pin) | (1ULL << _wp_pin);
+    cfg.pin_bit_mask = pin_mask;
     cfg.mode = GPIO_MODE_OUTPUT;
     cfg.pull_up_en = GPIO_PULLUP_DISABLE;
     cfg.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -57,8 +64,8 @@ bool Flash::configureHoldAndWpPins() const {
 
     if (gpio_config(&cfg) != ESP_OK) return false;
     
-    gpio_set_level(_hold_pin, 1);
-    gpio_set_level(_wp_pin, 1);
+    if (_hold_pin != GPIO_NUM_NC) gpio_set_level(_hold_pin, 1);
+    if (_wp_pin != GPIO_NUM_NC) gpio_set_level(_wp_pin, 1);
     return true;
 }
 
