@@ -63,8 +63,9 @@ CONFIG_BROWNOUT_DET=y
 # Disable Arduino autostart so we can use app_main() as the entry point
 CONFIG_AUTOSTART_ARDUINO=n
 
-# Partition table — large single factory app
-CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+# Partition table — custom single factory app + FAT storage partition
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
 # --- CONSOLE CONFIGURATION ---
 
