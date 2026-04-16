@@ -3,7 +3,7 @@ file(GLOB_RECURSE SRCS "src/*.cpp" "src/*.c")
 
 idf_component_register(
     SRCS ${SRCS}
-    INCLUDE_DIRS "src" "src/states" "src/tasks"
+    INCLUDE_DIRS "src" "src/states" "src/tasks" "src/tasks/hil"
     REQUIRES
         global
         data

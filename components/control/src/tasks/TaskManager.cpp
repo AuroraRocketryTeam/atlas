@@ -23,15 +23,17 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
     _espNowTransmitter = std::make_shared<EspNowTransmitter>(peerMac, ESPNOW_CHANNEL);
 
     // Initialize transmitter
-    ResponseStatusContainer initResult = _espNowTransmitter->init();
-    if (initResult.getCode() != 0)
-    {
-        LOG_ERROR("TaskMgr", "Failed to initialize ESP-NOW: %s", initResult.getDescription().c_str());
-    }
-    else
-    {
-        LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
-    }
+    // TODO: temporary fix to not get init errors.
+    
+    // ResponseStatusContainer initResult = _espNowTransmitter->init();
+    // if (initResult.getCode() != 0)
+    // {
+    //     LOG_ERROR("TaskMgr", "Failed to initialize ESP-NOW: %s", initResult.getDescription().c_str());
+    // }
+    // else
+    // {
+    //     LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
+    // }
 
 
     // Initialize LoRa transmitter
@@ -87,6 +89,11 @@ void TaskManager::initializeTasks()
         // the \n character, so separating each line
         "/simulated_sensors_full_piped.csv",
         _sd,
+        _rocketModel,
+        _modelMutex,
+        _logger,
+        _loggerMutex);
+    _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
         _modelMutex,
         _logger,

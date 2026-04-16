@@ -321,9 +321,11 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering CALIBRATING"); })
         .setExitAction([this]()
                        { LOG_INFO("RocketFSM", "Exiting CALIBRATING"); })
-        #ifdef SIMULATION_DATA
+        #if defined(SIMULATION_DATA)
         // This state should be deleted eventually, also commenting out the simulation part, as it would just burn samples from the file
         //.addTask(TaskConfig(TaskType::SIMULATION, "Simulation_1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        // .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -336,8 +338,10 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::READY_FOR_LAUNCH]
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH"); })
-        #ifdef SIMULATION_DATA
+        #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_2", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_2", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -351,8 +355,10 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::LAUNCH]
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LAUNCH"); })
-        #ifdef SIMULATION_DATA
+        #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_3", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_3", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -365,8 +371,10 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT"); })
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        #ifdef SIMULATION_DATA
+        #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_4", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_4", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -378,8 +386,10 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::BALLISTIC_FLIGHT]
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering BALLISTIC_FLIGHT"); })
-        #ifdef SIMULATION_DATA
+        #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_5", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_5", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -391,13 +401,19 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::APOGEE] = std::make_unique<StateAction>(RocketState::APOGEE);
     _stateActions[RocketState::APOGEE]
         ->setEntryAction([this]()
-                         {
-                             LOG_INFO("RocketFSM", "Entering APOGEE");
-                             gpio_set_level(DROGUE_ACTUATOR_PIN, HIGH); // Activate drogue deployment
-                             // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
-                         })
-        #ifdef SIMULATION_DATA
+                        {
+                            LOG_INFO("RocketFSM", "Entering APOGEE");
+                            gpio_set_level(DROGUE_ACTUATOR_PIN, HIGH); // Activate drogue deployment
+                            if (_rocketModel && xSemaphoreTake(_modelMutex, portMAX_DELAY)) {
+                                _rocketModel->setOpenDrogueCommand();
+                                xSemaphoreGive(_modelMutex);
+                            }
+                            // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
+                        })
+        #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_6", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_6", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -409,13 +425,19 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::STABILIZATION] = std::make_unique<StateAction>(RocketState::STABILIZATION);
     _stateActions[RocketState::STABILIZATION]
         ->setExitAction([this]()
-                         {
-                             LOG_INFO("RocketFSM", "Exiting STABILIZATION");
-                             gpio_set_level(MAIN_ACTUATOR_PIN, HIGH); // Activate main deployment
-                             // tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
-                         })
-        #ifdef SIMULATION_DATA
+                        {
+                            LOG_INFO("RocketFSM", "Exiting STABILIZATION");
+                            gpio_set_level(MAIN_ACTUATOR_PIN, HIGH); // Activate main deployment
+                            if (_rocketModel && xSemaphoreTake(_modelMutex, portMAX_DELAY)) {
+                                _rocketModel->setOpenMainCommand();
+                                xSemaphoreGive(_modelMutex);
+                            }
+                            // tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
+                        })
+        #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_7", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_7", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -428,8 +450,10 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::DECELERATION]
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering DECELERATION"); })
-        #ifdef SIMULATION_DATA
+        #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_8", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_8", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -441,8 +465,10 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::LANDING]
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LANDING"); })
-        #ifdef SIMULATION_DATA
+        #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_9", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_9", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -454,8 +480,10 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::RECOVERED]
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering RECOVERED"); })
-        #ifdef SIMULATION_DATA
+        #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_10", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        #elif defined(HIL_SIMULATION_DATA)
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_10", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -647,10 +675,15 @@ void RocketFSM::checkTransitions()
     static unsigned long launchHighSince = 0;
 
     // Get accelerometer data before switch statement
+    auto accX = 0.0f;
+    auto accY = 0.0f;
+    auto accZ = 0.0f;
     std::shared_ptr<IMUData> bno055Data = _rocketModel->getBNO055Data();
-    auto accX = bno055Data->acceleration_x;
-    auto accY = bno055Data->acceleration_y;
-    auto accZ = bno055Data->acceleration_z;
+    if(bno055Data) {
+        accX = bno055Data->acceleration_x;
+        accY = bno055Data->acceleration_y;
+        accZ = bno055Data->acceleration_z;
+    }
 
     // Fast state-based checks
     switch (_currentState)

@@ -1,5 +1,6 @@
 file(GLOB_RECURSE MAIN_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-                             "${CMAKE_CURRENT_SOURCE_DIR}/*.c")
+                            "${CMAKE_CURRENT_SOURCE_DIR}/*.c")
+
 # register the component to the build system.
 idf_component_register(
     SRCS ${MAIN_SRCS}
@@ -29,7 +30,7 @@ idf_component_register(
         radio_espnow
         radio_lora
         # Third-party
-        BNO055_SensorAPI
+        # BNO055_SensorAPI
         RadioLib-master
     REQUIRES espressif__arduino-esp32
 )

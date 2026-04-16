@@ -11,6 +11,7 @@ enum class TaskType
 {
     SENSOR,
     SIMULATION,
+    HIL_SIMULATION,
     EKF,
     RECOVERY,
     DATA_COLLECTION,

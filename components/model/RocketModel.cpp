@@ -30,6 +30,9 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     channel_config.atten    = ADC_ATTEN_DB_12;
     channel_config.bitwidth = ADC_BITWIDTH_12;
     ESP_ERROR_CHECK(adc_oneshot_config_channel(_adc1_handle, ADC_PIN, &channel_config));
+
+
+    _cmd = Command();
 }
 
 void RocketModel::readBattery() {
@@ -48,6 +51,48 @@ void RocketModel::readBattery() {
     //voltageData.setData("Percentage", _batteryPercentage);
     
     //logger->logSensorData(voltageData);
+}
+
+bool RocketModel::setOpenMainCommand(){
+    // take lock;
+    _cmd.setMain(true);
+    // bitmask |= FSM_DONE;
+    // if bitmask == DONE:
+    //     bitmask = 0;
+    //     xTaskNotifyGive(); // unlock Simulation task to simulatorTask
+    // release lock;
+    return true;
+}
+
+bool RocketModel::setOpenDrogueCommand(){
+    // take lock;
+    _cmd.setDrogue(true);
+    // bitmask |= FSM_DONE;
+    // if bitmask == DONE:
+    //     bitmask = 0;
+    //     xTaskNotifyGive(); // unlock Simulation task to simulatorTask
+    // release lock;
+    return true;
+}
+
+bool RocketModel::setAirbrakesCommand(float lvl){
+    // take lock;
+    _cmd.setAirbrakes(lvl);
+    // bitmask |= AIRBRAKE_DONE;
+    // if bitmask == DONE:
+    //     bitmask = 0;    
+    //     xTaskNotifyGive(); // unlock Simulation task to simulatorTask
+    // release lock;
+    return true;
+}
+
+Command RocketModel::getCommand() {
+    return _cmd;
+}
+
+void RocketModel::resetCommand()
+{
+    _cmd.reset();
 }
 
 bool RocketModel::updateBNO055() {
@@ -141,3 +186,4 @@ std::shared_ptr<float> RocketModel::getHeightGainSpeed() {
 std::shared_ptr<float> RocketModel::getCurrentHeight() {
     return _currentHeight;
 }
+

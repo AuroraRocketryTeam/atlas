@@ -11,6 +11,7 @@
 #include <AccelerometerSensorData.hpp>
 #include <PressureSensorData.hpp>
 #include <GPSData.hpp>
+#include <Command.hpp>
 #include <Termoresistenze.hpp>
 #include <RocketLogger.hpp>
 #include <config.h>
@@ -176,6 +177,12 @@ public:
      */
     std::shared_ptr<float> getCurrentHeight();
 
+    bool setOpenMainCommand();
+    bool setOpenDrogueCommand();
+    bool setAirbrakesCommand(float lvl);
+    Command getCommand();
+    void resetCommand();
+
 private:
     // Logger instance
     std::shared_ptr<RocketLogger> _logger;
@@ -194,6 +201,8 @@ private:
     std::shared_ptr<PressureSensorData> _ms561101ba03Data_2;
     std::shared_ptr<GPSData> _gpsData;
     
+    Command _cmd;
+
     adc_oneshot_unit_handle_t _adc1_handle;
     int _batteryAdc;
     float _batteryVoltage, _batteryPercentage;
