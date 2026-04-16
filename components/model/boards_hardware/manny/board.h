@@ -9,6 +9,7 @@ static constexpr i2c_port_t MANNY_I2C_PORT = I2C_NUM_0;
 
 static constexpr gpio_num_t MANNY_DROGUE_ACTUATOR_PIN = GPIO_NUM_5;
 static constexpr gpio_num_t MANNY_MAIN_ACTUATOR_PIN = GPIO_NUM_4;
+
 static constexpr gpio_num_t MANNY_BUZZER_PIN = GPIO_NUM_21;
 
 static constexpr gpio_num_t MANNY_LED_RED_PIN = GPIO_NUM_18;
@@ -19,9 +20,11 @@ static constexpr gpio_num_t MANNY_LED_BUILTIN_PIN = MANNY_LED_BLUE_PIN;
 static constexpr gpio_num_t MANNY_FLASH_HOLD_PIN = GPIO_NUM_9;
 static constexpr gpio_num_t MANNY_FLASH_CS_PIN = GPIO_NUM_10;
 static constexpr gpio_num_t MANNY_FLASH_WP_PIN = GPIO_NUM_14;
+
 static constexpr gpio_num_t MANNY_SPI_MOSI_PIN = GPIO_NUM_37;
 static constexpr gpio_num_t MANNY_SPI_MISO_PIN = GPIO_NUM_13;
 static constexpr gpio_num_t MANNY_SPI_CLK_PIN = GPIO_NUM_17;
+
 static constexpr gpio_num_t MANNY_BAROMETER_CS_PIN = GPIO_NUM_6;
 static constexpr gpio_num_t MANNY_BAROMETER2_CS_PIN = GPIO_NUM_NC;
 
@@ -30,8 +33,8 @@ static constexpr int MANNY_BNO055_I2C_ADDRESS = 0x29;
 
 static constexpr gpio_num_t MANNY_ARMING_PIN = GPIO_NUM_NC;
 
-static constexpr gpio_num_t MANNY_GPS_TX_PIN = GPIO_NUM_17;
-static constexpr gpio_num_t MANNY_GPS_RX_PIN = GPIO_NUM_16;
+static constexpr gpio_num_t MANNY_GPS_TX_PIN = GPIO_NUM_NC;
+static constexpr gpio_num_t MANNY_GPS_RX_PIN = GPIO_NUM_NC;
 
 static constexpr gpio_num_t MANNY_LORA_AUX_PIN = GPIO_NUM_40;
 static constexpr gpio_num_t MANNY_LORA_RX_PIN  = GPIO_NUM_39;
