@@ -12,9 +12,7 @@
 #include "esp_log.h"
 #include "SPIBus.hpp"
 
-namespace {
-    constexpr const char* TAG = "ExtFlash";
-}
+static const char* TAG = "Flash";
 
 Flash::~Flash() {
     closeFile();
