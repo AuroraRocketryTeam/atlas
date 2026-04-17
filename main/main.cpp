@@ -575,7 +575,19 @@ void showTestPattern(int testNumber, StatusManager &statusManager)
         statusManager.playBlockingPattern(TEST_SD, 1000);
         break;
     case 5:
+        statusManager.playBlockingPattern(TEST_SENSORS, 1000);
+        break;
+    case 6:
         statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+        break;
+    case 7:
+        statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+        break;
+    case 8:
+        statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+        break;
+    case 9:
+        statusManager.playBlockingPattern(TEST_SD, 1000);
         break;
     case 10:
         statusManager.playBlockingPattern(TEST_ALL, 2000);
@@ -604,7 +616,7 @@ static void toUpperString(std::string &s)
 // Modified waitForUserInput with buzzer patterns
 bool waitForUserInput(const char *message)
 {
-    printf("%s\n Or type REBOOT to restart the system.\n", message);
+    printf("%s\n(Shortcuts: 'P' = Passed, 'F' = Failed, 'R' = Reboot)\n", message);
     statusManager.setSystemCode(WAITING_INPUT);
 
     while (true)
@@ -616,20 +628,20 @@ bool waitForUserInput(const char *message)
             trimString(input);
             toUpperString(input);
 
-            if (input == "PASSED")
+            if (input == "PASSED" || input == "P")
             {
                 statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
                 return true;
             }
-            if (input == "FAILED")
+            if (input == "FAILED" || input == "F")
             {
                 statusManager.playBlockingPattern(TEST_FAILURE, 1000);
                 return false;
             }
-            if (input == "REBOOT")
+            if (input == "REBOOT" || input == "R")
             {
                 LOG_WARNING("Test", "System is going to reboot, are you sure?");
-                LOG_WARNING("Test", "Type REBOOT to confirm or anything else to cancel.");
+                LOG_WARNING("Test", "Type REBOOT (or 'R') to confirm or anything else to cancel.");
 
                 char confirmBuffer[64] = {0};
                 Utils::readLine(confirmBuffer, sizeof(confirmBuffer));
@@ -642,15 +654,20 @@ bool waitForUserInput(const char *message)
                 }
                 trimString(confirm);
                 toUpperString(confirm);
-                if (confirm == "REBOOT")
+                
+                if (confirm == "REBOOT" || confirm == "R")
                 {
                     LOG_WARNING("Test", "Rebooting system...");
                     ESP.restart();
                 }
+                else
+                {
+                    LOG_INFO("Test", "Reboot cancelled.");
+                }
             }
-            else
+            else if (!input.empty())
             {
-                LOG_INFO("Test", "Reboot cancelled.");
+                LOG_WARNING("Test", "Unrecognized input. Please type P, F, or R.");
             }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -811,7 +828,7 @@ bool testFlashMemory()
 
     if (!flash) {
         LOG_ERROR("Test", "Flash pointer is null! Initialization failed in setup.");
-        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
     }
 
     LOG_INFO("Test", "Flash: verifying readiness...");
@@ -819,7 +836,7 @@ bool testFlashMemory()
     if (!flash->init())
     {
         LOG_ERROR("Test", "Flash init failed: verify external SPI flash wiring and availability.");
-        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
     }
     LOG_INFO("Test", "Flash: init OK (%lu ms)", (unsigned long)(Utils::millis() - t0));
 
@@ -910,7 +927,7 @@ bool testFlashMemory()
 
     LOG_INFO("Test", "Flash: test completed in %lu ms", (unsigned long)(Utils::millis() - t0));
 
-    return waitForUserInput("Verifica i log sopra nella console seriale. Scrivi PASSED per continuare o FAILED per ripetere");
+    return waitForUserInput("Check the logs above in the serial console. Type PASSED to continue or FAILED to retry");
 }
 
 bool testTelemetry()
