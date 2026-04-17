@@ -17,21 +17,22 @@ static const char* TAG = "Flash";
 Flash::~Flash() {
     closeFile();
 
+    // Unmount filesystem if it was successfully registered
     if (_initialized) {
-        // Unmount filesystem and unregister partition
         esp_vfs_littlefs_unregister(_partition_label.c_str());
-        
-        if (_ext_part != nullptr) {
-            esp_partition_deregister_external(_ext_part);
-            _ext_part = nullptr;
-        }
-        
-        // Remove device from SPI bus
-        if (_ext_flash != nullptr) {
-            spi_bus_remove_flash_device(_ext_flash);
-            _ext_flash = nullptr;
-        }
         _initialized = false;
+    }
+    
+    // Unregister external partition if the pointer is valid
+    if (_ext_part != nullptr) {
+        esp_partition_deregister_external(_ext_part);
+        _ext_part = nullptr;
+    }
+    
+    // Remove device from SPI bus if the pointer is valid
+    if (_ext_flash != nullptr) {
+        spi_bus_remove_flash_device(_ext_flash);
+        _ext_flash = nullptr;
     }
 }
 
@@ -106,12 +107,15 @@ bool Flash::init() {
     esp_err_t err = spi_bus_add_flash_device(&_ext_flash, &dev_cfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Add flash device failed: %s", esp_err_to_name(err));
+        _ext_flash = nullptr;
         return false;
     }
 
     err = esp_flash_init(_ext_flash);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Flash chip init failed: %s", esp_err_to_name(err));
+        spi_bus_remove_flash_device(_ext_flash);
+        _ext_flash = nullptr;
         return false;
     }
 
@@ -124,6 +128,8 @@ bool Flash::init() {
                                           ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, &_ext_part);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register external partition: %s", esp_err_to_name(err));
+        spi_bus_remove_flash_device(_ext_flash);
+        _ext_flash = nullptr;
         return false;
     }
 
@@ -137,6 +143,10 @@ bool Flash::init() {
     err = esp_vfs_littlefs_register(&lfs_conf);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to mount LittleFS: %s", esp_err_to_name(err));
+        esp_partition_deregister_external(_ext_part);
+        _ext_part = nullptr;
+        spi_bus_remove_flash_device(_ext_flash);
+        _ext_flash = nullptr;
         return false;
     }
 
