@@ -120,7 +120,14 @@ bool Flash::init() {
     }
 
     uint32_t capacity = 0;
-    esp_flash_get_size(_ext_flash, &capacity);
+    err = esp_flash_get_size(_ext_flash, &capacity);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read flash size: %s", esp_err_to_name(err));
+        spi_bus_remove_flash_device(_ext_flash);
+        _ext_flash = nullptr;
+        return false;
+    }
+    
     ESP_LOGI(TAG, "External flash initialized. Capacity: %lu bytes", (unsigned long)capacity);
 
     // Register a virtual partition for the whole chip
