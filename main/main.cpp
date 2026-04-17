@@ -796,7 +796,7 @@ bool testFlashMemory()
 {
     LOG_INFO("Test", "[STEP 5] Test Flash memory");
 
-    flash = std::make_shared<Flash>()
+    flash = std::make_shared<Flash>();
     
     const uint32_t t0 = Utils::millis();
 
