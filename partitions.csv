@@ -5,7 +5,7 @@
    coredump,   data, coredump, ,        256K,
    factory,    app,  factory,  ,        15M,
 # Note: Leaving Offset empty means the math of where the partition starts is done automatically
-# Note: Of course it is important that the total sum of Sizes doesnt exceed the flash memory (16MB in our case)
+# Note: Of course it is important that the total sum of Sizes doesn't exceed the flash memory (16MB in our case)
 
 # Documentation:
 # NVS (Non-Volatile Storage): used by the ESP32 to save Wi-Fi credentials, 
@@ -21,7 +21,7 @@
 # NOTE: 15MB is way too much just for the code which is around 2MB
 
 
-# NOTE REGARD OTA (OVER-THE-AIR) UPDATES:
+# NOTE REGARDING OTA (OVER-THE-AIR) UPDATES:
 # Another common usage for partitioning for memory is for wireless firmware updates. 
 # We could take like 4MB off the factory to update the software via wireless (useful if  
 # the rocket sits on the launchpad):
