@@ -120,6 +120,8 @@ public:
      */
     std::shared_ptr<GPSData> getGPSData();
 
+    bool hasGPS() { return _gps != nullptr; }
+
     /**
      * @brief Set the simulated BNO055 sensor data
      *

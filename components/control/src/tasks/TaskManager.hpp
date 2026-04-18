@@ -9,6 +9,7 @@
 #include "Logger.hpp"
 #include "SD-master.hpp"
 #include "RocketModel.hpp"
+#include "IStateMachine.hpp"
 
 #include "SensorTask.hpp"
 #include "SDLoggingTask.hpp"
@@ -40,7 +41,8 @@ public:
             SemaphoreHandle_t modelMutex,
             std::shared_ptr<SD> sd,
             std::shared_ptr<RocketLogger> logger,
-            SemaphoreHandle_t loggerMutex);
+            SemaphoreHandle_t loggerMutex,
+            IStateMachine* fsm = nullptr);
     
     /**
      * @brief Destroy the Task Manager object
@@ -120,4 +122,6 @@ private:
     // Telemetry
     std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
+
+    IStateMachine* _fsm;
 };

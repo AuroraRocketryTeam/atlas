@@ -3,9 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
-// Fixed packet size for transmission (optimized for 64-byte TelemetryPacket)
-// 70 bytes = Header(7) + Payload(57) + CRC(2) + Padding(4) = 3x faster than 250 bytes
-constexpr size_t FIXED_PACKET_SIZE = 70;
+// 71 bytes = Header(7) + Payload(58) + CRC(2) + Padding(4) = 3x faster than 250 bytes
+constexpr size_t FIXED_PACKET_SIZE = 71;
 // Maximum raw packet size we assume for transmit buffers (including header and CRC)
 constexpr size_t MAX_PACKET_SIZE = FIXED_PACKET_SIZE;
 constexpr size_t RESERVED_BYTES = 0;

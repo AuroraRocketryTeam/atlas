@@ -1,6 +1,5 @@
 #include "RocketFSM.hpp"
 #include "esp_task_wdt.h"
-#include <pins.h>
 #include <utils.h>
 
 // Event queue size
@@ -8,11 +7,12 @@ static const size_t EVENT_QUEUE_SIZE = 10;
 
 RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
                      std::shared_ptr<SD> sd,
-                     std::shared_ptr<RocketLogger> logger)
+                     std::shared_ptr<RocketLogger> logger,
+                     IBoardHardware* board)
     : _fsmTaskHandle(nullptr), _eventQueue(nullptr), _stateMutex(nullptr),
       _currentState(RocketState::INACTIVE), _previousState(RocketState::INACTIVE),
       _stateStartTime(0), _isRunning(false), _isTransitioning(false),
-      _rocketModel(rocketModel), _logger(logger), _sd(sd)
+      _rocketModel(rocketModel), _logger(logger), _sd(sd), _board(board)
 {
     LOG_INFO("FSM", "Constructor called");
     LOG_INFO("FSM", "Variables check: model=%s, SD=%s, Logger=%s",
@@ -108,11 +108,12 @@ void RocketFSM::init()
     // Initialize managers
     LOG_INFO("RocketFSM", "Initializing TaskManager...");
     _taskManager = std::make_unique<TaskManager>(
-        _rocketModel,     // model
-        _modelMutex,// modelMutex
-        _sd,             // sdCard
-        _logger,         // _logger
-        _loggerMutex   // loggerMutex
+        _rocketModel,
+        _modelMutex,
+        _sd,
+        _logger,
+        _loggerMutex,
+        this
     );
     LOG_INFO("RocketFSM", "INITIALIZING TASKS...");
     _taskManager->initializeTasks();
@@ -393,7 +394,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          {
                              LOG_INFO("RocketFSM", "Entering APOGEE");
-                             gpio_set_level(DROGUE_ACTUATOR_PIN, HIGH); // Activate drogue deployment
+                             gpio_set_level(_board->get_drogue_actuator_pin(), HIGH); // Activate drogue deployment
                              // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
                          })
         #ifdef SIMULATION_DATA
@@ -411,7 +412,7 @@ void RocketFSM::setupStateActions()
         ->setExitAction([this]()
                          {
                              LOG_INFO("RocketFSM", "Exiting STABILIZATION");
-                             gpio_set_level(MAIN_ACTUATOR_PIN, HIGH); // Activate main deployment
+                             gpio_set_level(_board->get_main_actuator_pin(), HIGH); // Activate main deployment
                              // tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
                          })
         #ifdef SIMULATION_DATA

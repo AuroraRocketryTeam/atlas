@@ -31,6 +31,7 @@ static constexpr gpio_num_t MANNY_BAROMETER2_CS_PIN = GPIO_NUM_NC;
 static constexpr gpio_num_t MANNY_BATTERY_DIVIDER_ADC_PIN = GPIO_NUM_1;
 static constexpr int MANNY_BNO055_I2C_ADDRESS = 0x29;
 
+static constexpr gpio_num_t MANNY_SD_CS_PIN = GPIO_NUM_NC;
 static constexpr gpio_num_t MANNY_ARMING_PIN = GPIO_NUM_NC;
 
 static constexpr gpio_num_t MANNY_GPS_TX_PIN = GPIO_NUM_NC;
@@ -93,6 +94,7 @@ public:
     gpio_num_t get_lora_rx_pin() const override;
 
     gpio_num_t get_barometer2_cs_pin() const override;
+    gpio_num_t get_sd_cs_pin() const override;
 
     bool is_armed() const override;
 

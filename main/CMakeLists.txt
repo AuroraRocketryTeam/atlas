@@ -27,6 +27,7 @@ idf_component_register(
         protocol
         radio_espnow
         radio_lora
+        tests
         # Third-party
         BNO055_SensorAPI
         RadioLib-master

@@ -1,4 +1,5 @@
 #include "board.h"
+#include "driver/gpio.h"
 
 MannyBoard::MannyBoard() : is_initialized(false), spi_handler(nullptr) {}
 
@@ -23,6 +24,10 @@ void MannyBoard::init() {
 
     gpio_config(&actuators_gpio_config);
     gpio_config(&led_gpio_config);
+    
+    gpio_set_level(this->get_main_actuator_pin(), 0);
+    gpio_set_level(this->get_drogue_actuator_pin(), 0);
+
 
     ESP_ERROR_CHECK(_i2c_bus.init(MANNY_I2C_PORT, MANNY_I2C_SDA_PIN, MANNY_I2C_SCL_PIN));
     ESP_ERROR_CHECK(_spi_bus.init(SPI2_HOST, MANNY_SPI_MOSI_PIN, MANNY_SPI_MISO_PIN, MANNY_SPI_CLK_PIN));
@@ -40,6 +45,10 @@ SPIBus* MannyBoard::get_spi_bus() {
 
 gpio_num_t MannyBoard::get_barometer2_cs_pin() const {
     return MANNY_BAROMETER2_CS_PIN;
+}
+
+gpio_num_t MannyBoard::get_sd_cs_pin() const {
+    return MANNY_SD_CS_PIN;
 }
 
 gpio_num_t MannyBoard::get_gps_tx_pin() const {

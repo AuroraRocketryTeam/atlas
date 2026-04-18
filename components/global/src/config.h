@@ -107,5 +107,10 @@
 #define GRAVITY 9.80665f
 
 
+// Mirror telemetry frames to JTAG interface
+// Enable to feed the dashboard directly without the ground station.
+// python3 main.py --source serial --port /dev/cu.usbmodemXXX --baud 115200 --serial-format lora_binary
+#define TELEMETRY_USB_MIRROR
+
 // Telemetry configuration
 constexpr uint8_t RECEIVER_MAC_ADDRESS[] = { 0x34, 0xCD, 0xB0, 0x3D, 0x97, 0xFC };  // MAC dell'ESP32 ricevente: // 34:CD:B0:3D:97:FC

@@ -1,5 +1,8 @@
 #include "TelemetryTask.hpp"
 #include <utils.h>
+#ifdef TELEMETRY_USB_MIRROR
+#  include "driver/usb_serial_jtag.h"
+#endif
 
 constexpr float TROPOSPHERE_HEIGHT = 11000.f; // Troposphere height [m]
 constexpr float a = 0.0065f;                  // Troposphere temperature gradient [deg/m]
@@ -13,14 +16,17 @@ float relAltitude_tele(float pressure, float pressureRef = 99725.0f,
     return temperatureRef / a * (1 - powf(pressure / pressureRef, nInv));
 }
 
+
 TelemetryTask::TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
                              SemaphoreHandle_t modelMutex,
                              std::shared_ptr<EspNowTransmitter> espNowTransmitter,
-                             uint32_t intervalMs)
+                             uint32_t intervalMs,
+                             IStateMachine* fsm)
     : BaseTask("TelemetryTask"),
       _rocketModel(rocketModel),
       _modelMutex(modelMutex),
       _transmitter(espNowTransmitter),
+      _fsm(fsm),
       _transmitIntervalMs(intervalMs),
       _lastTransmitTime(0),
       _messagesCreated(0),
@@ -98,6 +104,15 @@ void TelemetryTask::taskFunction()
                         LOG_WARNING("Telemetry", "LoRa transmit failed: %s", result.getDescription().c_str());
                     }
                 }
+
+#ifdef TELEMETRY_USB_MIRROR
+                if (message.size() <= 255)
+                {
+                    const uint8_t frame[3] = {0xAA, 0x55, static_cast<uint8_t>(message.size())};
+                    usb_serial_jtag_write_bytes(frame, sizeof(frame), portMAX_DELAY);
+                    usb_serial_jtag_write_bytes(message.data(), message.size(), portMAX_DELAY);
+                }
+#endif
             }
         }
 
@@ -149,6 +164,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         // Add timestamp and validity
         packet.timestamp = Utils::millis();
         packet.dataValid = true;
+        packet.flight_phase = _fsm ? static_cast<uint8_t>(_fsm->getCurrentState()) : 0;
 
         auto bno055Data = _rocketModel->getBNO055Data();
         if (bno055Data) {

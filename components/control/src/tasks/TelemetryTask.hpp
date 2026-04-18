@@ -7,6 +7,7 @@
 #include "Logger.hpp"
 #include <Packet.hpp>
 #include <PacketManager.hpp>
+#include "IStateMachine.hpp"
 #include <memory>
 #include <cstdint>
 #include "esp_task_wdt.h"
@@ -51,6 +52,8 @@ struct TelemetryPacket
         float longitude; ///< Longitude (degrees)
         float altitude;  ///< GPS altitude (meters)
     } gps;
+
+    uint8_t flight_phase; ///< 0 = INACTIVE, 10 = RECOVERED
 };
 #pragma pack(pop)
 
@@ -69,6 +72,7 @@ private:
     SemaphoreHandle_t _modelMutex;
     std::shared_ptr<EspNowTransmitter> _transmitter;
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
+    IStateMachine* _fsm;
 
     uint32_t _transmitIntervalMs;
     uint32_t _lastTransmitTime;
@@ -90,7 +94,8 @@ public:
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
                   SemaphoreHandle_t modelMutex,
                   std::shared_ptr<EspNowTransmitter> espNowTransmitter,
-                  uint32_t intervalMs = 1000);
+                  uint32_t intervalMs = 1000,
+                  IStateMachine* fsm = nullptr);
 
     /**
      * @brief Get transmission statistics.

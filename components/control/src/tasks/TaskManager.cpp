@@ -9,12 +9,14 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          SemaphoreHandle_t modelMutex,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
-                         SemaphoreHandle_t loggerMutex) : 
+                         SemaphoreHandle_t loggerMutex,
+                         IStateMachine* fsm) :
                          _rocketModel(rocketModel),
                          _logger(logger),
                          _modelMutex(modelMutex),
                          _loggerMutex(loggerMutex),
-                         _sd(sd)
+                         _sd(sd),
+                         _fsm(fsm)
 {
     LOG_INFO("TaskMgr", "Initialized with model");
 
@@ -68,19 +70,26 @@ void TaskManager::initializeTasks()
         _modelMutex,
         _logger,
         _loggerMutex);
-    _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
-        _rocketModel,
-        _modelMutex,
-        _logger,
-        _loggerMutex);
+    if (_rocketModel->hasGPS())
+    {
+        _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
+            _rocketModel,
+            _modelMutex,
+            _logger,
+            _loggerMutex);
+    } else LOG_INFO("TaskManager", "GPS unavailable. Skipping GPS task");
     // _tasks[TaskType::EKF] = std::make_unique<EkfTask>(
     //     _rocketModel,
     //     _modelMutex,
     //     _kalmanFilter);
-    _tasks[TaskType::SD_LOGGING] = std::make_unique<SDLoggingTask>(
-        _logger,
-        _loggerMutex,
-        _sd);
+    if (_sd)
+    {
+        _tasks[TaskType::SD_LOGGING] = std::make_unique<SDLoggingTask>(
+            _logger,
+            _loggerMutex,
+            _sd);
+    }
+    else LOG_INFO("TaskManager", "SD card unavailable. Skipping SD logging task");
     _tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
         // Using a different simulation file where at the end of each line there is a
         // pipe symbol, this was needed as the readLine function had problem recognizing
@@ -98,7 +107,8 @@ void TaskManager::initializeTasks()
         _rocketModel,
         _modelMutex,
         _espNowTransmitter,
-        TELEMETRY_INTERVAL_MS);
+        TELEMETRY_INTERVAL_MS,
+        _fsm);
     if (_loraTransmitter)
     {
         telemetryTask->setLoRaTransmitter(_loraTransmitter);
