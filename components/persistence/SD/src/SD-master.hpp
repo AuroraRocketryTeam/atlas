@@ -1,6 +1,5 @@
 #pragma once
 
-#include <variant>
 #include <string>
 #include <stdio.h>
 #include "esp_vfs_fat.h"
@@ -10,12 +9,13 @@
 #include "Logger.hpp"
 #include "pins.h"
 #include <SPIBus.hpp>
+#include "IStorage.hpp"
 
 /**
  * @brief Class to handle SD card operations.
  * 
  */
-class SD
+class SD : public IStorage
 {
 private:
     sdmmc_card_t *card = nullptr;
@@ -33,7 +33,7 @@ public:
      * @return true if the file get opened successfully
      * @return false if the file could not be opened
      */
-    bool openFile(std::string filename);
+    bool openFile(const char* filename) override;
 
     /**
      * @brief Close the currently opened file.
@@ -41,7 +41,7 @@ public:
      * @return true if the file was closed successfully
      * @return false if the file could not be closed
      */
-    bool closeFile();
+    bool closeFile() override;
 
     /**
      * @brief Write a string of data to a file.
@@ -51,7 +51,7 @@ public:
      * @return true if the file was written successfully
      * @return false if the file could not be written
      */
-    bool writeFile(std::string filename, std::variant<std::string, const char *> content);  // se true file trovato e scritto, se false file non trovato
+    bool writeFile(const char* filename, const char* content) override;  // se true file trovato e scritto, se false file non trovato
 
     /**
      * @brief Append a string of data to a file.
@@ -61,7 +61,7 @@ public:
      * @return true if the content was appended successfully
      * @return false if there was an error
      */
-    bool appendFile(std::string filename, std::variant<std::string, const char *> content); // se true contenuto aggiunto al file, se false errore
+    bool appendFile(const char* filename, const char* content) override; // se true contenuto aggiunto al file, se false errore
 
     /**
      * @brief Read the whole content of a file.
@@ -69,7 +69,7 @@ public:
      * @param filename The name of the file to read.
      * @return A pointer to the contents of the file, or nullptr if there was an error.
      */
-    char *readFile(std::string filename);                                                     // stampa il contenuto del file. ritorna true se tutto ok senno no
+    char *readFile(const char* filename) override;                                                     // stampa il contenuto del file. ritorna true se tutto ok senno no
     
     /**
      * @brief Clear all contents of the SD card.
@@ -77,7 +77,7 @@ public:
      * @return true if the SD card was cleared successfully
      * @return false if there was an error
      */
-    bool clearSD();                                                                           // cancella tutto il contenuto dell'sd
+    bool clearMemory() override;                                                                           // cancella tutto il contenuto dell'sd
 
     /**
      * @brief Check if a file exists on the SD card.
@@ -86,14 +86,16 @@ public:
      * @return true if the file exists
      * @return false if the file does not exist
      */
-    bool fileExists(std::string filename);                                                    // ritorna true se il file esiste, false se non esiste
+    bool fileExists(const char* filename) override;                                                    // ritorna true se il file esiste, false se non esiste
     
     /**
      * @brief Read a single line from the currently open file.
      * 
      * @return A std::string containing the next line, or an empty string if EOF or error.
      */
-    std::string readLine();
+    char* readLine() override;
+
+    bool isInitialized() const override { return fileInitialized; }
 
     /**
      * @brief Get a pointer to the currently open file.

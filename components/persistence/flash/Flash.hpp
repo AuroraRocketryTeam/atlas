@@ -8,8 +8,9 @@
 #include "esp_flash.h"
 #include "esp_partition.h"
 #include "SPIBus.hpp"
+#include "IStorage.hpp"
 
-class Flash
+class Flash : public IStorage
 {
 private:
 
@@ -62,52 +63,47 @@ public:
     /**
      * @brief Opens a file stream for sequential reading via readLine().
      */
-    bool openFile(std::string filename);
+    bool openFile(const char* filename) override;
 
     /**
      * @brief Closes the currently opened file stream.
      */
-    bool closeFile();
+    bool closeFile() override;
 
     /**
      * @brief Write a string of data to a file (overwrites existing).
      */
-    bool writeFile(std::string filename, std::string content);
-
-    /**
-     * @brief Write a string of data to a file (overwrites existing).
-     */
-    bool writeFile(std::string filename, const char* content);
+    bool writeFile(const char* filename, const char* content) override;
 
     /**
      * @brief Append a string of data to a file.
      */
-    bool appendFile(std::string filename, std::string content);
-    
-    /**
-     * @brief Append a string of data to a file.
-     */
-    bool appendFile(std::string filename, const char * content);
+    bool appendFile(const char* filename, const char* content) override;
 
     /**
      * @brief Read the whole content of a file.
      * @note Caller is responsible for freeing the returned memory using `delete[]`.
      */
-    char *readFile(std::string filename);
+    char *readFile(const char* filename) override;
     
     /**
      * @brief Clear external flash by formatting the LittleFS partition.
      */
-    bool clearFlash();
+    bool clearMemory() override;
+
+    // Backward-compatible alias.
+    bool clearFlash() { return clearMemory(); }
 
     /**
      * @brief Check if a file exists on the flash.
      */
-    bool fileExists(std::string filename);
+    bool fileExists(const char* filename) override;
     
     /**
      * @brief Read a single line from the currently open file.
      * * Streaming directly off the flash eliminates the RAM-spike vulnerability.
      */
-    std::string readLine();
+    char* readLine() override;
+
+    bool isInitialized() const override { return _initialized; }
 };

@@ -1,4 +1,6 @@
 #include "SD-master.hpp"
+#include <cstdlib>
+#include <cstring>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
@@ -49,8 +51,12 @@ bool SD::init(SPIBus* bus)
  * @param filename
  * @return true if the file is opened, false otherwise
  */
-bool SD::openFile(std::string filename)
+bool SD::openFile(const char* filename)
 {
+    if (filename == nullptr) {
+        return false;
+    }
+
     std::string full_path = mount_point + "/" + filename;
     
     if (this->file != nullptr) {
@@ -92,8 +98,12 @@ bool SD::closeFile()
  * @param content  the content to write
  * @return true if the file is written, false otherwise
  */
-bool SD::writeFile(std::string filename, std::variant<std::string, const char *> content)
+bool SD::writeFile(const char* filename, const char* content)
 {
+    if (filename == nullptr || content == nullptr) {
+        return false;
+    }
+
     std::string full_path = mount_point + "/" + filename;
 
     // overwrite mode
@@ -103,17 +113,7 @@ bool SD::writeFile(std::string filename, std::variant<std::string, const char *>
         return false;
     }
     
-    const char *data;
-    if (std::holds_alternative<std::string>(content))
-    {
-        data = std::get<std::string>(content).c_str();
-    }
-    else
-    {
-        data = std::get<const char *>(content);
-    }
-    
-    fputs(data, temp_file);
+    fputs(content, temp_file);
     fclose(temp_file);
     return true;
 }
@@ -125,8 +125,12 @@ bool SD::writeFile(std::string filename, std::variant<std::string, const char *>
  * @param content  the content to append
  * @return true if the content is appended, false otherwise
  */
-bool SD::appendFile(std::string filename, std::variant<std::string, const char *> content)
+bool SD::appendFile(const char* filename, const char* content)
 {
+    if (filename == nullptr || content == nullptr) {
+        return false;
+    }
+
     if (this->file == nullptr)
     {
         if(!this->openFile(filename))
@@ -137,17 +141,7 @@ bool SD::appendFile(std::string filename, std::variant<std::string, const char *
     
     fseek(this->file, 0, SEEK_END);
     
-    const char *data;
-    if (std::holds_alternative<std::string>(content))
-    {
-        data = std::get<std::string>(content).c_str();
-    }
-    else
-    {
-        data = std::get<const char *>(content);
-    }
-    
-    fputs(data, this->file);
+    fputs(content, this->file);
     fflush(this->file);
     return true;
 }
@@ -158,8 +152,12 @@ bool SD::appendFile(std::string filename, std::variant<std::string, const char *
  *
  * @return char* the content of the file.
  */
-char *SD::readFile(std::string filename)
+char *SD::readFile(const char* filename)
 {
+    if (filename == nullptr) {
+        return nullptr;
+    }
+
     if (this->file == nullptr)
     {
         if(!this->openFile(filename))
@@ -193,7 +191,7 @@ char *SD::readFile(std::string filename)
  *
  * @return true if the SD card is cleared, false otherwise.
  */
-bool SD::clearSD()
+bool SD::clearMemory()
 {
     DIR *dir = opendir(mount_point.c_str());
     if (!dir) {
@@ -217,8 +215,12 @@ bool SD::clearSD()
  * @param filename the file to check for existence
  * @return true if the file exists, false otherwise
  */
-bool SD::fileExists(std::string filename)
+bool SD::fileExists(const char* filename)
 {
+    if (filename == nullptr) {
+        return false;
+    }
+
     std::string full_path = mount_point + "/" + filename;
     struct stat st;
     if (stat(full_path.c_str(), &st) == 0) {
@@ -232,13 +234,13 @@ bool SD::fileExists(std::string filename)
  *
  * @return String containing the next line, or empty String if EOF or error
  */
-std::string SD::readLine() {
+char* SD::readLine() {
     if (this->file == nullptr) {
         LOG_INFO("SD-Task", "File not open");
-        return "";
+        return nullptr;
     }
 
-    std::string str = "";    
+    std::string str = "";
     char ch;
     
     while (fread(&ch, 1, 1, this->file) == 1) {
@@ -250,6 +252,12 @@ std::string SD::readLine() {
         }
     }
     
-    return str;
+    char* out = static_cast<char*>(malloc(str.size() + 1));
+    if (out == nullptr) {
+        return nullptr;
+    }
+
+    memcpy(out, str.c_str(), str.size() + 1);
+    return out;
 }
 

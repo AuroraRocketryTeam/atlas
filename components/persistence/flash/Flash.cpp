@@ -1,4 +1,5 @@
 #include "Flash.hpp"
+#include <cstdlib>
 #include <sys/stat.h>
 #include <cstring>
 #include <utility>
@@ -161,7 +162,8 @@ bool Flash::init() {
     return true;
 }
 
-bool Flash::openFile(std::string filename) {
+bool Flash::openFile(const char* filename) {
+    if (filename == nullptr) return false;
     if (!_initialized && !init()) return false;
 
     closeFile();
@@ -186,13 +188,9 @@ bool Flash::closeFile() {
     return true;
 }
 
-bool Flash::writeFile(std::string filename, std::string content) {
-    return writeFile(std::move(filename), content.c_str());
-}
-
-bool Flash::writeFile(std::string filename, const char* content) {
+bool Flash::writeFile(const char* filename, const char* content) {
+    if (filename == nullptr || content == nullptr) return false;
     if (!_initialized && !init()) return false;
-    if (content == nullptr) return false;
 
     std::ofstream os(getFullPath(filename), std::ios::trunc | std::ios::out);
     if (!os.is_open()) return false;
@@ -202,13 +200,9 @@ bool Flash::writeFile(std::string filename, const char* content) {
     return os.good();
 }
 
-bool Flash::appendFile(std::string filename, std::string content) {
-    return appendFile(std::move(filename), content.c_str());
-}
-
-bool Flash::appendFile(std::string filename, const char* content) {
+bool Flash::appendFile(const char* filename, const char* content) {
+    if (filename == nullptr || content == nullptr) return false;
     if (!_initialized && !init()) return false;
-    if (content == nullptr) return false;
 
     std::ofstream os(getFullPath(filename), std::ios::app | std::ios::out);
     if (!os.is_open()) return false;
@@ -218,7 +212,8 @@ bool Flash::appendFile(std::string filename, const char* content) {
     return os.good();
 }
 
-char* Flash::readFile(std::string filename) {
+char* Flash::readFile(const char* filename) {
+    if (filename == nullptr) return nullptr;
     if (!_initialized && !init()) return nullptr;
 
     std::ifstream is(getFullPath(filename), std::ios::in | std::ios::binary | std::ios::ate);
@@ -244,7 +239,7 @@ char* Flash::readFile(std::string filename) {
     return nullptr;
 }
 
-bool Flash::clearFlash() {
+bool Flash::clearMemory() {
     if (!_initialized && !init()) return false;
 
     ESP_LOGI(TAG, "Formatting LittleFS partition...");
@@ -258,19 +253,26 @@ bool Flash::clearFlash() {
     return true;
 }
 
-bool Flash::fileExists(std::string filename) {
+bool Flash::fileExists(const char* filename) {
+    if (filename == nullptr) return false;
     if (!_initialized && !init()) return false;
 
     struct stat st;
     return stat(getFullPath(filename).c_str(), &st) == 0;
 }
 
-std::string Flash::readLine() {
-    if (!_active_stream.is_open()) return "";
+char* Flash::readLine() {
+    if (!_active_stream.is_open()) return nullptr;
 
     std::string line;
     if (std::getline(_active_stream, line)) {
-        return line + "\n";
+        line += "\n";
+        char* out = static_cast<char*>(malloc(line.size() + 1));
+        if (out == nullptr) {
+            return nullptr;
+        }
+        memcpy(out, line.c_str(), line.size() + 1);
+        return out;
     }
-    return "";
+    return nullptr;
 }
