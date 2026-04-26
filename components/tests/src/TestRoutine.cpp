@@ -1,6 +1,8 @@
 #include "TestRoutine.hpp"
 
+#include <array>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <algorithm>
 #include <cctype>
@@ -491,68 +493,78 @@ void TestRoutine::run()
 {
     LOG_INFO("Test", "=== SYSTEM TEST ROUTINE INITIATED ===");
 
-    while (true)
+    // ── Tests Definition ────────────────
+    std::array<TestOption, 9> tests = {{
+        {"Alimentation and LED Test", [this]() { return testPowerAndLEDs(); }, true},
+        {"Sensors Test", [this]() { return testSensors(); }, true},
+        {"Actuators Test", [this]() { return testActuators(); }, true},
+        {"SD Card Test", [this]() { return testSDCard(); }, true},
+        {"I2C Scan", [this]() { return testI2CScan(); }, false},
+        {"E220 Configuration (one-time setup)", [this]() { return configureE220(); }, false},
+        {"Telemetry Test", [this]() { return testTelemetry(); }, true},
+        {"E220 connector Test", [this]() { return testE220Connector(); }, false},
+        {"Flash memory Test", [this]() { return testFlashMemory(); }, true},
+    }};
+
+    // ── Run Tests ────────────────
+    bool run = true;
+    while (run)
     {
         _statusManager.setSystemCode(TEST_MENU);
 
+        // ── Show Menu ────────────────
         printf("\n=== MENU TEST ===\n");
-        printf("1 - Test alimentazione e LED\n");
-        printf("2 - Test sensori\n");
-        printf("3 - Test attuatori\n");
-        printf("4 - Test SD Card\n");
-        printf("5 - I2C scan\n");
-        printf("6 - Configura E220 (one-time setup)\n");
-        printf("7 - Test telemetria\n");
-        printf("8 - Test connettore E220\n");
-        printf("9 - Test Flash memory\n");
-        printf("10 - Esegui tutti i test in sequenza\n");
-        printf("0 - Esci dal menu test\n");
-        printf("Inserisci il numero del test da eseguire:\n");
+        for (size_t i = 0; i < tests.size(); i++) {
+            printf("%d - %s\n", i + 1, tests.at(i).name);
+        }
+        printf("%d - Execute all Tests in sequence\n", tests.size() + 1);
+        printf("0 - Exit Menu\n");
+        printf("Insert the desired action number: (0-%d)\n", tests.size() + 1);
 
+        // ── Get Choice ────────────────
         char buffer[32] = {0};
         Utils::readLine(buffer, sizeof(buffer));
         std::string input(buffer);
         trimString(input);
+        
         int choice = std::atoi(input.c_str());
-        bool testPassed = false;
-
+        
         showTestPattern(choice);
+        
+        if (choice >= 0 && choice <= tests.size() + 1) {
+            // ── Exit ──────────────────────────
+            if (choice == 0) {      
+                _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
+                LOG_INFO("Test", "\n=== EXITING TEST MENU ===");
+                _statusManager.setSystemCode(SYSTEM_OK);
+                
+                run = false;
+            }
+            // ── Run Single Test ────────────────
+            else if (choice <= tests.size())
+            {
+                while (!tests.at(choice - 1).func());
 
-        switch (choice)
-        {
-        case 1:  do { testPassed = testPowerAndLEDs();  } while (!testPassed); break;
-        case 2:  do { testPassed = testSensors();       } while (!testPassed); break;
-        case 3:  do { testPassed = testActuators();     } while (!testPassed); break;
-        case 4:  do { testPassed = testSDCard();        } while (!testPassed); break;
-        case 5:  do { testPassed = testI2CScan();       } while (!testPassed); break;
-        case 6:  do { testPassed = configureE220();     } while (!testPassed); break;
-        case 7:  do { testPassed = testTelemetry();     } while (!testPassed); break;
-        case 8:  do { testPassed = testE220Connector(); } while (!testPassed); break;
-        case 9:  do { testPassed = testFlashMemory();   } while (!testPassed); break;
-        case 10:
-            _statusManager.playBlockingPattern(TEST_ALL, 2000);
-            do { testPassed = testPowerAndLEDs();  } while (!testPassed);
-            do { testPassed = testSensors();       } while (!testPassed);
-            do { testPassed = testActuators();     } while (!testPassed);
-            do { testPassed = testSDCard();        } while (!testPassed);
-            do { testPassed = testTelemetry();     } while (!testPassed);
-            do { testPassed = testFlashMemory();   } while (!testPassed);
-            _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
-            LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
-            break;
-        case 0:
-            _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
-            LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
-            _statusManager.setSystemCode(SYSTEM_OK);
-            return;
-        default:
-            printf("Scelta non valida. Riprova.\n");
-            continue;
-        }
+                LOG_INFO("Test", "Test successfully completed!");
+                _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+            }
+            // ── Run All Tests ───────────────────
+            // excluding I2C scan and E220 connector config and test
+            else 
+            {
+                _statusManager.playBlockingPattern(TEST_ALL, 2000);
 
-        if (choice >= 1 && choice <= 10) {
-            LOG_INFO("Test", "Test completato con successo!");
-            _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+                for (const auto& test : tests) {
+                    // check if the test should run
+                    if (test.run_all_flag)   
+                        while (!test.func());                            
+                }
+
+                _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
+                LOG_INFO("Test", "\n=== ALL TESTS SUCCESSFULLY COMPLETED ===");
+            }
+        } else {
+            printf("Invalid choice. Try again.\n");
         }
     }
 }

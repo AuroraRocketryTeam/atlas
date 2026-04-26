@@ -10,6 +10,12 @@
 #include <StatusManager.hpp>
 #include <RocketFSM.hpp>
 
+typedef struct TestOption {
+    const char *name;
+    std::function<bool()> func;
+    bool run_all_flag;
+} TestOption;
+
 class TestRoutine {
 public:
     TestRoutine(IBoardHardware& board,
