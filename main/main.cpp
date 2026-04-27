@@ -824,27 +824,36 @@ bool testFlashMemory()
 {
     LOG_INFO("Test", "[STEP 5] Test Flash memory");
 
-    flash = std::make_shared<Flash>();
-    
-    const uint32_t t0 = Utils::millis();
+    // Flash is already initialized during setup for mirrored logging.
+    // Reuse the same instance to avoid binding the same external chip twice.
+    if (!flash)
+    {
+        flash = std::make_shared<Flash>();
+    }
 
-    if (flash && flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
-    {
-        LOG_INFO("Init", "External Flash initialized");
-    }
-    else
-    {
-        LOG_ERROR("Init", "Failed to initialize External Flash");
-    }
+    const uint32_t t0 = Utils::millis();
 
     if (!flash) {
         LOG_ERROR("Test", "Flash pointer is null! Initialization failed in setup.");
         return waitForUserInput("Type PASSED to continue or FAILED to retry");
     }
 
+    if (!flash->isInitialized())
+    {
+        if (!flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+        {
+            LOG_ERROR("Init", "Failed to initialize External Flash");
+            return waitForUserInput("Type PASSED to continue or FAILED to retry");
+        }
+        LOG_INFO("Init", "External Flash initialized");
+    }
+    else
+    {
+        LOG_INFO("Init", "External Flash already initialized, reusing instance");
+    }
+
     LOG_INFO("Test", "Flash: verifying readiness...");
-    // Calling init() again is safe, it returns true if already initialized
-    if (!flash->init())
+    if (!flash->isInitialized())
     {
         LOG_ERROR("Test", "Flash init failed: verify external SPI flash wiring and availability.");
         return waitForUserInput("Type PASSED to continue or FAILED to retry");
@@ -939,6 +948,74 @@ bool testFlashMemory()
     LOG_INFO("Test", "Flash: test completed in %lu ms", (unsigned long)(Utils::millis() - t0));
 
     return waitForUserInput("Check the logs above in the serial console. Type PASSED to continue or FAILED to retry");
+}
+
+bool dumpFlashJsonFiles()
+{
+    LOG_INFO("Test", "[DUMP] Export JSON files from external flash");
+
+    if (!flash)
+    {
+        flash = std::make_shared<Flash>();
+    }
+
+    if (!flash)
+    {
+        LOG_ERROR("Dump", "Failed to initialize External Flash");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    if (!flash->isInitialized() && !flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+    {
+        LOG_ERROR("Dump", "Flash init failed");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    printf("\n=== JSON DUMP START ===\n");
+    printf("Capture this serial output to a file on PC.\n");
+
+    int dumpedCount = 0;
+    for (int i = 0; i < 2000; ++i)
+    {
+        char filename[64] = {0};
+        std::snprintf(filename, sizeof(filename), "JSON_data_%d.json", i);
+
+        if (!flash->fileExists(filename))
+        {
+            continue;
+        }
+
+        char* content = flash->readFile(filename);
+        if (content == nullptr)
+        {
+            LOG_WARNING("Dump", "Unable to read %s", filename);
+            continue;
+        }
+
+        printf("START_FILE:%s\n", filename);
+        printf("%s", content);
+        if (std::strlen(content) == 0 || content[std::strlen(content) - 1] != '\n')
+        {
+            printf("\n");
+        }
+        printf("END_FILE\n");
+
+        delete[] content;
+        dumpedCount++;
+    }
+
+    printf("=== JSON DUMP END (%d file) ===\n\n", dumpedCount);
+
+    if (dumpedCount == 0)
+    {
+        LOG_WARNING("Dump", "No JSON_data_*.json file found on flash");
+    }
+    else
+    {
+        LOG_INFO("Dump", "Exported %d JSON files", dumpedCount);
+    }
+
+    return waitForUserInput("JSON dump printed on serial. Type PASSED to continue or FAILED to retry");
 }
 
 bool testTelemetry()
@@ -1132,6 +1209,7 @@ void testRoutine()
         printf("8 - Test connettore E220\n");
         printf("9 - Test Flash memory\n");
         printf("10 - Esegui tutti i test in sequenza\n");
+        printf("11 - Dump JSON da Flash su seriale\n");
         printf("0 - Esci dal menu test\n");
         printf("Inserisci il numero del test da eseguire:\n");
 
@@ -1235,6 +1313,12 @@ void testRoutine()
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
             break;
+        case 11:
+            do
+            {
+                testPassed = dumpFlashJsonFiles();
+            } while (!testPassed);
+            break;
         case 0:
             // Exit test mode with success pattern
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
@@ -1246,7 +1330,7 @@ void testRoutine()
             continue;
         }
 
-        if (choice >= 1 && choice <= 10)
+        if (choice >= 1 && choice <= 11)
         {
             LOG_INFO("Test", "Test completato con successo!");
             // Show success pattern before returning to menu
