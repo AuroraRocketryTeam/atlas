@@ -1,11 +1,11 @@
 #include "StorageLoggingTask.hpp"
-#include <cstdlib>
-#include <stdexcept>
 #include "esp_task_wdt.h"
 
-StorageLoggingTask::StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel)
+StorageLoggingTask::StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
+                       std::shared_ptr<RocketLogger> logger)
     : BaseTask("StorageLoggingTask"),
-            rocketModel(rocketModel)
+            rocketModel(rocketModel),
+        logger(logger)
 {
         storageInitialized = this->rocketModel && this->rocketModel->isStorageInitialized();
 
@@ -27,7 +27,7 @@ void StorageLoggingTask::taskFunction() {
         if (!running) break;
 
         storageInitialized = rocketModel && rocketModel->isStorageInitialized();
-        size_t currentLogCount = rocketModel ? rocketModel->getLogCountThreadSafe() : 0;
+        int currentLogCount = logger ? logger->getLogCount() : 0;
 
         if (currentLogCount >= BATCH_SIZE) {
             if (storageInitialized && running) {
@@ -45,33 +45,23 @@ void StorageLoggingTask::taskFunction() {
                 file_counter = currentFileCounter;
                 char* dataToWrite = nullptr;
 
-                try {
-                    if (!rocketModel->consumeLogsAsJson(&dataToWrite)) {
-                        continue;
-                    }
-                } catch (const std::exception& e) {
-                    LOG_ERROR("StorageLoggingTask", "JSON serialization failed: %s", e.what());
+                if (!logger || !logger->consumeAllAsJsonChar(&dataToWrite)) {
                     continue;
                 }
 
                 if (!running) break;
 
-                try {
-                    rocketModel->storageOpenFile(filename.c_str());
-                    if (!rocketModel->storageWriteFile(filename.c_str(), dataToWrite)) {
-                        LOG_ERROR("StorageLoggingTask", "Failed to write batch to file.");
-                    }
-                    rocketModel->storageCloseFile();
-                } catch (const std::exception& e) {
-                    LOG_ERROR("StorageLoggingTask", "Storage operation failed: %s", e.what());
-                    rocketModel->storageCloseFile();
+                if (!rocketModel->storageWriteFile(filename.c_str(), dataToWrite)) {
+                    LOG_ERROR("StorageLoggingTask", "Failed to write batch to file.");
                 }
 
                 if (dataToWrite != nullptr) {
                     free(dataToWrite);
                 }
             } else if (!storageInitialized) {
-                if (rocketModel) rocketModel->clearLogsThreadSafe();
+                if (logger) {
+                    logger->clearData();
+                }
             }
         }
         vTaskDelay(pdMS_TO_TICKS(20));

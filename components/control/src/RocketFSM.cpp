@@ -47,12 +47,6 @@ RocketFSM::~RocketFSM()
         _modelMutex = nullptr;
     }
 
-    if (_loggerMutex)
-    {
-        vSemaphoreDelete(_loggerMutex);
-        _loggerMutex = nullptr;
-    }
-
     LOG_INFO("RocketFSM", "Destructor completed");
 }
 
@@ -93,26 +87,13 @@ void RocketFSM::init()
         _stateMutex = nullptr;
         return;
     }
-    _loggerMutex = xSemaphoreCreateMutex();
-    if (!_loggerMutex)
-    {
-        LOG_ERROR("RocketFSM", "ERROR: Failed to create loggerMutex");
-        vQueueDelete(_eventQueue);
-        _eventQueue = nullptr;
-        vSemaphoreDelete(_stateMutex);
-        _stateMutex = nullptr;
-        vSemaphoreDelete(_modelMutex);
-        _modelMutex = nullptr;
-        return;
-    }
     // Initialize managers
     LOG_INFO("RocketFSM", "Initializing TaskManager...");
     _taskManager = std::make_unique<TaskManager>(
         _rocketModel,     // model
         _modelMutex,// modelMutex
         _sd,             // sdCard
-        _logger,         // _logger
-        _loggerMutex   // loggerMutex
+        _logger          // _logger
     );
     LOG_INFO("RocketFSM", "INITIALIZING TASKS...");
     _taskManager->initializeTasks();

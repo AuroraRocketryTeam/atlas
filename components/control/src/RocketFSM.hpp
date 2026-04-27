@@ -115,7 +115,6 @@ private:
     std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
     SemaphoreHandle_t _modelMutex;
-    SemaphoreHandle_t _loggerMutex;
 
     std::shared_ptr<SD> _sd;
 

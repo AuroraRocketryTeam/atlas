@@ -1,11 +1,29 @@
 #include "RocketLogger.hpp"
 #include <new>
+#include <cstdlib>
+#include <cstring>
 // TODO: Find alternative calls for heap
 #include <Arduino.h>
+
+RocketLogger::RocketLogger() : _mutex(xSemaphoreCreateMutex()) {
+}
 
 // Destructor - clean up all dynamically allocated memory
 RocketLogger::~RocketLogger() {
     clearData();
+    if (_mutex) {
+        vSemaphoreDelete(_mutex);
+        _mutex = nullptr;
+    }
+}
+
+int RocketLogger::getLogCount() const {
+    if (_mutex && xSemaphoreTake(_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+        const int count = static_cast<int>(this->logDataList.size());
+        xSemaphoreGive(_mutex);
+        return count;
+    }
+    return static_cast<int>(this->logDataList.size());
 }
 
 // Override logInfo to log informational messages
@@ -17,8 +35,9 @@ void RocketLogger::logInfo(const std::string& message) {
     }
 
     std::shared_ptr<ILoggable> logMessage = std::make_shared<LogMessage>("RocketLogger", message);
-    if (logMessage) {
+    if (logMessage && _mutex && xSemaphoreTake(_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
         this->logDataList.push_back(LogData("INFO", logMessage));
+        xSemaphoreGive(_mutex);
     }
 }
 
@@ -31,8 +50,9 @@ void RocketLogger::logWarning(const std::string& message) {
     }
 
     std::shared_ptr<ILoggable> logMessage = std::make_shared<LogMessage>("RocketLogger", message);
-    if (logMessage) {
+    if (logMessage && _mutex && xSemaphoreTake(_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
         this->logDataList.push_back(LogData("WARNING", logMessage));
+        xSemaphoreGive(_mutex);
     }
 }
 
@@ -45,48 +65,64 @@ void RocketLogger::logError(const std::string& message) {
     }
 
     std::shared_ptr<ILoggable> logMessage = std::make_shared<LogMessage>("RocketLogger", message);
-    if (logMessage) {
+    if (logMessage && _mutex && xSemaphoreTake(_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
         this->logDataList.push_back(LogData("ERROR", logMessage));
+        xSemaphoreGive(_mutex);
     }
 }
 
 // Override logData to store sensor data
 void RocketLogger::logSensorData(std::shared_ptr<SensorData> sensorData) {
+    if (!_mutex || xSemaphoreTake(_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+        return;
+    }
+
     // Prevent memory exhaustion by limiting log entries
     // note: this should never happen, but just in case we have a log of it
-    const size_t MAX_LOG_ENTRIES = 500;
-    
-    if (logDataList.size() >= MAX_LOG_ENTRIES) {
-        LOG_WARNING("RocketLogger", "Log buffer full (%zu entries), clearing oldest entries", logDataList.size());
+    const int MAX_LOG_ENTRIES = 500;
+    const int currentEntries = static_cast<int>(logDataList.size());
+
+    if (currentEntries >= MAX_LOG_ENTRIES) {
+        LOG_WARNING("RocketLogger", "Log buffer full (%d entries), clearing oldest entries", currentEntries);
         
         // Clear half the entries to avoid frequent clears
-        size_t entriesToRemove = MAX_LOG_ENTRIES / 2;
-        for (size_t i = 0; i < entriesToRemove && !logDataList.empty(); i++) {
+        int entriesToRemove = MAX_LOG_ENTRIES / 2;
+        for (int i = 0; i < entriesToRemove && !logDataList.empty(); i++) {
             // MAKE SURE THE NEW DATA SYSTEM WITH SHARED POINTERS HANDLES MEMORY MANAGEMENT!!!
             // delete logDataList[i].getData();
             logDataList.erase(logDataList.begin());
         }
-        LOG_INFO("RocketLogger", "Cleared %zu entries, now have %zu entries", entriesToRemove, logDataList.size());
+        LOG_INFO("RocketLogger", "Cleared %d entries, now have %d entries", entriesToRemove, static_cast<int>(logDataList.size()));
     }
 
     this->logDataList.push_back(LogData("SENSOR_DATA", sensorData));
+    xSemaphoreGive(_mutex);
 }
 
 // Function to get all logged sensor data as a JSON list
 json RocketLogger::getJSONAll() const {
+    if (!_mutex || xSemaphoreTake(_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+        return json::array();
+    }
+
     json jsonDataList = json::array();
     for (const auto& sensorData : this->logDataList) {
         jsonDataList.push_back(sensorData.toJSON());  // Convert each sensor data to JSON
     }
+    xSemaphoreGive(_mutex);
     return jsonDataList;
 }
 
 // Clear logged sensor data
 void RocketLogger::clearData() {
-    size_t initialCount = this->getLogCount();
+    if (!_mutex || xSemaphoreTake(_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+        return;
+    }
+
+    int initialCount = static_cast<int>(this->logDataList.size());
     
     // Print deleting n elements
-    LOG_INFO("RocketLogger", "Clearing %zu log entries...", initialCount);
+    LOG_INFO("RocketLogger", "Clearing %d log entries...", initialCount);
 
     // MAKE SURE THE NEW DATA SYSTEM WITH SHARED POINTERS HANDLES MEMORY MANAGEMENT!!!
     // Delete all dynamically allocated SensorData objects
@@ -95,7 +131,50 @@ void RocketLogger::clearData() {
     //}
 
     this->logDataList.clear();
-    
-    size_t finalCount = this->getLogCount();
-    LOG_INFO("RocketLogger", "Clear complete. Before: %zu, After: %zu entries", initialCount, finalCount);
+
+    int finalCount = static_cast<int>(this->logDataList.size());
+    xSemaphoreGive(_mutex);
+    LOG_INFO("RocketLogger", "Clear complete. Before: %d, After: %d entries", initialCount, finalCount);
+}
+
+bool RocketLogger::consumeAllAsJsonChar(char** outJson) {
+    if (outJson == nullptr) {
+        return false;
+    }
+    *outJson = nullptr;
+
+    if (!_mutex || xSemaphoreTake(_mutex, pdMS_TO_TICKS(20)) != pdTRUE) {
+        return false;
+    }
+
+    if (this->logDataList.empty()) {
+        xSemaphoreGive(_mutex);
+        return false;
+    }
+
+    json jsonDataList = json::array();
+    for (const auto& sensorData : this->logDataList) {
+        jsonDataList.push_back(sensorData.toJSON());
+    }
+
+    std::string jsonStr;
+    try {
+        jsonStr = jsonDataList.dump();
+    } catch (const std::exception&) {
+        xSemaphoreGive(_mutex);
+        return false;
+    }
+
+    char* jsonBuffer = static_cast<char*>(malloc(jsonStr.size() + 1));
+    if (jsonBuffer == nullptr) {
+        xSemaphoreGive(_mutex);
+        return false;
+    }
+
+    std::memcpy(jsonBuffer, jsonStr.c_str(), jsonStr.size() + 1);
+    this->logDataList.clear();
+
+    xSemaphoreGive(_mutex);
+    *outJson = jsonBuffer;
+    return true;
 }

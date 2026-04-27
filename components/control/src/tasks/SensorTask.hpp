@@ -21,12 +21,10 @@ public:
      * @param rocketModel The shared pointer to the rocket model
      * @param modelMutex The semaphore handle to protect access to the model
      * @param logger The shared pointer to the RocketLogger instance
-     * @param loggerMutex The semaphore handle to protect access to the logger
      */
     SensorTask(std::shared_ptr<RocketModel> rocketModel,
                SemaphoreHandle_t modelMutex,
-               std::shared_ptr<RocketLogger> logger, 
-               SemaphoreHandle_t loggerMutex);
+               std::shared_ptr<RocketLogger> logger);
 
 protected:
     void taskFunction() override;
@@ -39,5 +37,4 @@ private:
     SemaphoreHandle_t modelMutex;
 
     std::shared_ptr<RocketLogger> logger;
-    SemaphoreHandle_t loggerMutex;
 };

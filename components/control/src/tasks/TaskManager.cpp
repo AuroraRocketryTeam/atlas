@@ -8,12 +8,10 @@
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          SemaphoreHandle_t modelMutex,
                          std::shared_ptr<SD> sd,
-                         std::shared_ptr<RocketLogger> logger,
-                         SemaphoreHandle_t loggerMutex) : 
+                         std::shared_ptr<RocketLogger> logger) : 
                          _rocketModel(rocketModel),
                          _logger(logger),
                          _modelMutex(modelMutex),
-                         _loggerMutex(loggerMutex),
                          _sd(sd)
 {
     LOG_INFO("TaskMgr", "Initialized with model");
@@ -66,21 +64,18 @@ void TaskManager::initializeTasks()
     _tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
         _rocketModel,
         _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
     _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
         _rocketModel,
         _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
     // _tasks[TaskType::EKF] = std::make_unique<EkfTask>(
     //     _rocketModel,
     //     _modelMutex,
     //     _kalmanFilter);
-    _tasks[TaskType::SD_LOGGING] = std::make_unique<SDLoggingTask>(
-        _logger,
-        _loggerMutex,
-        _sd);
+    _tasks[TaskType::SD_LOGGING] = std::make_unique<StorageLoggingTask>(
+        _rocketModel,
+        _logger);
     _tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
         // Using a different simulation file where at the end of each line there is a
         // pipe symbol, this was needed as the readLine function had problem recognizing
@@ -89,8 +84,7 @@ void TaskManager::initializeTasks()
         _sd,
         _rocketModel,
         _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
 
     // Create TelemetryTask with ESP-NOW and LoRa transmitters
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!

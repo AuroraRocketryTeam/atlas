@@ -2,14 +2,12 @@
 
 GpsTask::GpsTask(std::shared_ptr<RocketModel> rocketModel,
             SemaphoreHandle_t modelMutex,
-            std::shared_ptr<RocketLogger> logger, 
-            SemaphoreHandle_t loggerMutex
+                        std::shared_ptr<RocketLogger> logger
         )
         : BaseTask("GpsTask"),
           _rocketModel(rocketModel),
           _modelMutex(modelMutex),
-          _logger(logger),
-          _loggerMutex(loggerMutex)
+                    _logger(logger)
     {
         LOG_INFO("GpsTask", "Initialized GPS task");
     }
@@ -38,7 +36,7 @@ void GpsTask::taskFunction()
                 LOG_WARNING("GpsTask", "Failed to take data mutex");
         }
         
-        if (xSemaphoreTake(_loggerMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (_logger) {
             // Only log GPS data every 10 loops (every ~2 seconds) to reduce memory pressure
             if ((loopCounter % 10) == 0) {
 
@@ -49,9 +47,6 @@ void GpsTask::taskFunction()
                     LOG_INFO("GpsTask", "RocketLogger entries: %d", _logger->getLogCount());
                 }
             }
-            xSemaphoreGive(_loggerMutex);
-        } else {
-            LOG_WARNING("GpsTask", "Failed to take logger mutex");
         }
 
         loopCounter++;

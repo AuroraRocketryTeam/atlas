@@ -5,6 +5,7 @@
 #include <freertos/task.h>
 #include "BaseTask.hpp"
 #include "RocketModel.hpp"
+#include "RocketLogger.hpp"
 #include <config.h>
 #include <Logger.hpp>
 
@@ -16,11 +17,11 @@ public:
     /**
      * @brief Construct a new StorageLoggingTask object
      *
-     * @param logger The shared pointer to the RocketLogger instance
-     * @param loggerMutex The semaphore handle to protect access to the logger
-     * @param storage The shared pointer to the storage backend
+    * @param rocketModel The shared pointer to the rocket model storage wrapper
+    * @param logger The shared pointer to the RocketLogger instance
      */
-    StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel);
+    StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
+                   std::shared_ptr<RocketLogger> logger);
 
     ~StorageLoggingTask() override;
 
@@ -29,6 +30,7 @@ protected:
 
 private:
     std::shared_ptr<RocketModel> rocketModel;
+    std::shared_ptr<RocketLogger> logger;
     bool storageInitialized = false;
     int file_counter = 0;
 };
