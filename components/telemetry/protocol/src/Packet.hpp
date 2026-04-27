@@ -3,8 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
-// 71 bytes = Header(7) + Payload(58) + CRC(2) + Padding(4) = 3x faster than 250 bytes
-constexpr size_t FIXED_PACKET_SIZE = 71;
+// 72 bytes = Header(7) + Payload(59) + CRC(2) + Padding(4) = 3x faster than 250 bytes
+constexpr size_t FIXED_PACKET_SIZE = 72;
 // Maximum raw packet size we assume for transmit buffers (including header and CRC)
 constexpr size_t MAX_PACKET_SIZE = FIXED_PACKET_SIZE;
 constexpr size_t RESERVED_BYTES = 0;
@@ -89,4 +89,16 @@ struct Packet
      */
     void printPacket();
 };
+
+enum class CommandId : uint8_t {
+    NONE  = 0x00,
+    PING  = 0x01,
+    ABORT = 0x02,
+};
+
+struct CommandPacket {
+    uint8_t command_id;
+    uint8_t payload[4];
+};
+
 #pragma pack(pop) // Restore default alignment

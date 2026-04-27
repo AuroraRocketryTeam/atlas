@@ -100,10 +100,11 @@ void setup()
     gpio_set_level(LED_BUILT_IN, LOW);
     gpio_set_level(LED_RED_PIN, HIGH);
 
-    // Install driver for blocking reads of Utils::readLine
-    // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#ifdef CONFIG_INSTALL_USB_JTAG_DRIVER
+    // I/O becomes blocking and buffer is limited
     usb_serial_jtag_driver_config_t usb_cfg = { .tx_buffer_size = 1024, .rx_buffer_size = 1024 };
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_cfg));
+#endif
 
     // Signal initialization start
     board.init();

@@ -8,7 +8,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <driver/i2c_master.h>
-#include <Arduino.h>
+#include <driver/gpio.h>
+#include <esp_system.h>
 
 #include <config.h>
 #include <board.h>
@@ -87,7 +88,7 @@ bool TestRoutine::waitForUserInput(const char* message)
 
             if (confirm == "REBOOT" || confirm == "R") {
                 LOG_WARNING("Test", "Rebooting system...");
-                ESP.restart();
+                esp_restart();
             } else {
                 LOG_INFO("Test", "Reboot cancelled.");
             }
@@ -335,6 +336,40 @@ bool TestRoutine::testTelemetry()
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
+bool TestRoutine::testTelemetryCommand()
+{
+    LOG_INFO("Test", "[STEP 11] Test ricezione comando LoRa (timeout 30s)");
+    _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+
+    E220LoRaTransmitter lora(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN,
+                             MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
+
+    auto initResult = lora.init();
+    if (initResult.getCode() != E220_SUCCESS) {
+        LOG_ERROR("Test", "LoRa init fallita: %s", initResult.getDescription().c_str());
+        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    }
+    LOG_INFO("Test", "LoRa init OK. In attesa di un comando dalla ground station...");
+
+    const uint32_t TIMEOUT_MS = 30000;
+    uint32_t start = Utils::millis();
+    bool received = false;
+    while (Utils::millis() - start < TIMEOUT_MS) {
+        CommandPacket cmd;
+        if (lora.receive(&cmd)) {
+            LOG_INFO("Test", "Comando ricevuto: 0x%02X", cmd.command_id);
+            received = true;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    if (!received)
+        LOG_WARNING("Test", "Timeout: nessun comando ricevuto");
+
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
 bool TestRoutine::testI2CScan()
 {
     LOG_INFO("Test", "Scanning I2C bus...");
@@ -505,7 +540,8 @@ void TestRoutine::run()
         printf("7 - Test telemetria\n");
         printf("8 - Test connettore E220\n");
         printf("9 - Test Flash memory\n");
-        printf("10 - Esegui tutti i test in sequenza\n");
+        printf("10 - Test ricezione comando LoRa\n");
+        printf("11 - Esegui tutti i test in sequenza\n");
         printf("0 - Esci dal menu test\n");
         printf("Inserisci il numero del test da eseguire:\n");
 
@@ -528,8 +564,9 @@ void TestRoutine::run()
         case 6:  do { testPassed = configureE220();     } while (!testPassed); break;
         case 7:  do { testPassed = testTelemetry();     } while (!testPassed); break;
         case 8:  do { testPassed = testE220Connector(); } while (!testPassed); break;
-        case 9:  do { testPassed = testFlashMemory();   } while (!testPassed); break;
-        case 10:
+        case 9:  do { testPassed = testFlashMemory();      } while (!testPassed); break;
+        case 10: do { testPassed = testTelemetryCommand(); } while (!testPassed); break;
+        case 11:
             _statusManager.playBlockingPattern(TEST_ALL, 2000);
             do { testPassed = testPowerAndLEDs();  } while (!testPassed);
             do { testPassed = testSensors();       } while (!testPassed);
@@ -537,6 +574,7 @@ void TestRoutine::run()
             do { testPassed = testSDCard();        } while (!testPassed);
             do { testPassed = testTelemetry();     } while (!testPassed);
             do { testPassed = testFlashMemory();   } while (!testPassed);
+            do { testPassed = testTelemetryCommand(); } while (!testPassed);
             _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
             break;
@@ -550,7 +588,7 @@ void TestRoutine::run()
             continue;
         }
 
-        if (choice >= 1 && choice <= 10) {
+        if (choice >= 1 && choice <= 11) {
             LOG_INFO("Test", "Test completato con successo!");
             _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
         }

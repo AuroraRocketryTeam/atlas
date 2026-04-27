@@ -41,6 +41,7 @@ private:
     bool testSDCard();
     bool testFlashMemory();
     bool testTelemetry();
+    bool testTelemetryCommand();
     bool testI2CScan();
     bool configureE220();
     bool testE220Connector();

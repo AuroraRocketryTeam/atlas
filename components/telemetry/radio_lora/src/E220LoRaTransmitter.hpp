@@ -83,6 +83,14 @@ public:
     ResponseStatusContainer transmit(TransmitDataType data) override;
 
     /**
+     * @brief Receive data over LoRa
+     *
+     * @param packet Where to write the received data
+     * @return bool True is packet received
+     */
+    bool receive(CommandPacket* packet);
+
+    /**
      * @brief Set a new configuration for the LoRa module
      *
      * @param configuration The configuration to use

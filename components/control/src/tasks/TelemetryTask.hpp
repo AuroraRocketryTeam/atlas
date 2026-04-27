@@ -54,6 +54,7 @@ struct TelemetryPacket
     } gps;
 
     uint8_t flight_phase; ///< 0 = INACTIVE, 10 = RECOVERED
+    uint8_t last_ack_command_id; ///< Last successfully received command (CommandId), 0x00 = none
 };
 #pragma pack(pop)
 
@@ -76,6 +77,8 @@ private:
 
     uint32_t _transmitIntervalMs;
     uint32_t _lastTransmitTime;
+
+    uint8_t _lastAckCommandId;
 
     // Statistics
     uint32_t _messagesCreated;
@@ -130,4 +133,15 @@ private:
      * @return true if all packets sent successfully.
      */
     bool transmitMessage(const std::vector<uint8_t> &message);
+
+    /**
+     * @brief Poll the LoRa receiver for commands, automatically dispaches them.
+     */
+    void pollLoRaRx();
+
+    /**
+     * @brief Dispatch a received command to the FSM.
+     * @param id The command identifier.
+     */
+    void handleCommand(CommandId id);
 };
