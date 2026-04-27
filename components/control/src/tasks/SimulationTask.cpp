@@ -1,5 +1,6 @@
 // SimulationTask implementation - Line-based tracking
 #include "SimulationTask.hpp"
+#include <cstdlib>
 #include <sstream>
 #include <algorithm>
 #include <utils.h>
@@ -17,7 +18,7 @@ SimulationTask::SimulationTask(const std::string& csvFilePathPar,
                                 SemaphoreHandle_t modelMutex,
                                 std::shared_ptr<RocketLogger> logger)
         : BaseTask("SimulationTask"), 
-            _rocketModel(rocketModel), _modelMutex(modelMutex), 
+            _rocketModel(rocketModel), _modelMutex(modelMutex),
             _logger(logger) {
     // Only initialize SD and open file once for all instances
     if (!_fileInitialized) {
@@ -32,11 +33,11 @@ SimulationTask::SimulationTask(const std::string& csvFilePathPar,
             LOG_ERROR("SimulationTask", "SD card not provided");
             return;
         }
-        if (!_sdManager->fileExists(_csvFilePath)) {
+        if (!_rocketModel || !_rocketModel->storageFileExists(_csvFilePath.c_str())) {
             LOG_ERROR("SimulationTask", "CSV file does not exist: %s", _csvFilePath.c_str());
             return;
         }
-        if (!_sdManager->openFile(_csvFilePath)) {
+        if (!_rocketModel->storageResetReadCursor(_csvFilePath.c_str())) {
             LOG_ERROR("SimulationTask", "Failed to open CSV file: %s", _csvFilePath.c_str());
             return;
         }
@@ -61,15 +62,20 @@ void SimulationTask::onTaskStart() {
     if (_filePosition > 0) {
         LOG_INFO("SimulationTask", "Seeking to line number: %u", _filePosition);
         // Rewind file to start
-        _sdManager->closeFile();
-        _sdManager->openFile(_csvFilePath);
+        _rocketModel->storageResetReadCursor(_csvFilePath.c_str());
         
         // Skip header
-        _sdManager->readLine();
+        char* header = _rocketModel->storageReadLine();
+        if (header != nullptr) {
+            free(header);
+        }
         
         // Skip lines until we reach _filePosition
         for (uint32_t i = 1; i < _filePosition; i++) {
-            _sdManager->readLine();
+            char* skipped = _rocketModel->storageReadLine();
+            if (skipped != nullptr) {
+                free(skipped);
+            }
         }
         LOG_INFO("SimulationTask", "Resumed at line %u", _filePosition);
     }
@@ -86,8 +92,7 @@ void SimulationTask::reset() {
     _firstTime = true;
     _startTime = Utils::millis();
     if (_fileInitialized) {
-        _sdManager->closeFile();
-        _sdManager->openFile(_csvFilePath);
+        _rocketModel->storageResetReadCursor(_csvFilePath.c_str());
         LOG_INFO("SimulationTask", "Reset simulation to beginning");
     }
 }
@@ -114,15 +119,22 @@ void SimulationTask::taskFunction() {
     try {
         while (running) {
             if (_firstTime) {
-                std::string header = _sdManager->readLine(); // skip header
+                char* header = _rocketModel->storageReadLine(); // skip header
+                if (header != nullptr) {
+                    free(header);
+                }
                 _firstTime = false;
                 _filePosition = 1; // After header, we're at line 1
             }
             
-            std::string line = _sdManager->readLine();
+            char* line = _rocketModel->storageReadLine();
+            std::string lineValue = (line != nullptr) ? line : "";
+            if (line != nullptr) {
+                free(line);
+            }
             
             // Preprocess the line: trim whitespace and newlines
-            std::string lineStr = trimString(line);
+            std::string lineStr = trimString(lineValue);
             
             if (lineStr.length() > 0) {
                 _filePosition++; // Increment line counter

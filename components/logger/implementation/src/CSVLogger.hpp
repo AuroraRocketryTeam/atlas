@@ -44,7 +44,7 @@ public:
                            "voltage_adc,voltage_v,voltage_perc,"
                            "gps_available\n";
         
-        if (sdCard->writeFile(filename, header)) {
+        if (sdCard->writeFile(filename.c_str(), header.c_str())) {
             headerWritten = true;
             printf("Header CSV scritto\n");
         } else {
@@ -281,7 +281,7 @@ public:
                              (data.gps_available ? "1" : "0") + "\n";
         
         // Scrivi su SD
-        if (!sdCard->appendFile(filename, csvLine)) {
+        if (!sdCard->appendFile(filename.c_str(), csvLine.c_str())) {
             printf("Errore scrittura CSV\n");
         }
         sdCard->closeFile();
