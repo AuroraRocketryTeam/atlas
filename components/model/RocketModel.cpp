@@ -1,15 +1,18 @@
 #include "RocketModel.hpp"
+#include "MirrorStorage.hpp"
+#include <cstdlib>
+#include <cstring>
 #include "esp_adc/adc_oneshot.h"
 #include "esp_err.h"
 #include "pins.h"
 
-RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
-            std::shared_ptr<BNO055Sensor> bno,
+RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
             std::shared_ptr<LIS3DHTRSensor> lis3dh,
             std::shared_ptr<MS561101BA03> ms56_1,
             std::shared_ptr<MS561101BA03> ms56_2,
-            std::shared_ptr<GPS> gps) :
-    _logger(logger),
+        std::shared_ptr<GPS> gps,
+        std::shared_ptr<SD> sd,
+        std::shared_ptr<Flash> flash) :
     _bno(bno),
     _lis3dh(lis3dh),
     _ms56_1(ms56_1),
@@ -17,7 +20,8 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     _gps(gps),
     _isRising(std::make_shared<bool>(false)),
     _heightGainSpeed(std::make_shared<float>(0.0f)),
-    _currentHeight(std::make_shared<float>(0.0f))
+    _currentHeight(std::make_shared<float>(0.0f)),
+    _storageMutex(xSemaphoreCreateMutex())
 {
     // Configure and Initialize ADC unit
     adc_oneshot_unit_init_cfg_t adc1_config = {};
@@ -30,6 +34,24 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     channel_config.atten    = ADC_ATTEN_DB_12;
     channel_config.bitwidth = ADC_BITWIDTH_12;
     ESP_ERROR_CHECK(adc_oneshot_config_channel(_adc1_handle, ADC_PIN, &channel_config));
+
+    auto mirrorStorage = std::make_shared<MirrorStorage>();
+
+    // Priority order: flash first, then SD.
+    if (flash) {
+        mirrorStorage->addStorage(flash);
+    }
+    if (sd) {
+        mirrorStorage->addStorage(sd);
+    }
+    _storage = mirrorStorage;
+}
+
+RocketModel::~RocketModel() {
+    if (_storageMutex) {
+        vSemaphoreDelete(_storageMutex);
+        _storageMutex = nullptr;
+    }
 }
 
 void RocketModel::readBattery() {
@@ -140,4 +162,75 @@ std::shared_ptr<float> RocketModel::getHeightGainSpeed() {
 
 std::shared_ptr<float> RocketModel::getCurrentHeight() {
     return _currentHeight;
+}
+
+bool RocketModel::isStorageInitialized(uint32_t timeoutMs) const {
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        bool initialized = _storage && _storage->isInitialized();
+        xSemaphoreGive(_storageMutex);
+        return initialized;
+    }
+    return false;
+}
+
+bool RocketModel::storageFileExists(const char* filename, uint32_t timeoutMs) {
+    if (filename == nullptr) {
+        return false;
+    }
+
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        bool exists = _storage && _storage->isInitialized() && _storage->fileExists(filename);
+        xSemaphoreGive(_storageMutex);
+        return exists;
+    }
+    return false;
+}
+
+bool RocketModel::storageResetReadCursor(const char* filename, uint32_t timeoutMs) {
+    if (filename == nullptr) {
+        return false;
+    }
+
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        const bool ok = _storage && _storage->isInitialized() && _storage->openFile(filename);
+        xSemaphoreGive(_storageMutex);
+        return ok;
+    }
+    return false;
+}
+
+char* RocketModel::storageReadFile(const char* filename, uint32_t timeoutMs) {
+    if (filename == nullptr) {
+        return nullptr;
+    }
+
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        char* content = (_storage && _storage->isInitialized()) ? _storage->readFile(filename) : nullptr;
+        xSemaphoreGive(_storageMutex);
+        return content;
+    }
+    return nullptr;
+}
+
+char* RocketModel::storageReadLine(uint32_t timeoutMs) {
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        char* line = (_storage && _storage->isInitialized()) ? _storage->readLine() : nullptr;
+        xSemaphoreGive(_storageMutex);
+        return line;
+    }
+    return nullptr;
+}
+
+bool RocketModel::storageWriteFile(const char* filename, const char* content, uint32_t timeoutMs) {
+    if (filename == nullptr || content == nullptr) {
+        return false;
+    }
+
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        const bool ready = _storage && _storage->isInitialized();
+        const bool ok = ready && _storage->openFile(filename) && _storage->writeFile(filename, content) && _storage->closeFile();
+        xSemaphoreGive(_storageMutex);
+        return ok;
+    }
+    return false;
 }
