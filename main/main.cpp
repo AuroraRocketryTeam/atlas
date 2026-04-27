@@ -432,7 +432,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         sdCard->openFile("test.txt");
         LOG_INFO("Init", "Testing SD card write...");
         std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms";
-        if (sdCard->writeFile("test.txt", content))
+        if (sdCard->writeFile("test.txt", content.c_str()))
         {
             LOG_INFO("Init", "SD card write test successful");
             char *readContent = sdCard->readFile("test.txt");
@@ -454,6 +454,17 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     else
     {
         LOG_ERROR("Init", "Failed to initialize SD card");
+    }
+
+    LOG_INFO("Init", "Initializing external flash for mirrored logging...");
+    flash = std::make_shared<Flash>();
+    if (flash && flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+    {
+        LOG_INFO("Init", "External flash initialized");
+    }
+    else
+    {
+        LOG_ERROR("Init", "Failed to initialize external flash");
     }
 
     // Initializa ESP-NOW connection for telemetry
@@ -779,7 +790,7 @@ bool testSDCard()
     if (sdCard->openFile(TEST_FILE))
     {
         std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms\n";
-        if (sdCard->writeFile(TEST_FILE, content))
+        if (sdCard->writeFile(TEST_FILE, content.c_str()))
         {
             LOG_INFO("Test", "SD card write test successful");
             char *readContent = sdCard->readFile(TEST_FILE);
@@ -845,7 +856,7 @@ bool testFlashMemory()
 
     // Missing file read should return nullptr.
     LOG_INFO("Test", "Flash: read missing file '%s' (expected nullptr)", missingFile.c_str());
-    char *readData = flash->readFile(missingFile);
+    char *readData = flash->readFile(missingFile.c_str());
     if (readData != nullptr)
     {
         LOG_ERROR("Test", "Unexpected data returned for missing file.");
@@ -857,7 +868,7 @@ bool testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: write '%s'", testFile.c_str());
-    if (!flash->writeFile(testFile, "Hello, ESP32 Flash Storage!\n"))
+    if (!flash->writeFile(testFile.c_str(), "Hello, ESP32 Flash Storage!\n"))
     {
         LOG_ERROR("Test", "Flash write failed.");
     }
@@ -867,7 +878,7 @@ bool testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: read '%s'", testFile.c_str());
-    readData = flash->readFile(testFile);
+    readData = flash->readFile(testFile.c_str());
     if (readData == nullptr)
     {
         LOG_ERROR("Test", "Flash read failed after write.");
@@ -879,7 +890,7 @@ bool testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: append to '%s'", testFile.c_str());
-    if (!flash->appendFile(testFile, "Appended line.\n"))
+    if (!flash->appendFile(testFile.c_str(), "Appended line.\n"))
     {
         LOG_ERROR("Test", "Flash append failed.");
     }
@@ -889,7 +900,7 @@ bool testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: read back after append");
-    readData = flash->readFile(testFile);
+    readData = flash->readFile(testFile.c_str());
     if (readData != nullptr)
     {
         LOG_INFO("Test", "Flash read after append: %s", readData);
@@ -900,7 +911,7 @@ bool testFlashMemory()
         LOG_ERROR("Test", "Flash read failed after append.");
     }
 
-    if (!flash->fileExists(testFile))
+    if (!flash->fileExists(testFile.c_str()))
     {
         LOG_ERROR("Test", "Flash file existence check failed.");
     }
@@ -916,7 +927,7 @@ bool testFlashMemory()
     {
         LOG_ERROR("Test", "Flash clear failed.");
     }
-    else if (flash->fileExists(testFile))
+    else if (flash->fileExists(testFile.c_str()))
     {
         LOG_ERROR("Test", "Flash clear did not remove test file.");
     }
