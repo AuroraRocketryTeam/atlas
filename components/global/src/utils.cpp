@@ -1,5 +1,11 @@
 #include "utils.h"
+#include "esp_timer.h"
 #include "driver/usb_serial_jtag.h"
+#include <algorithm>
+
+uint32_t Utils::millis() {
+    return esp_timer_get_time() / 1000;
+}
 
 int Utils::readLine(char* buf, int maxLen) {
     int pos = 0;
@@ -19,4 +25,17 @@ int Utils::readLine(char* buf, int maxLen) {
     }
     buf[pos] = '\0';
     return pos;
+}
+
+void Utils::trimString(std::string& s)
+{
+    auto notSpace = [](unsigned char c) { return !std::isspace(c); };
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), notSpace));
+    s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
+}
+
+void Utils::toUpperString(std::string& s)
+{
+    for (char& c : s)
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 }

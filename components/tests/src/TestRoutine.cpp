@@ -33,21 +33,6 @@ TestRoutine::TestRoutine(IBoardHardware& board,
       _buzzerController(buzzerController)
 {}
 
-// ── String helpers ────────────────────────────────────────────────────────────
-
-static void trimString(std::string& s)
-{
-    auto notSpace = [](unsigned char c) { return !std::isspace(c); };
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), notSpace));
-    s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
-}
-
-static void toUpperString(std::string& s)
-{
-    for (char& c : s)
-        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-}
-
 bool TestRoutine::waitForUserInput(const char* message)
 {
     printf("%s\n(Shortcuts: 'P' = Passed, 'F' = Failed, 'R' = Reboot)\n", message);
@@ -58,8 +43,8 @@ bool TestRoutine::waitForUserInput(const char* message)
         char buffer[64] = {0};
         Utils::readLine(buffer, sizeof(buffer));
         std::string input(buffer);
-        trimString(input);
-        toUpperString(input);
+        Utils::trimString(input);
+        Utils::toUpperString(input);
 
         if (input == "PASSED" || input == "P")
         {
@@ -84,8 +69,8 @@ bool TestRoutine::waitForUserInput(const char* message)
                 LOG_INFO("Test", "No confirmation - continuing normal operation.");
                 continue;
             }
-            trimString(confirm);
-            toUpperString(confirm);
+            Utils::trimString(confirm);
+            Utils::toUpperString(confirm);
 
             if (confirm == "REBOOT" || confirm == "R") {
                 LOG_WARNING("Test", "Rebooting system...");
@@ -525,7 +510,7 @@ void TestRoutine::run()
         char buffer[32] = {0};
         Utils::readLine(buffer, sizeof(buffer));
         std::string input(buffer);
-        trimString(input);
+        Utils::trimString(input);
         
         int choice = std::atoi(input.c_str());
         

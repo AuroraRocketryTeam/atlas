@@ -1,12 +1,14 @@
 #pragma once
 
-#include "esp_timer.h"
+#include <string>
 
 class Utils {
 public:
-    static uint32_t millis() {
-        return esp_timer_get_time() / 1000;
-    }
+    static uint32_t millis();
 
     static int readLine(char* buf, int maxLen);
+
+    // string helper functions
+    static void toUpperString(std::string& s);
+    static void trimString(std::string& s);
 };
