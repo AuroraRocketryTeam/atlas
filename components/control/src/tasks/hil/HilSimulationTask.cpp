@@ -384,20 +384,22 @@ void HilSimulationTask::taskFunction() {
             gps->longitude = pkt.lon;
             gps->altitude  = pkt.alt;
 
+            
             /* ================= UPDATE MODEL ================= */
 
             if (_rocketModel && xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(200))) {
-
                 // _rocketModel->setTimestamp(pkt.timestamp);
-
+                
                 _rocketModel->setSimulatedBNO055Data(bnoData);
                 _rocketModel->setSimulatedLIS3DHTRData(lis3dhData);
                 _rocketModel->setSimulatedMS561101BA03Data_1(ms1);
                 _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
                 _rocketModel->setSimulatedGPSData(gps);
-
+    
                 xSemaphoreGive(_modelMutex);
             }
+
+            Utils::setSimMillis(pkt.sim_time * 1000);
 
             vTaskDelay(1); // yield in order to let the other task to set the command
             if(!running) break;

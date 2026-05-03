@@ -20,6 +20,8 @@ RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
              _sd ? "OK" : "NULL",
              _logger ? "OK" : "NULL");
 
+    Utils::setTimeSource(TimeSource::SIMULATION);
+
     LOG_INFO("FSM", "Constructor completed");
 }
 

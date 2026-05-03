@@ -9,6 +9,7 @@
 #include <AccelerometerSensorData.hpp>
 #include <PressureSensorData.hpp>
 #include <GPSData.hpp>
+#include <utils.h>
 
 /**
  * @brief Hardware-In-The-Loop Simulation Task

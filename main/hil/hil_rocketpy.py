@@ -1,12 +1,12 @@
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+# from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
-import time as pytime
+# import time as pytime
 from pathlib import Path
 import csv
 import math
-import pandas as pd
+# import pandas as pd
 
 from rocketpy import Environment, Flight, SolidMotor, RocketV2
 from rocketpy import Accelerometer
@@ -15,9 +15,11 @@ from rocketpy import GnssReceiver
 
 import threading
 from typing import Generic, TypeVar, Optional
-import serial
+# import serial
 import struct
 
+
+# communication.py
 import communication
 
 
@@ -224,19 +226,21 @@ print("Sensors... READY")
 # STATE LOGGER + COMMUNICATION WITH FLIGHT CONTROLLER
 # ----------------------------------------------------------------------
 def on_open_main(sim_time):
-    print(f"[ESP32_cmd] 'main_deployed'")
     with command_state.lock:
         if command_state.sim_time <= sim_time:
             command_state.sim_time = sim_time
+            if command_state.open_main == False: # print once, from false to true.
+                print(f"[ESP32_cmd] 'main_deployed'") 
             command_state.open_main = True
         else:
             print("[E]: time mismatch, overwriting with old values new stuff.")
 
 def on_open_drogue(sim_time):
-    print(f"[ESP32_cmd]: 'drogue_deployed'")
     with command_state.lock:
         if command_state.sim_time <= sim_time:
             command_state.sim_time = sim_time
+            if command_state.open_drogue == False: # print once, from false to true.
+                print(f"[ESP32_cmd]: 'drogue_deployed'")
             command_state.open_drogue = True
         else:
             print("[E]: time mismatch, overwriting with old values new stuff.")
@@ -245,7 +249,7 @@ def on_set_air_brakes(sim_time, lvl):
     with command_state.lock:
         if command_state.sim_time <= sim_time:
             command_state.sim_time = sim_time
-            if lvl > 0:
+            if command_state.airbrakes_lvl != lvl: # print only changes.
                 print(f"[ESP32_cmd]: deployment_level={lvl}")
             command_state.airbrakes_lvl = lvl
         else:

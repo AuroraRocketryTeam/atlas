@@ -1,6 +1,31 @@
 #include "utils.h"
 #include "driver/usb_serial_jtag.h"
 
+static const char *TAG = "Utils";
+
+volatile uint32_t Utils::_simMillis = 0;
+volatile TimeSource Utils::_source = TimeSource::REAL;
+
+uint32_t Utils::millis()
+{
+    if (_source == TimeSource::SIMULATION)
+        return _simMillis;
+
+    return esp_timer_get_time() / 1000;
+}
+
+void Utils::setSimMillis(uint32_t t)
+{
+    LOG_INFO(TAG, "Set sim_millis to %u", t);
+    _simMillis = t;
+}
+
+void Utils::setTimeSource(TimeSource src)
+{
+    LOG_INFO(TAG, "Set TimeSource to %s", timeSourceToString(src));
+    _source = src;
+}
+
 int Utils::readLine(char* buf, int maxLen) {
     int pos = 0;
     while (pos < maxLen - 1) {

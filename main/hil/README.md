@@ -16,7 +16,7 @@ source venv_dev_rocketpy/bin/activate
 ### 3. Modify RocketPy
 - add ```rocket_v2.py``` in ```RocketPy/rocketpy/rocket/```,
 - modify the ```__init__.py``` in ```RocketPy/rocketpy``` and ```RocketPy/rocket/rocket``` to expose ```RocketV2``` class,
-- change ```RocketPy/rocketpy/simulation/flight.py#L3746```, comment ```tmp_dict[time]._controllers += node._controllers``` (duplicated, adding twice the controllers).
+<!-- - change ```RocketPy/rocketpy/simulation/flight.py#L3746```, comment ```tmp_dict[time]._controllers += node._controllers``` (duplicated, adding twice the controllers). -->
 
 ### 4. Install RocketPy from source
 ```bash

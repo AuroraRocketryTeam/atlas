@@ -1,4 +1,4 @@
-file(GLOB_RECURSE MAIN_SRCS "${CMAKE_CURRENT_SOURCE_DIR}/main_hil.cpp"
+file(GLOB_RECURSE MAIN_SRCS "main_hil.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/main_hil.cpp"
                             "${CMAKE_CURRENT_SOURCE_DIR}/*.c")
 
 # register the component to the build system.

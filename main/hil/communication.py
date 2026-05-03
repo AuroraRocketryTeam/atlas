@@ -156,89 +156,65 @@ def tcp_client(esp_connected: threading.Semaphore,
         sock = None
 
         try:
-            print(f"[CONNECT] {ESP_IP}:{PORT}")
+            # print(f"[CONNECTING] {ESP_IP}:{PORT}...", end="")
 
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect((ESP_IP, PORT))
-            sock.settimeout(3.0)
 
-            print(f"[CONNECTED] {ESP_IP}:{PORT}")
+            # print(f"DONE")
 
             if not announced_connected:
                 esp_connected.release()
                 announced_connected = True
-                print("[RELEASE] esp_connected")
+                print("[READY] ESP connection semaphore released")
 
+            sock.settimeout(3.0)
+            
             while True:
                 # ===== GET PAYLOAD =====
-                try:
-                    payload = mailbox.take()
-                    print(f"[MAILBOX] got payload len={len(payload)}")
-                except Exception as e:
-                    print("[MAILBOX ERROR]", e)
-                    raise
+                payload = mailbox.take()
 
-                # ===== ENCODE =====
-                try:
-                    frame = encode_msg(MSG_TYPE_SIM_INPUT, payload)
-                    print(f"[ENCODE] frame len={len(frame)}")
-                except Exception as e:
-                    print("[ENCODE ERROR]", e)
-                    raise
-
-                # ===== SEND =====
-                try:
-                    print("[SEND] sending...", end=" ")
-                    sock.sendall(frame)
-                    print("OK")
-                except Exception as e:
-                    print("[SEND ERROR]", e)
-                    raise
+                # ===== ENCODE + SEND =====
+                frame = encode_msg(MSG_TYPE_SIM_INPUT, payload)
+                sock.sendall(frame)
 
                 # ===== RECEIVE =====
-                try:
-                    print("[RECV] waiting header...", end=" ")
-                    msg_type, rx_payload = recv_msg(sock)
-                    print(f"OK type={msg_type} len={len(rx_payload)}")
-                except Exception as e:
-                    print("[RECV ERROR]", e)
-                    raise
+                msg_type, rx_payload = recv_msg(sock)
 
                 # ===== VALIDATE =====
                 if msg_type != MSG_TYPE_FC_COMMAND:
-                    print(f"[PROTO ERROR] invalid type={msg_type}")
-                    raise RuntimeError("Invalid message type")
+                    raise RuntimeError(f"Invalid message type: {msg_type}")
 
                 if len(rx_payload) != COMMAND_SIZE:
-                    print(f"[PROTO ERROR] payload size {len(rx_payload)} != {COMMAND_SIZE}")
-                    raise RuntimeError("Payload size mismatch")
+                    raise RuntimeError(
+                        f"Payload size mismatch: {len(rx_payload)} != {COMMAND_SIZE}"
+                    )
 
                 # ===== DECODE =====
-                try:
-                    sim_time, open_main, open_drogue, airbrakes = decode_command(rx_payload)
-                    print(f"[DECODE] t={sim_time:.2f} main={open_main} drogue={open_drogue} air={airbrakes:.2f}")
-                except Exception as e:
-                    print("[DECODE ERROR]", e)
-                    raise
+                sim_time, open_main, open_drogue, airbrakes = decode_command(rx_payload)
 
                 # ===== HANDLE =====
-                try:
-                    if open_main and handlers.on_open_main:
-                        handlers.on_open_main(sim_time)
+                if open_main and handlers.on_open_main:
+                    handlers.on_open_main(sim_time)
 
-                    if open_drogue and handlers.on_open_drogue:
-                        handlers.on_open_drogue(sim_time)
+                if open_drogue and handlers.on_open_drogue:
+                    handlers.on_open_drogue(sim_time)
 
-                    if handlers.on_set_air_brakes:
-                        handlers.on_set_air_brakes(sim_time, airbrakes)
+                if handlers.on_set_air_brakes:
+                    handlers.on_set_air_brakes(sim_time, airbrakes)
 
-                except Exception as e:
-                    print("[HANDLER ERROR]", e)
-                    raise
+        # Expected / normal disconnects
+        except (BrokenPipeError,
+                ConnectionResetError,
+                ConnectionAbortedError,
+                socket.timeout,
+                socket.error,
+                ConnectionError,
+                OSError):
+            # print("[INFO] Socket closed. FSM transition. Reconnecting...")
+            pass
 
-        except (socket.timeout, socket.error, ConnectionError, OSError) as e:
-            print(f"[DISCONNECT] {type(e).__name__}: {e}")
-
+        # Unexpected errors
         except Exception as e:
             print(f"[ERROR] {type(e).__name__}: {e}")
 
@@ -246,17 +222,14 @@ def tcp_client(esp_connected: threading.Semaphore,
             if sock is not None:
                 try:
                     sock.shutdown(socket.SHUT_RDWR)
-                    print("[SOCKET] shutdown OK")
-                except OSError as e:
-                    print("[SOCKET] shutdown failed:", e)
+                except OSError:
+                    pass
 
                 try:
                     sock.close()
-                    print("[SOCKET] close OK")
-                except OSError as e:
-                    print("[SOCKET] close failed:", e)
+                except OSError:
+                    pass
 
-            print("[CLOSED] Connection to server.\n")
             time.sleep(1.0)
 
 # def tcp_client(esp_connected : threading.Semaphore, mailbox : OneSlotMailbox, handlers: CommandHandlers):
