@@ -92,6 +92,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
 void GPSfix(std::shared_ptr<GPS> gps);
 void printSystemInfo();
 void testRoutine();
+bool clearFlashMemory();
 
 void setup()
 {
@@ -245,8 +246,8 @@ void testFSMTransitions(RocketFSM &fsm)
     LOG_INFO("Test", "Testing all state transitions with automatic timeouts");
     LOG_INFO("Test", "Will cycle through all states, observing task execution\n");
 
-    // Il test inizia automaticamente quando fsm.start() viene chiamato
-    // Le transizioni sono tutte temporizzate nei metodi di transizione definiti nella classe RocketFSM
+    // The test starts automatically when fsm.start() is called
+    // Transitions are all timed within the transition methods defined in the RocketFSM class
 
     fsm.start();
     // Use FreeRTOS timing for more reliable 1-second intervals
@@ -277,7 +278,7 @@ void testFSMTransitions(RocketFSM &fsm)
             lastLoggedState = currentState;
         }
 
-        // Termina il test quando raggiungiamo lo stato RECOVERED
+        // Terminates the test when the RECOVERED state is reached
         if (currentState == RocketState::RECOVERED)
         {
             LOG_INFO("Test", "=== FSM TEST COMPLETED SUCCESSFULLY ===");
@@ -423,7 +424,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize GPS");
     }
 
-    // Inizializza la scheda SD
+    // Initialize SD card
     LOG_INFO("Init", "Initializing SD card for logging...");
     sdCard = std::make_shared<SD>();
     if (sdCard && sdCard->init(board.get_spi_bus()))
@@ -688,8 +689,8 @@ bool waitForUserInput(const char *message)
 // Test routine subroutines with proper pattern handling
 bool testPowerAndLEDs()
 {
-    LOG_INFO("Test", "\n[STEP 1] Verifica alimentazione e LED di stato");
-    LOG_INFO("Test", "3 lampeggi rossi...");
+    LOG_INFO("Test", "\n[STEP 1] Verify power supply and status LEDs");
+    LOG_INFO("Test", "3 red blinks...");
 
     for (int i = 0; i < 3; i++) {
         ledController.setColor(ART_LED_RED);
@@ -698,12 +699,12 @@ bool testPowerAndLEDs()
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
-    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    return waitForUserInput("Type PASSED to continue or FAILED to repeat");
 }
 
 bool testSensors()
 {
-    LOG_INFO("Test", "\n[STEP 2] Test sensori");
+    LOG_INFO("Test", "\n[STEP 2] Sensor test");
     bool imu_ok = rocketModel->updateBNO055();
     bool baro1_ok = rocketModel->updateMS561101BA03_1();
     bool baro2_ok = rocketModel->updateMS561101BA03_2();
@@ -713,7 +714,7 @@ bool testSensors()
     if (!imu_ok)
     {
         statusManager.playBlockingPattern(IMU_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: IMU non inizializzata.");
+        LOG_ERROR("Test", "Error: IMU not initialized.");
     } else {
         // Testing IMU accelerometer
         auto bnoData = rocketModel->getBNO055Data();
@@ -729,7 +730,7 @@ bool testSensors()
     if (!baro1_ok)
     {
         statusManager.playBlockingPattern(BARO1_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
+        LOG_ERROR("Test", "Error: Barometer 1 not initialized.");
     } else {
         auto baro1Data = rocketModel->getMS561101BA03Data_1();
         auto pressureBaro1 = baro1Data->pressure;
@@ -739,7 +740,7 @@ bool testSensors()
     if (!baro2_ok)
     {
         statusManager.playBlockingPattern(BARO2_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
+        LOG_ERROR("Test", "Error: Barometer 2 not initialized.");
     } else {
         auto baro2Data = rocketModel->getMS561101BA03Data_2();
         auto pressureBaro2 = baro2Data->pressure;
@@ -749,7 +750,7 @@ bool testSensors()
     if (!accl_ok)
     {
         statusManager.playBlockingPattern(IMU_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
+        LOG_ERROR("Test", "Error: Accelerometer not initialized.");
     } else {
         // Testing LIS3DHTR accelerometer
         LOG_INFO("Test", "LIS3DHTR Accelerometer: Data logged internally");
@@ -757,14 +758,14 @@ bool testSensors()
     }
 
     // After all tests, go to user input
-    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    return waitForUserInput("Type PASSED to continue or FAILED to repeat");
 }
 
 bool testActuators()
 {
-    LOG_INFO("Test", "[STEP 3] Test attuatori");
+    LOG_INFO("Test", "[STEP 3] Actuator test");
 
-    LOG_INFO("Test", "Accensione attuatori uno per volta...");
+    LOG_INFO("Test", "Turning on actuators one by one...");
 
     // DROGUE test
     statusManager.playBlockingPattern(TEST_ACTUATORS, 500); // Show test pattern first
@@ -779,13 +780,13 @@ bool testActuators()
     buzzerController.playTone(TONE_MID, 1000);
     gpio_set_level(MAIN_ACTUATOR_PIN, LOW);
 
-    return waitForUserInput("Verificare accensione LED e tensione in uscita da DROGUE e MAIN, verificare funzionamento Buzzer. Scrivi PASSED o FAILED");
+    return waitForUserInput("Verify LED activation and output voltage from DROGUE and MAIN, verify Buzzer operation. Type PASSED or FAILED");
 }
 
 bool testSDCard()
 {
-    LOG_INFO("Test", "[STEP 4] Test SD Card");
-    LOG_INFO("Test", "Inizializzazione scheda SD e verifica scrittura/lettura...");
+    LOG_INFO("Test", "[STEP 4] SD Card Test");
+    LOG_INFO("Test", "Initializing SD card and verifying write/read...");
 
     if (sdCard->openFile(TEST_FILE))
     {
@@ -817,12 +818,12 @@ bool testSDCard()
         LOG_ERROR("Test", "Failed to open test file on SD card");
     }
 
-    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    return waitForUserInput("Type PASSED to continue or FAILED to repeat");
 }
 
 bool testFlashMemory()
 {
-    LOG_INFO("Test", "[STEP 5] Test Flash memory");
+    LOG_INFO("Test", "[STEP 5] Flash memory test");
 
     // Flash is already initialized during setup for mirrored logging.
     // Reuse the same instance to avoid binding the same external chip twice.
@@ -1035,40 +1036,40 @@ bool dumpFlashJsonFiles()
 
 bool testTelemetry()
 {
-    LOG_INFO("Test", "[STEP 6] Test telemetria");
+    LOG_INFO("Test", "[STEP 6] Telemetry test");
     statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
 
     // Serial1 is used by GPS
     E220LoRaTransmitter lora(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN, MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
 
-    LOG_INFO("Test", "Inizializzazione E220...");
+    LOG_INFO("Test", "Initializing E220...");
     auto initResult = lora.init();
     if (initResult.getCode() != E220_SUCCESS)
     {
-        LOG_ERROR("Test", "LoRa init fallita: %s", initResult.getDescription().c_str());
+        LOG_ERROR("Test", "LoRa init failed: %s", initResult.getDescription().c_str());
         // I know it's an obvious fail, but returning false would just end up in a loop
-        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+        return waitForUserInput("Type PASSED to continue or FAILED to repeat");
     }
     LOG_INFO("Test", "LoRa init OK");
 
     for (int i = 1; i <= 3; i++)
     {
         std::string payload = "LORA_TEST_" + std::to_string(i);
-        LOG_INFO("Test", "Invio pacchetto %d: %s", i, payload.c_str());
+        LOG_INFO("Test", "Sending packet %d: %s", i, payload.c_str());
         auto result = lora.transmit(payload);
         if (result.getCode() == E220_SUCCESS)
         {
-            LOG_INFO("Test", "Pacchetto %d inviato.", i);
+            LOG_INFO("Test", "Packet %d sent.", i);
         }
         else
         {
-            LOG_ERROR("Test", "Invio pacchetto %d fallito: %s", i, result.getDescription().c_str());
+            LOG_ERROR("Test", "Sending packet %d failed: %s", i, result.getDescription().c_str());
         }
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 
-    LOG_INFO("Test", "Verificare ricezione 3 pacchetti LORA_TEST_1/2/3 sulla ground station.");
-    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    LOG_INFO("Test", "Verify reception of 3 packets LORA_TEST_1/2/3 on the ground station.");
+    return waitForUserInput("Type PASSED to continue or FAILED to repeat");
 }
 
 bool testI2CScan()
@@ -1079,7 +1080,7 @@ bool testI2CScan()
     I2CBus* bus = board.get_i2c_bus(IBoardHardware::Sensor::IMU);
     if (!bus) {
         LOG_ERROR("Test", "I2C bus not available.");
-        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+        return waitForUserInput("Type PASSED to continue or FAILED to repeat");
     }
 
     struct KnownDevice { const char* name; uint8_t addr; };
@@ -1106,7 +1107,7 @@ bool testI2CScan()
     }
     if (!found) printf("No devices found.\n");
 
-    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    return waitForUserInput("Type PASSED to continue or FAILED to repeat");
 }
 
 bool configureE220()
@@ -1129,7 +1130,7 @@ bool configureE220()
         LOG_ERROR("LoRa", "getConfiguration failed: %s", csc.status.getResponseDescription().c_str());
         csc.close();
         Serial2.end();
-        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+        return waitForUserInput("Type PASSED to continue or FAILED to repeat");
     }
     auto config = *(Configuration *)csc.data;
     csc.close();
@@ -1153,17 +1154,17 @@ bool configureE220()
 
     auto rs = e220.setConfiguration(config, WRITE_CFG_PWR_DWN_SAVE);
     if (rs.code == E220_SUCCESS)
-        LOG_INFO("LoRa", "E220 configurato con successo.");
+        LOG_INFO("LoRa", "E220 configured successfully.");
     else
-        LOG_ERROR("LoRa", "setConfiguration fallito: %s", rs.getResponseDescription().c_str());
+        LOG_ERROR("LoRa", "setConfiguration failed: %s", rs.getResponseDescription().c_str());
 
     Serial2.end();
-    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    return waitForUserInput("Type PASSED to continue or FAILED to repeat");
 }
 
 // E220 connector test to identify the pins
 //
-// Pattern: All high, then N bursts of (0,5s H/L)
+// Pattern: All high, then N bursts of (0.5s H/L)
 bool testE220Connector()
 {
     LOG_INFO("Test", "[STEP 7] LoRa Connector Test");
@@ -1246,7 +1247,7 @@ void testRoutine()
 {
     LOG_INFO("Test", "=== SYSTEM TEST ROUTINE INITIATED ===");
 
-    // Menu di selezione test
+    // Test selection menu
     while (true)
     {
         // Menu is BLUE with no buzzer
@@ -1366,7 +1367,7 @@ void testRoutine()
 
             // All tests successful
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
-            LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
+            LOG_INFO("Test", "\n=== ALL TESTS COMPLETED SUCCESSFULLY ===");
             break;
         case 11:
             do
@@ -1383,17 +1384,17 @@ void testRoutine()
         case 0:
             // Exit test mode with success pattern
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
-            LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
+            LOG_INFO("Test", "\n=== EXITING TEST MENU ===");
             statusManager.setSystemCode(SYSTEM_OK);
             return;
         default:
-            printf("Scelta non valida. Riprova.\n");
+            printf("Invalid choice. Try again.\n");
             continue;
         }
 
         if (choice >= 1 && choice <= 12)
         {
-            LOG_INFO("Test", "Test completato con successo!");
+            LOG_INFO("Test", "Test completed successfully!");
             // Show success pattern before returning to menu
             statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
         }
