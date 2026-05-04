@@ -975,44 +975,59 @@ bool dumpFlashJsonFiles()
     printf("Capture this serial output to a file on PC.\n");
 
     int dumpedCount = 0;
-    for (int i = 0; i < 2000; ++i)
+    int consecutiveMisses = 0;
+    const int MAX_CONSECUTIVE_MISSES = 20;
+    const int MAX_FILES_TO_CHECK = 10000;
+
+    for (int i = 0; i < MAX_FILES_TO_CHECK; ++i)
     {
+        // Periodic watchdog update
+        if (i % 25 == 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
         char filename[64] = {0};
         std::snprintf(filename, sizeof(filename), "JSON_data_%d.json", i);
-
-        if (!flash->fileExists(filename))
-        {
-            continue;
-        }
 
         char* content = flash->readFile(filename);
         if (content == nullptr)
         {
-            LOG_WARNING("Dump", "Unable to read %s", filename);
+            consecutiveMisses++;
+            if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES) {
+                LOG_INFO("Dump", "Reached end of file sequence (stopped scanning at index %d).", i);
+                break;
+            }
             continue;
         }
 
+        consecutiveMisses = 0;
+
         printf("START_FILE:%s\n", filename);
         printf("%s", content);
-        if (std::strlen(content) == 0 || content[std::strlen(content) - 1] != '\n')
+        
+        size_t len = std::strlen(content);
+        if (len == 0 || content[len - 1] != '\n')
         {
             printf("\n");
         }
-        printf("END_FILE\n");
+        
+        printf("END_FILE:%s\n", filename); 
 
         delete[] content;
         dumpedCount++;
+
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
-    printf("=== JSON DUMP END (%d file) ===\n\n", dumpedCount);
+    printf("=== JSON DUMP END (%d file%s) ===\n\n", dumpedCount, dumpedCount == 1 ? "" : "s");
 
     if (dumpedCount == 0)
     {
-        LOG_WARNING("Dump", "No JSON_data_*.json file found on flash");
+        LOG_WARNING("Dump", "No JSON_data_*.json files found on flash");
     }
     else
     {
-        LOG_INFO("Dump", "Exported %d JSON files", dumpedCount);
+        LOG_INFO("Dump", "Successfully exported %d JSON files", dumpedCount);
     }
 
     return waitForUserInput("JSON dump printed on serial. Type PASSED to continue or FAILED to retry");
