@@ -1199,7 +1199,46 @@ bool testE220Connector()
         gpio_reset_pin(pins[i]);
     }
 
-    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    return waitForUserInput("Type PASSED to continue or FAILED to repeat");
+}
+
+bool clearFlashMemory()
+{
+    LOG_INFO("Test", "\n=== TEST FLASH ERASE ===");
+    
+    if (!flash)
+    {
+        flash = std::make_shared<Flash>();
+    }
+
+    if (!flash->isInitialized() && !flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+    {
+        LOG_ERROR("Test", "Flash init failed");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    printf("WARNING: This operation will format the entire Flash memory.\n");
+    printf("All data will be lost!\n");
+    printf("Are you sure you want to continue? (Y/n): ");
+    
+    char buffer[16] = {0};
+    Utils::readLine(buffer, sizeof(buffer));
+    std::string input(buffer);
+    trimString(input);
+    
+    if (input == "Y" || input == "y") {
+        LOG_INFO("Test", "Formatting in progress... it might take some time.");
+        if (flash->clearMemory()) {
+            LOG_INFO("Test", "Formatting completed successfully!");
+            return waitForUserInput("Memory cleared. Type PASSED to continue or FAILED to retry");
+        } else {
+            LOG_ERROR("Test", "Error during formatting!");
+        }
+    } else {
+        LOG_INFO("Test", "Operation cancelled.");
+    }
+    
+    return waitForUserInput("Type PASSED to continue or FAILED to retry");
 }
 
 // Main test routine
@@ -1213,20 +1252,21 @@ void testRoutine()
         // Menu is BLUE with no buzzer
         statusManager.setSystemCode(TEST_MENU);
 
-        printf("\n=== MENU TEST ===\n");
-        printf("1 - Test alimentazione e LED\n");
-        printf("2 - Test sensori\n");
-        printf("3 - Test attuatori\n");
-        printf("4 - Test SD Card\n");
+        printf("\n=== TEST MENU ===\n");
+        printf("1 - Power and LED Test\n");
+        printf("2 - Sensor Test\n");
+        printf("3 - Actuator Test\n");
+        printf("4 - SD Card Test\n");
         printf("5 - I2C scan\n");
-        printf("6 - Configura E220 (one-time setup)\n");
-        printf("7 - Test telemetria\n");
-        printf("8 - Test connettore E220\n");
-        printf("9 - Test Flash memory\n");
-        printf("10 - Esegui tutti i test in sequenza\n");
-        printf("11 - Dump JSON da Flash su seriale\n");
-        printf("0 - Esci dal menu test\n");
-        printf("Inserisci il numero del test da eseguire:\n");
+        printf("6 - Configure E220 (one-time setup)\n");
+        printf("7 - Telemetry Test\n");
+        printf("8 - E220 Connector Test\n");
+        printf("9 - Flash memory test\n");
+        printf("10 - Run all tests in sequence\n");
+        printf("11 - Dump JSON from Flash to serial\n");
+        printf("12 - Clear Flash memory\n");
+        printf("0 - Exit test menu\n");
+        printf("Enter the number of the test to run:\n");
 
         char buffer[32] = {0};
         Utils::readLine(buffer, sizeof(buffer));
@@ -1334,6 +1374,12 @@ void testRoutine()
                 testPassed = dumpFlashJsonFiles();
             } while (!testPassed);
             break;
+        case 12:
+            do
+            {
+                testPassed = clearFlashMemory();
+            } while (!testPassed);
+            break;
         case 0:
             // Exit test mode with success pattern
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
@@ -1345,7 +1391,7 @@ void testRoutine()
             continue;
         }
 
-        if (choice >= 1 && choice <= 11)
+        if (choice >= 1 && choice <= 12)
         {
             LOG_INFO("Test", "Test completato con successo!");
             // Show success pattern before returning to menu
