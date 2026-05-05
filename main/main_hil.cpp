@@ -87,6 +87,18 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 
 void setup()
 {
+    // Initialize actuator pins
+    gpio_config(&actuators_gpio_config);
+    
+    gpio_set_level(MAIN_ACTUATOR_PIN, LOW);
+    gpio_set_level(DROGUE_ACTUATOR_PIN, LOW);
+
+    // Initialize LED pins (only those not handled by controllers)
+    gpio_config(&led_gpio_config);
+
+    gpio_set_level(LED_BUILT_IN, LOW);
+    gpio_set_level(LED_RED_PIN, HIGH);
+
     // Install driver for blocking reads of Utils::readLine
     // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
     usb_serial_jtag_driver_config_t usb_cfg = { .tx_buffer_size = 1024, .rx_buffer_size = 1024 };
@@ -97,14 +109,14 @@ void setup()
     gpio_set_level(LED_RED_PIN, HIGH);
 
     // Initialize controllers
-    // ledController.init();
-    // buzzerController.init();
+    ledController.init();
+    buzzerController.init();
 
     // Initialize status patterns
-    // statusManager.init();
+    statusManager.init();
 
     // Set initial status with PRE_FLIGHT_MODE
-    // statusManager.setSystemCode(PRE_FLIGHT_MODE);
+    statusManager.setSystemCode(PRE_FLIGHT_MODE);
 
     LOG_INFO("Main", "\n=== Aurora Rocketry Flight Software ===");
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
@@ -115,14 +127,14 @@ void setup()
     LOG_INFO("Main", "WiFi soft AP ready...");
 
     // Initialize components
-    LOG_INFO("Main", "Initializing sensors...");
+    // LOG_INFO("Main", "Initializing sensors...");
     std::shared_ptr<BNO055Sensor> bno055 = nullptr;
     std::shared_ptr<LIS3DHTRSensor> accl = nullptr;
     std::shared_ptr<MS561101BA03> baro1 = nullptr;
     std::shared_ptr<MS561101BA03> baro2 = nullptr;
     std::shared_ptr<GPS> gps = nullptr;
     // initializeComponents(bno055, accl, baro1, baro2, gps);
-    LOG_INFO("Main", "All components initialized");
+    LOG_INFO("Main", "Initialize components skipped");
 
     // Initialize logger
     LOG_INFO("Init", "Initializing rocket logger...");
@@ -143,13 +155,28 @@ void setup()
     rocketFSM->init();
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
-    LOG_INFO("Main", "Force transition - READY_FOR_LAUNCH");
-    rocketFSM->forceTransition(RocketState::READY_FOR_LAUNCH);
+    // Wait for arming pin to be enabled before starting FSM
+    statusManager.setSystemCode(PRE_FLIGHT_MODE);
+    while (!board.is_armed())
+    {
+        LOG_WARNING("Main", "System not armed! Waiting for arming signal...");
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
 
     // Start FSM tasks
     LOG_INFO("Main", "Starting Flight State Machine...");
+    statusManager.setSystemCode(FSM_STARTED);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
     rocketFSM->start();
     
+    LOG_INFO("Main", "Force transition - READY_FOR_LAUNCH");
+    rocketFSM->forceTransition(RocketState::READY_FOR_LAUNCH);
+    
+    statusManager.setSystemCode(FLIGHT_MODE);
+
+    // Signal successful initialization
+    gpio_set_level(LED_RED_PIN, LOW);
+    gpio_set_level(LED_GREEN_PIN, HIGH);
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
