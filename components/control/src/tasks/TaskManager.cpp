@@ -23,17 +23,15 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
     _espNowTransmitter = std::make_shared<EspNowTransmitter>(peerMac, ESPNOW_CHANNEL);
 
     // Initialize transmitter
-    // TODO: temporary fix to not get init errors.
-    
-    // ResponseStatusContainer initResult = _espNowTransmitter->init();
-    // if (initResult.getCode() != 0)
-    // {
-    //     LOG_ERROR("TaskMgr", "Failed to initialize ESP-NOW: %s", initResult.getDescription().c_str());
-    // }
-    // else
-    // {
-    //     LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
-    // }
+    ResponseStatusContainer initResult = _espNowTransmitter->init();
+    if (initResult.getCode() != 0)
+    {
+        LOG_ERROR("TaskMgr", "Failed to initialize ESP-NOW: %s", initResult.getDescription().c_str());
+    }
+    else
+    {
+        LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
+    }
 
 
     // Initialize LoRa transmitter
@@ -95,7 +93,7 @@ void TaskManager::initializeTasks()
         _loggerMutex);
 
 #if CONFIG_AURORA_HIL_SIMULATION
-    _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
+        _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
         _modelMutex,
         _logger,
