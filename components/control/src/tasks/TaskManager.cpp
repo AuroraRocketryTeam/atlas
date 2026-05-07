@@ -93,11 +93,14 @@ void TaskManager::initializeTasks()
         _modelMutex,
         _logger,
         _loggerMutex);
+
+#if CONFIG_AURORA_HIL_SIMULATION
     _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
         _modelMutex,
         _logger,
         _loggerMutex);
+#endif
         
     _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
         _rocketModel,

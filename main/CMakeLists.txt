@@ -1,5 +1,10 @@
-file(GLOB_RECURSE MAIN_SRCS "main_hil.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/main_hil.cpp"
-                            "${CMAKE_CURRENT_SOURCE_DIR}/*.c")
+set(MAIN_SRCS)
+
+if(CONFIG_AURORA_HIL_SIMULATION)
+    list(APPEND MAIN_SRCS "main_hil.cpp")
+else()
+    list(APPEND MAIN_SRCS "main.cpp")
+endif()
 
 # register the component to the build system.
 idf_component_register(

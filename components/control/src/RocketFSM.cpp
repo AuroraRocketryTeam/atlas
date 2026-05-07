@@ -20,8 +20,6 @@ RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
              _sd ? "OK" : "NULL",
              _logger ? "OK" : "NULL");
 
-    Utils::setTimeSource(TimeSource::SIMULATION);
-
     LOG_INFO("FSM", "Constructor completed");
 }
 
@@ -326,7 +324,7 @@ void RocketFSM::setupStateActions()
         #if defined(SIMULATION_DATA)
         // This state should be deleted eventually, also commenting out the simulation part, as it would just burn samples from the file
         //.addTask(TaskConfig(TaskType::SIMULATION, "Simulation_1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
         // .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
@@ -343,7 +341,8 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH"); })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_2", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
+        // TODO: do not treat HilSimulationTask as a normal fsm task, start in ONCE from rocketfsm.
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_2", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
@@ -361,7 +360,7 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering LAUNCH"); })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_3", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_3", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
@@ -378,7 +377,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_4", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_4", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
@@ -394,7 +393,7 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering BALLISTIC_FLIGHT"); })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_5", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_5", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
@@ -419,7 +418,7 @@ void RocketFSM::setupStateActions()
                         })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_6", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_6", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
@@ -444,7 +443,7 @@ void RocketFSM::setupStateActions()
                         })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_7", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_7", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
@@ -461,7 +460,7 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering DECELERATION"); })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_8", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_8", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
@@ -477,7 +476,7 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering LANDING"); })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_9", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_9", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
@@ -493,7 +492,7 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering RECOVERED"); })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_10", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
-        #elif defined(HIL_SIMULATION_DATA)
+        #elif CONFIG_AURORA_HIL_SIMULATION
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_10", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))

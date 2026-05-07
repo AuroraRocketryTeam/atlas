@@ -4,27 +4,30 @@
 static const char *TAG = "Utils";
 
 volatile uint32_t Utils::_simMillis = 0;
-volatile TimeSource Utils::_source = TimeSource::REAL;
 
+// Mission millis, can get slow down by the simulation
 uint32_t Utils::millis()
 {
-    if (_source == TimeSource::SIMULATION)
+#if CONFIG_AURORA_HIL_SIMULATION
         return _simMillis;
+#else
+    return esp_timer_get_time() / 1000;
+#endif
+}
 
+// Real millis
+uint32_t Utils::realMillis()
+{
     return esp_timer_get_time() / 1000;
 }
 
+
 void Utils::setSimMillis(uint32_t t)
 {
-    LOG_INFO(TAG, "Set sim_millis to %u", t);
+    // LOG_INFO(TAG, "Set sim_millis to %u", t);
     _simMillis = t;
 }
 
-void Utils::setTimeSource(TimeSource src)
-{
-    LOG_INFO(TAG, "Set TimeSource to %s", timeSourceToString(src));
-    _source = src;
-}
 
 int Utils::readLine(char* buf, int maxLen) {
     int pos = 0;
