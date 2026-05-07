@@ -35,7 +35,7 @@ idf_component_register(
         radio_espnow
         radio_lora
         # Third-party
-        # BNO055_SensorAPI
+        BNO055_SensorAPI
         RadioLib-master
     REQUIRES espressif__arduino-esp32
 )

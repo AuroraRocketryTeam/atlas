@@ -9,7 +9,7 @@ volatile uint32_t Utils::_simMillis = 0;
 uint32_t Utils::millis()
 {
 #if CONFIG_AURORA_HIL_SIMULATION
-        return _simMillis;
+    return _simMillis;
 #else
     return esp_timer_get_time() / 1000;
 #endif
