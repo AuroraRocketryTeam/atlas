@@ -121,6 +121,24 @@ public:
      */
     std::shared_ptr<GPSData> getGPSData();
 
+
+#if CONFIG_AURORA_HIL_SIMULATION
+    // Simulation
+     /**
+     * @brief Setter of simulation reset flag.
+     *
+     * @param bool the reset flag value.
+     */
+    void setResetSimulationFlag(bool value);
+    
+     /**
+     * @brief Getter of simulation reset flag.
+     *
+     * @return bool the reset flag value.
+     */
+    bool getResetSimulationFlag();
+#endif
+
     /**
      * @brief Set the simulated BNO055 sensor data
      *
@@ -183,6 +201,8 @@ public:
     Command getCommand();
     void resetCommand();
 
+    void reset();
+
 private:
     // Logger instance
     std::shared_ptr<RocketLogger> _logger;
@@ -200,8 +220,6 @@ private:
     std::shared_ptr<PressureSensorData> _ms561101ba03Data_1;
     std::shared_ptr<PressureSensorData> _ms561101ba03Data_2;
     std::shared_ptr<GPSData> _gpsData;
-    
-    Command _cmd;
 
     adc_oneshot_unit_handle_t _adc1_handle;
     int _batteryAdc;
@@ -211,4 +229,10 @@ private:
     std::shared_ptr<bool> _isRising;
     std::shared_ptr<float> _heightGainSpeed;
     std::shared_ptr<float> _currentHeight;
+
+    Command _cmd;
+
+#if CONFIG_AURORA_HIL_SIMULATION
+    bool _reset_simulation = false;
+#endif
 };

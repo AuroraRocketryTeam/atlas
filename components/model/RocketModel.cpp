@@ -38,6 +38,35 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     _cmd = Command();
 }
 
+void RocketModel::reset() {
+    _cmd.reset();
+
+    if (_isRising) {
+        *_isRising = false;
+    }
+
+    if (_heightGainSpeed) {
+        *_heightGainSpeed = 0.0f;
+    }
+
+    if (_currentHeight) {
+        *_currentHeight = 0.0f;
+    }
+
+#if CONFIG_AURORA_HIL_SIMULATION
+    _reset_simulation = false;
+
+    setSimulatedBNO055Data(nullptr);
+    setSimulatedLIS3DHTRData(nullptr);
+    setSimulatedMS561101BA03Data_1(nullptr);
+    setSimulatedMS561101BA03Data_2(nullptr);
+    setSimulatedGPSData(nullptr);
+
+    LOG_INFO("Main", "Set simulated data to nullptr");
+#endif
+}   
+
+
 void RocketModel::readBattery() {
     esp_err_t res = adc_oneshot_read(_adc1_handle, ADC_PIN, &_batteryAdc);
     if (res == ESP_OK) {
@@ -97,6 +126,18 @@ void RocketModel::resetCommand()
 {
     _cmd.reset();
 }
+
+#if CONFIG_AURORA_HIL_SIMULATION
+void RocketModel::setResetSimulationFlag(bool value)
+{
+    _reset_simulation = value;
+}
+
+bool RocketModel::getResetSimulationFlag()
+{
+    return _reset_simulation;
+}
+#endif
 
 bool RocketModel::updateBNO055() {
     bool result = _bno->updateData();

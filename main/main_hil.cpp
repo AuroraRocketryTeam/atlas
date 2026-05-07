@@ -75,21 +75,25 @@ std::shared_ptr<RocketLogger> logger = nullptr;
 std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
-void printSystemInfo();    
+void printSystemInfo();
 void wifi_softap_init(void);
-static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
+static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+
+// HIL lifecycle helpers
+static void createAndStartFSM();
+static void resetHilSimulationIfRequested();
+static void resetHilSimulation();
 
 #define ESP_WIFI_SSID "myssid"
 #define ESP_WIFI_CHANNEL 1
-#define ESP_WIFI_PASSWORD "mypassword" 
+#define ESP_WIFI_PASSWORD "mypassword"
 #define ESP_MAX_STA_CONN 1
-
 
 void setup()
 {
     // Initialize actuator pins
     gpio_config(&actuators_gpio_config);
-    
+
     gpio_set_level(MAIN_ACTUATOR_PIN, LOW);
     gpio_set_level(DROGUE_ACTUATOR_PIN, LOW);
 
@@ -101,7 +105,10 @@ void setup()
 
     // Install driver for blocking reads of Utils::readLine
     // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
-    usb_serial_jtag_driver_config_t usb_cfg = { .tx_buffer_size = 1024, .rx_buffer_size = 1024 };
+    usb_serial_jtag_driver_config_t usb_cfg = {
+        .tx_buffer_size = 1024,
+        .rx_buffer_size = 1024,
+    };
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_cfg));
 
     // Signal initialization start
@@ -120,9 +127,9 @@ void setup()
 
     LOG_INFO("Main", "\n=== Aurora Rocketry Flight Software ===");
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
-    
+
     LOG_INFO("Main", "Initializing system...");
-    
+
     wifi_softap_init();
     LOG_INFO("Main", "WiFi soft AP ready...");
 
@@ -148,12 +155,12 @@ void setup()
     // Print system information
     printSystemInfo();
 
+    // Switch to simulation time.
+    // Utils::setTimeSource(TimeSource::SIMULATION);
+    Utils::setSimMillis(0);
+
     // Initialize and start FSM
     LOG_INFO("Main", "=== System initialization complete ===");
-    LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
-    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger);
-    rocketFSM->init();
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Wait for arming pin to be enabled before starting FSM
     statusManager.setSystemCode(PRE_FLIGHT_MODE);
@@ -163,15 +170,8 @@ void setup()
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 
-    // Start FSM tasks
-    LOG_INFO("Main", "Starting Flight State Machine...");
-    statusManager.setSystemCode(FSM_STARTED);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-    rocketFSM->start();
-    
-    LOG_INFO("Main", "Force transition - READY_FOR_LAUNCH");
-    rocketFSM->forceTransition(RocketState::READY_FOR_LAUNCH);
-    
+    createAndStartFSM();
+
     statusManager.setSystemCode(FLIGHT_MODE);
 
     // Signal successful initialization
@@ -180,22 +180,109 @@ void setup()
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
+static void createAndStartFSM()
+{
+    LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
+
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger);
+    rocketFSM->init();
+
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+    // Start FSM tasks
+    LOG_INFO("Main", "Starting Flight State Machine...");
+    statusManager.setSystemCode(FSM_STARTED);
+
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+
+    rocketFSM->start();
+
+    LOG_INFO("Main", "Force transition - READY_FOR_LAUNCH");
+    rocketFSM->forceTransition(RocketState::READY_FOR_LAUNCH);
+}
+
+static void resetHilSimulationIfRequested()
+{
+    if (!rocketModel)
+    {
+        return;
+    }
+
+    if (!rocketModel->getResetSimulationFlag())
+    {
+        return;
+    }
+
+    resetHilSimulation();
+}
+
+static void resetHilSimulation()
+{
+    LOG_WARNING("Main", "HIL reset requested. Reinitializing FSM runtime...");
+
+    statusManager.setSystemCode(PRE_FLIGHT_MODE);
+
+    // Destroy the current FSM.
+    //
+    // Important:
+    // RocketFSM / TaskManager destructors must stop all running FreeRTOS tasks
+    // before task objects are destroyed.
+    if (rocketFSM)
+    {
+        LOG_INFO("Main", "Destroying current RocketFSM instance");
+        rocketFSM.reset();
+        vTaskDelay(250 / portTICK_PERIOD_MS);
+    }
+
+    // Reset simulation time before starting the next run.
+    Utils::setSimMillis(0);
+
+    // Reset logical model state.
+    //
+    // RocketModel::reset() must clear the reset flag, otherwise this function
+    // will be called again on every loop iteration.
+    if (rocketModel)
+    {
+        LOG_INFO("Main", "Resetting RocketModel");
+        rocketModel->reset();
+    }
+
+    // Recreate a fresh FSM/TaskManager/task object graph.
+    createAndStartFSM();
+
+    statusManager.setSystemCode(FLIGHT_MODE);
+
+    gpio_set_level(LED_RED_PIN, LOW);
+    gpio_set_level(LED_GREEN_PIN, HIGH);
+
+    LOG_INFO("Main", "HIL simulation reset complete");
+}
+
 void loop()
 {
-    auto currentState = rocketFSM->getCurrentState();
-    LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-    LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
+    resetHilSimulationIfRequested();
 
-    unsigned long lastHeartbeat = 0;
-    bool ledState = false;
+    static unsigned long lastHeartbeat = 0;
+    static bool ledState = false;
+    static RocketState lastLoggedState = RocketState::INACTIVE;
+
+    if (!rocketFSM)
+    {
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        return;
+    }
 
     // Heartbeat every 2 seconds
-    if (Utils::millis() - lastHeartbeat > 2000)
+    if (Utils::realMillis() - lastHeartbeat > 2000)
     {
-        LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::millis());
-        lastHeartbeat = Utils::millis();
+        lastHeartbeat = Utils::realMillis();
+
+        LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
+
         ledState = !ledState;
         gpio_set_level(LED_BUILT_IN, ledState);
+
+        LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -211,21 +298,18 @@ void loop()
         }
 
         // Optional: Print current state periodically
-        RocketState lastLoggedState = RocketState::INACTIVE;
         RocketState currentState = rocketFSM->getCurrentState();
 
-        if (currentState != lastLoggedState)
-        {
-            LOG_INFO("Main", "Current FSM State: %s",
-                     rocketFSM->getStateString(currentState));
-            lastLoggedState = currentState;
-        }
+        // if (currentState != lastLoggedState)
+        // {
+        LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
+            // lastLoggedState = currentState;
+        // }
     }
 
     // Small delay to prevent watchdog issues
     vTaskDelay(100 / portTICK_PERIOD_MS);
 }
-
 
 void printSystemInfo()
 {
@@ -245,15 +329,17 @@ void printSystemInfo()
     printf("--- End System Information ---\n");
 }
 
-static void wifi_event_handler(void* arg, esp_event_base_t event_base,
-                               int32_t event_id, void* event_data)
+static void wifi_event_handler(void *arg, esp_event_base_t event_base,
+                               int32_t event_id, void *event_data)
 {
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED)
+    {
         wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
         LOG_INFO("wifi_softap", "station connected, aid=%d", event->aid);
     }
 
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED)
+    {
         wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
         LOG_INFO("wifi_softap", "station disconnected, aid=%d", event->aid);
     }
@@ -294,7 +380,8 @@ void wifi_softap_init(void)
         },
     };
 
-    if (strlen(ESP_WIFI_PASSWORD) == 0) {
+    if (strlen(ESP_WIFI_PASSWORD) == 0)
+    {
         wifi_config.ap.authmode = WIFI_AUTH_OPEN;
     }
 
@@ -317,13 +404,15 @@ void wifi_softap_init(void)
 }
 
 // The ESP-IDF entry point, which must be C-linkage
-extern "C" void app_main() {
+extern "C" void app_main()
+{
     // Initialize the Arduino core background tasks
     initArduino();
-    
+
     setup();
-    
-    while (1) {
+
+    while (1)
+    {
         loop();
     }
 }

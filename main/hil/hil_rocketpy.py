@@ -347,6 +347,16 @@ test_flight = Flight(
     time_overshoot=False
 )
 
+reset_choice = input(
+    "Send simulation reset to the flight controller before showing the plot? [y/N]: "
+).strip().lower()
+
+if reset_choice in ("y", "yes"):
+    mailbox.put(communication.RESET_SIMULATION)
+    print("RESET_SIM requested")
+else:
+    print("RESET_SIM skipped")
+
 print("Flight... COMPLETED")
 
 test_flight.plots.trajectory_3d()

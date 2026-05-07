@@ -237,8 +237,9 @@ void HilSimulationTask::onTaskStop() {
 }
 
 void HilSimulationTask::reset() {
-    LOG_INFO(TAG, "reset");
-    LOG_WARNING(TAG, "reset - to implement!");
+    _rocketModel->setResetSimulationFlag(true);
+    // LOG_INFO(TAG, "reset: set flag in rocketmodel.");
+
 }
 
 
@@ -349,6 +350,17 @@ void HilSimulationTask::taskFunction() {
             if (!protocol_decode_frame(frame, PROTO_HEADER_SIZE + plen, &in_msg)) {
                 LOG_WARNING(TAG, "skip: protocol_decode_frame failed len=%u type=%u", plen, type);
                 continue;
+            }
+
+            if (in_msg.type == MSG_TYPE_SIM_RESET) {
+                if (in_msg.len != 0) {
+                    LOG_WARNING(TAG, "skip: reset payload must be empty, got len=%u", in_msg.len);
+                    continue;
+                }
+
+                LOG_INFO(TAG, "received RESET_SIM");
+                this->reset();
+                break;
             }
 
             if (in_msg.len != sizeof(sim_packet_t)) {

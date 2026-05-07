@@ -24,6 +24,9 @@ COMMAND_SIZE = struct.calcsize(COMMAND_FMT)
 
 MSG_TYPE_SIM_INPUT = 1
 MSG_TYPE_FC_COMMAND = 2
+MSG_TYPE_SIM_RESET = 3
+
+RESET_SIMULATION = "RESET_SIMULATION"
 
 # ---------------------------------------------------------
 # Encode message
@@ -152,27 +155,32 @@ def tcp_client(esp_connected: threading.Semaphore,
 
     announced_connected = False
 
+    # Message flow:
+    # sim_data, cmd, sim_data, cmd, ... sim_data, cmd, reset.
+
     while True:
         sock = None
 
         try:
-            # print(f"[CONNECTING] {ESP_IP}:{PORT}...", end="")
-
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect((ESP_IP, PORT))
-
-            # print(f"DONE")
+            sock.settimeout(3.0)
 
             if not announced_connected:
                 esp_connected.release()
                 announced_connected = True
                 print("[READY] ESP connection semaphore released")
 
-            sock.settimeout(3.0)
-            
             while True:
                 # ===== GET PAYLOAD =====
                 payload = mailbox.take()
+
+                if payload == RESET_SIMULATION:
+                    frame = encode_msg(MSG_TYPE_SIM_RESET, b"")
+                    sock.sendall(frame)
+                    print("[RESET] end of simulation, sent reset.")
+                    break
+                
 
                 # ===== ENCODE + SEND =====
                 frame = encode_msg(MSG_TYPE_SIM_INPUT, payload)
@@ -211,7 +219,7 @@ def tcp_client(esp_connected: threading.Semaphore,
                 socket.error,
                 ConnectionError,
                 OSError):
-            # print("[INFO] Socket closed. FSM transition. Reconnecting...")
+            print("[INFO] Socket closed. FSM transition. Reconnecting...")
             pass
 
         # Unexpected errors
@@ -231,86 +239,6 @@ def tcp_client(esp_connected: threading.Semaphore,
                     pass
 
             time.sleep(1.0)
-
-# def tcp_client(esp_connected : threading.Semaphore, mailbox : OneSlotMailbox, handlers: CommandHandlers):
-#     announced_connected = False
-
-#     while True:
-#         sock = None
-#         try:
-#             print(f"[CONNECT] {ESP_IP}:{PORT}")
-
-#             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-#             sock.connect((ESP_IP, PORT))
-
-#             print(f"[CONNECTED] {ESP_IP}:{PORT}")
-
-#             if not announced_connected:
-#                 esp_connected.release()
-#                 announced_connected = True
-#                 print(f"[RELEASE] esp_connected")
-
-#             while True:
-#                 # print("Mailbox take... ", end="")
-#                 payload = mailbox.take()
-#                 # print("DONE")
-
-#                 frame = encode_msg(MSG_TYPE_SIM_INPUT, payload)
-                
-#                 print("send_msg()... ", end="")
-#                 sock.sendall(frame)
-#                 print("DONE")
-
-#                 print("recv_msg()... ", end="")
-#                 msg_type, payload = recv_msg(sock)
-#                 print("DONE")
-
-
-#                 if msg_type != MSG_TYPE_FC_COMMAND:
-#                     raise RuntimeError(f"Invalid message type: {msg_type}")
-                
-
-#                 if len(payload) != COMMAND_SIZE:
-#                     raise RuntimeError(f"FC command payload size mismatch: got {len(payload)}, expected {COMMAND_SIZE}")
-                    
-#                 sim_time, open_main, open_drogue, airbrakes = decode_command(payload)
-
-#                 if open_main:
-#                     handlers.on_open_main(sim_time)
-
-#                 if open_drogue:
-#                     handlers.on_open_drogue(sim_time)
-
-#                 handlers.on_set_air_brakes(sim_time, airbrakes)
-
-#                 # print(
-#                 #     f"RX COMMAND | sim_time={sim_time:.2f} "
-#                 #     f"main={open_main} "
-#                 #     f"drogue={open_drogue} "
-#                 #     f"airbrakes={airbrakes:.2f}"
-#                 # )
-
-#                 # time.sleep(0.5)
-
-#         except (socket.timeout, socket.error, ConnectionError, OSError) as e:
-#             print("[DISCONNECT]", e)
-
-#         except Exception as e:
-#             print("[ERROR]", e)
-
-#         finally:
-#             if sock is not None:
-#                 try:
-#                     sock.shutdown(socket.SHUT_RDWR)
-#                 except OSError:
-#                     pass
-#                 try:
-#                     sock.close()
-#                 except OSError:
-#                     pass
-
-#             print("[CLOSED] Connection to server.")
-#             time.sleep(1.0)        
 
 def tcp_client_thread_start(esp_connected, mailbox, handlers):
     th = threading.Thread(

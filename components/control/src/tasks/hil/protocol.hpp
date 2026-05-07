@@ -15,6 +15,7 @@ extern "C" {
 typedef enum {
     MSG_TYPE_SIM_INPUT  = 1,
     MSG_TYPE_FC_COMMAND = 2,
+    MSG_TYPE_SIM_RESET  = 3,
 } proto_msg_type_t;
 
 typedef struct {
