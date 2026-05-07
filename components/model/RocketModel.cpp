@@ -17,9 +17,9 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     _gps(gps),
     _isRising(std::make_shared<bool>(false)),
     _heightGainSpeed(std::make_shared<float>(0.0f)),
-    _currentHeight(std::make_shared<float>(0.0f)),
+    _currentHeight(std::make_shared<float>(0.0f))
 #if CONFIG_AURORA_HIL_SIMULATION
-    _reset_simulation(false)
+    ,_reset_simulation(false)
 #endif
 {
     // Configure and Initialize ADC unit
