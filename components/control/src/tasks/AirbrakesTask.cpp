@@ -13,17 +13,17 @@ AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
       _logger(logger),
       _loggerMutex(loggerMutex)
 {
-    LOG_INFO(TAG, "Constructor initialized");
+    // LOG_INFO(TAG, "Constructor initialized");
 }
 
 void AirbrakesTask::onTaskStart()
 {
-    LOG_INFO(TAG, "onTaskStart");
+    // LOG_INFO(TAG, "onTaskStart");
 }
 
 void AirbrakesTask::onTaskStop()
 {
-    LOG_INFO(TAG, "onTaskStop");
+    // LOG_INFO(TAG, "onTaskStop");
 }
 
 void AirbrakesTask::taskFunction()
@@ -52,12 +52,12 @@ void AirbrakesTask::taskFunction()
         }
 
 
-        if (altitude > 1000) {
+        if (altitude > 1000 && deployment < 1) { // open once
             LOG_INFO(TAG, "opening airbrakes");
             deployment = 1.0f;
         }
 
-        if (altitude > 2000) {
+        if (altitude > 2000 && deployment >= 0.75) { // close once
             LOG_INFO(TAG, "closing airbrakes");
             deployment = 0.0f;
         }
@@ -75,7 +75,7 @@ void AirbrakesTask::taskFunction()
         }
 
         /* ===== LOG ===== */
-        LOG_INFO(TAG, "alt=%.1f cmd=%.2f", altitude, deployment);
+        // LOG_INFO(TAG, "alt=%.1f cmd=%.2f", altitude, deployment);
 
         vTaskDelay(pdMS_TO_TICKS(50)); // 50ms, 20Hz
     }

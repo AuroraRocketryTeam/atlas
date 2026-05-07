@@ -127,7 +127,7 @@ HilSimulationTask::~HilSimulationTask() {
 }
 
 void HilSimulationTask::onTaskStart() {
-    LOG_INFO(TAG, "onTaskStart");
+    // LOG_INFO(TAG, "onTaskStart");
 
     const int MAX_RETRY = 5;
     const TickType_t RETRY_DELAY = 200 / portTICK_PERIOD_MS;
@@ -142,7 +142,7 @@ void HilSimulationTask::onTaskStart() {
             LOG_ERROR(TAG, "socket() failed: %s", strerror(errno));
             success = false;
         } else {
-            LOG_INFO(TAG, "socket() -> %d", _listen_sock);
+            // LOG_INFO(TAG, "socket() -> %d", _listen_sock);
         }
 
         /* ===== SO_REUSEADDR ===== */
@@ -208,7 +208,7 @@ void HilSimulationTask::onTaskStart() {
 }
 
 void HilSimulationTask::onTaskStop() {
-    LOG_INFO(TAG, "onTaskStop: client=%d listen=%d", _client_sock, _listen_sock);
+    // LOG_INFO(TAG, "onTaskStop: client=%d listen=%d", _client_sock, _listen_sock);
 
     if (_client_sock >= 0) {
         if (shutdown(_client_sock, SHUT_RDWR) < 0) {
@@ -218,7 +218,7 @@ void HilSimulationTask::onTaskStop() {
         if (close(_client_sock) < 0) {
             LOG_ERROR(TAG, "Failed to close _client_sock: %s", strerror(errno));
         } else {
-            LOG_INFO(TAG, "onTaskStop: shutdown and close _client_sock");
+            // LOG_INFO(TAG, "onTaskStop: shutdown and close _client_sock");
         }
 
         _client_sock = -1;
@@ -228,7 +228,7 @@ void HilSimulationTask::onTaskStop() {
         if (close(_listen_sock) < 0) {
             LOG_ERROR(TAG, "Failed to close _listen_sock: %s", strerror(errno));
         } else {
-            LOG_INFO(TAG, "onTaskStop: shutdown and close _listen_sock");
+            // LOG_INFO(TAG, "onTaskStop: shutdown and close _listen_sock");
         }
 
         _listen_sock = -1;
@@ -265,14 +265,14 @@ void HilSimulationTask::taskFunction() {
         sockaddr_in client_addr;
         socklen_t len = sizeof(client_addr);
 
-        LOG_INFO(TAG, "start accept");
+        // LOG_INFO(TAG, "start accept");
         _client_sock = accept(_listen_sock, (sockaddr *)&client_addr, &len);
 
         if (_client_sock < 0) {
             if (errno == EWOULDBLOCK || errno == EAGAIN) {
                 esp_task_wdt_reset();
                 vTaskDelay(1);
-                LOG_INFO(TAG, "no client yet");
+                // LOG_INFO(TAG, "no client yet");
                 continue;   // no client yet
             }
 
@@ -305,7 +305,7 @@ void HilSimulationTask::taskFunction() {
 
             uint8_t header[PROTO_HEADER_SIZE];
 
-            LOG_INFO(TAG, "start recv_all header");
+            // LOG_INFO(TAG, "start recv_all header");
             if (!recv_all(_client_sock, header, PROTO_HEADER_SIZE, running)) {
                 LOG_WARNING(TAG, "closing: recv header failed");
                 break;
@@ -339,7 +339,7 @@ void HilSimulationTask::taskFunction() {
             /* ===== RECEIVE PAYLOAD ===== */
 
             if (plen > 0) {
-                LOG_INFO(TAG, "start recv_all payload");
+                // LOG_INFO(TAG, "start recv_all payload");
                 if (!recv_all(_client_sock, frame + PROTO_HEADER_SIZE, plen, running)) {
                     LOG_ERROR(TAG, "closing: recv payload failed len=%u: %s", plen, strerror(errno));
                     break;
@@ -388,8 +388,6 @@ void HilSimulationTask::taskFunction() {
             /* ================= UPDATE MODEL ================= */
 
             if (_rocketModel && xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(200))) {
-                // _rocketModel->setTimestamp(pkt.timestamp);
-                
                 _rocketModel->setSimulatedBNO055Data(bnoData);
                 _rocketModel->setSimulatedLIS3DHTRData(lis3dhData);
                 _rocketModel->setSimulatedMS561101BA03Data_1(ms1);
@@ -404,7 +402,7 @@ void HilSimulationTask::taskFunction() {
             vTaskDelay(1); // yield in order to let the other task to set the command
             if(!running) break;
 
-            /* ================= READ COMMAND FROM FSM ================= */
+            /* ================= READ COMMAND FROM MODEL ================= */
             esp_task_wdt_reset();
             Command cmd;
 
@@ -433,7 +431,7 @@ void HilSimulationTask::taskFunction() {
                 break;
             }
 
-            LOG_INFO(TAG, "start send_all cmd");
+            // LOG_INFO(TAG, "start send_all cmd");
             if (!send_all(_client_sock, out_buf, out_len, running)) {
                 LOG_WARNING(TAG, "closing: send_all failed");
                 break;
@@ -441,12 +439,12 @@ void HilSimulationTask::taskFunction() {
 
             /* ================= LOG ================= */
 
-            LOG_INFO(TAG,
-                "t=%.2f | acc=[%.2f %.2f %.2f] | alt=%.2f",
-                pkt.sim_time,
-                pkt.ax, pkt.ay, pkt.az,
-                pkt.alt
-            );
+            // LOG_INFO(TAG,
+            //     "t=%.2f | acc=[%.2f %.2f %.2f] | alt=%.2f",
+            //     pkt.sim_time,
+            //     pkt.ax, pkt.ay, pkt.az,
+            //     pkt.alt
+            // );
         }
 
     }
