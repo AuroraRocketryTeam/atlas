@@ -40,6 +40,7 @@
 
 // Storage and logging
 #include <SD-master.hpp>
+#include <Flash.hpp>
 #include <RocketLogger.hpp>
 #include <Logger.hpp>
 
@@ -73,6 +74,7 @@ StatusManager statusManager(ledController, buzzerController);
 std::shared_ptr<RocketModel> rocketModel = nullptr;
 
 std::shared_ptr<SD> sdCard = nullptr;
+std::shared_ptr<Flash> flash = nullptr;
 
 // Define the RocketLogger
 std::shared_ptr<RocketLogger> logger = nullptr;
@@ -573,9 +575,21 @@ void showTestPattern(int testNumber, StatusManager &statusManager)
         statusManager.playBlockingPattern(TEST_SD, 1000);
         break;
     case 5:
+        statusManager.playBlockingPattern(TEST_SENSORS, 1000);
+        break;
+    case 6:
+        statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+        break;
+    case 7:
+        statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+        break;
+    case 8:
         statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
         break;
     case 9:
+        statusManager.playBlockingPattern(TEST_SD, 1000);
+        break;
+    case 10:
         statusManager.playBlockingPattern(TEST_ALL, 2000);
         break;
     default:
@@ -602,7 +616,7 @@ static void toUpperString(std::string &s)
 // Modified waitForUserInput with buzzer patterns
 bool waitForUserInput(const char *message)
 {
-    printf("%s\n Or type REBOOT to restart the system.\n", message);
+    printf("%s\n(Shortcuts: 'P' = Passed, 'F' = Failed, 'R' = Reboot)\n", message);
     statusManager.setSystemCode(WAITING_INPUT);
 
     while (true)
@@ -614,20 +628,20 @@ bool waitForUserInput(const char *message)
             trimString(input);
             toUpperString(input);
 
-            if (input == "PASSED")
+            if (input == "PASSED" || input == "P")
             {
                 statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
                 return true;
             }
-            if (input == "FAILED")
+            if (input == "FAILED" || input == "F")
             {
                 statusManager.playBlockingPattern(TEST_FAILURE, 1000);
                 return false;
             }
-            if (input == "REBOOT")
+            if (input == "REBOOT" || input == "R")
             {
                 LOG_WARNING("Test", "System is going to reboot, are you sure?");
-                LOG_WARNING("Test", "Type REBOOT to confirm or anything else to cancel.");
+                LOG_WARNING("Test", "Type REBOOT (or 'R') to confirm or anything else to cancel.");
 
                 char confirmBuffer[64] = {0};
                 Utils::readLine(confirmBuffer, sizeof(confirmBuffer));
@@ -640,15 +654,20 @@ bool waitForUserInput(const char *message)
                 }
                 trimString(confirm);
                 toUpperString(confirm);
-                if (confirm == "REBOOT")
+                
+                if (confirm == "REBOOT" || confirm == "R")
                 {
                     LOG_WARNING("Test", "Rebooting system...");
                     ESP.restart();
                 }
+                else
+                {
+                    LOG_INFO("Test", "Reboot cancelled.");
+                }
             }
-            else
+            else if (!input.empty())
             {
-                LOG_INFO("Test", "Reboot cancelled.");
+                LOG_WARNING("Test", "Unrecognized input. Please type P, F, or R.");
             }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -790,9 +809,130 @@ bool testSDCard()
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
+bool testFlashMemory()
+{
+    LOG_INFO("Test", "[STEP 5] Test Flash memory");
+
+    flash = std::make_shared<Flash>();
+    
+    const uint32_t t0 = Utils::millis();
+
+    if (flash && flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+    {
+        LOG_INFO("Init", "External Flash initialized");
+    }
+    else
+    {
+        LOG_ERROR("Init", "Failed to initialize External Flash");
+    }
+
+    if (!flash) {
+        LOG_ERROR("Test", "Flash pointer is null! Initialization failed in setup.");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    LOG_INFO("Test", "Flash: verifying readiness...");
+    // Calling init() again is safe, it returns true if already initialized
+    if (!flash->init())
+    {
+        LOG_ERROR("Test", "Flash init failed: verify external SPI flash wiring and availability.");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+    LOG_INFO("Test", "Flash: init OK (%lu ms)", (unsigned long)(Utils::millis() - t0));
+
+    const std::string testFile = "test.txt";
+    const std::string missingFile = "ghost.txt";
+
+    // Missing file read should return nullptr.
+    LOG_INFO("Test", "Flash: read missing file '%s' (expected nullptr)", missingFile.c_str());
+    char *readData = flash->readFile(missingFile);
+    if (readData != nullptr)
+    {
+        LOG_ERROR("Test", "Unexpected data returned for missing file.");
+        delete[] readData;
+    }
+    else
+    {
+        LOG_INFO("Test", "Flash: missing file check OK");
+    }
+
+    LOG_INFO("Test", "Flash: write '%s'", testFile.c_str());
+    if (!flash->writeFile(testFile, "Hello, ESP32 Flash Storage!\n"))
+    {
+        LOG_ERROR("Test", "Flash write failed.");
+    }
+    else
+    {
+        LOG_INFO("Test", "Flash: write OK");
+    }
+
+    LOG_INFO("Test", "Flash: read '%s'", testFile.c_str());
+    readData = flash->readFile(testFile);
+    if (readData == nullptr)
+    {
+        LOG_ERROR("Test", "Flash read failed after write.");
+    }
+    else
+    {
+        LOG_INFO("Test", "Flash read content: %s", readData);
+        delete[] readData;
+    }
+
+    LOG_INFO("Test", "Flash: append to '%s'", testFile.c_str());
+    if (!flash->appendFile(testFile, "Appended line.\n"))
+    {
+        LOG_ERROR("Test", "Flash append failed.");
+    }
+    else
+    {
+        LOG_INFO("Test", "Flash: append OK");
+    }
+
+    LOG_INFO("Test", "Flash: read back after append");
+    readData = flash->readFile(testFile);
+    if (readData != nullptr)
+    {
+        LOG_INFO("Test", "Flash read after append: %s", readData);
+        delete[] readData;
+    }
+    else
+    {
+        LOG_ERROR("Test", "Flash read failed after append.");
+    }
+
+    if (!flash->fileExists(testFile))
+    {
+        LOG_ERROR("Test", "Flash file existence check failed.");
+    }
+    else
+    {
+        LOG_INFO("Test", "Flash: fileExists('%s') OK", testFile.c_str());
+    }
+
+    const uint32_t t_clear = Utils::millis();
+    LOG_INFO("Test", "Flash: clear start (this can take several seconds on full-chip erase)...");
+    
+    if (!flash->clearFlash())
+    {
+        LOG_ERROR("Test", "Flash clear failed.");
+    }
+    else if (flash->fileExists(testFile))
+    {
+        LOG_ERROR("Test", "Flash clear did not remove test file.");
+    }
+    else
+    {
+        LOG_INFO("Test", "Flash: clear OK (%lu ms)", (unsigned long)(Utils::millis() - t_clear));
+    }
+
+    LOG_INFO("Test", "Flash: test completed in %lu ms", (unsigned long)(Utils::millis() - t0));
+
+    return waitForUserInput("Check the logs above in the serial console. Type PASSED to continue or FAILED to retry");
+}
+
 bool testTelemetry()
 {
-    LOG_INFO("Test", "[STEP 5] Test telemetria");
+    LOG_INFO("Test", "[STEP 6] Test telemetria");
     statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
 
     // Serial1 is used by GPS
@@ -923,7 +1063,7 @@ bool configureE220()
 // Pattern: All high, then N bursts of (0,5s H/L)
 bool testE220Connector()
 {
-    LOG_INFO("Test", "[STEP 6] LoRa Connector Test");
+    LOG_INFO("Test", "[STEP 7] LoRa Connector Test");
 
     const gpio_num_t pins[]   = {GPIO_NUM_40, GPIO_NUM_39, GPIO_NUM_38, GPIO_NUM_41, GPIO_NUM_42};
     const char*      names[]  = {"GPIO40 AUX", "GPIO39 RX<E220TX", "GPIO38 TX>E220RX", "GPIO41 M1", "GPIO42 M0"};
@@ -979,7 +1119,8 @@ void testRoutine()
         printf("6 - Configura E220 (one-time setup)\n");
         printf("7 - Test telemetria\n");
         printf("8 - Test connettore E220\n");
-        printf("9 - Esegui tutti i test in sequenza\n");
+        printf("9 - Test Flash memory\n");
+        printf("10 - Esegui tutti i test in sequenza\n");
         printf("0 - Esci dal menu test\n");
         printf("Inserisci il numero del test da eseguire:\n");
 
@@ -1044,6 +1185,12 @@ void testRoutine()
             } while (!testPassed);
             break;
         case 9:
+            do
+            {
+                testPassed = testFlashMemory();
+            } while (!testPassed);
+            break;
+        case 10:
             // Show all tests pattern
             statusManager.playBlockingPattern(TEST_ALL, 2000);
 
@@ -1068,6 +1215,10 @@ void testRoutine()
             {
                 testPassed = testTelemetry();
             } while (!testPassed);
+            do
+            {
+                testPassed = testFlashMemory();
+            } while (!testPassed);
 
             // All tests successful
             statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
@@ -1084,7 +1235,7 @@ void testRoutine()
             continue;
         }
 
-        if (choice >= 1 && choice <= 9)
+        if (choice >= 1 && choice <= 10)
         {
             LOG_INFO("Test", "Test completato con successo!");
             // Show success pattern before returning to menu

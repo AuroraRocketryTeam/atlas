@@ -8,7 +8,7 @@ endif()
 
 # register the component to the build system.
 idf_component_register(
-    SRCS ${MAIN_SRCS}
+    SRCS "main.cpp"
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         nvs_flash
@@ -21,6 +21,7 @@ idf_component_register(
         implementation
         status
         SD
+        flash
         BME680
         BNO055
         GPS

@@ -32,6 +32,7 @@ set(EXTRA_COMPONENT_DIRS
 
     # persistence
     ${CMAKE_SOURCE_DIR}/components/persistence/SD
+    ${CMAKE_SOURCE_DIR}/components/persistence/flash
 
     # protocols
     ${CMAKE_SOURCE_DIR}/components/protocols/I2C
