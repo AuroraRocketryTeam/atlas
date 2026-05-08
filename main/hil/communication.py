@@ -28,6 +28,15 @@ MSG_TYPE_SIM_RESET = 3
 
 RESET_SIMULATION = "RESET_SIMULATION"
 
+class PeerClosedConnection(ConnectionError):
+    """
+    Raised only when the peer closes the TCP connection cleanly.
+
+    This is expected when the flight controller performs an FSM transition
+    and calls shutdown() + close() on its socket.
+    """
+    pass
+
 # ---------------------------------------------------------
 # Encode message
 # ---------------------------------------------------------
@@ -76,7 +85,7 @@ def recv_all(sock, n):
         chunk = sock.recv(n - len(data))
 
         if not chunk:
-            raise ConnectionError("socket closed")
+            raise PeerClosedConnection("peer closed connection")
 
         data += chunk
 
@@ -154,11 +163,12 @@ def tcp_client(esp_connected: threading.Semaphore,
                handlers: CommandHandlers):
 
     announced_connected = False
+    stop_requested = False
 
     # Message flow:
     # sim_data, cmd, sim_data, cmd, ... sim_data, cmd, reset.
 
-    while True:
+    while not stop_requested:
         sock = None
 
         try:
@@ -171,7 +181,7 @@ def tcp_client(esp_connected: threading.Semaphore,
                 announced_connected = True
                 print("[READY] ESP connection semaphore released")
 
-            while True:
+            while not stop_requested:
                 # ===== GET PAYLOAD =====
                 payload = mailbox.take()
 
@@ -179,8 +189,11 @@ def tcp_client(esp_connected: threading.Semaphore,
                     frame = encode_msg(MSG_TYPE_SIM_RESET, b"")
                     sock.sendall(frame)
                     print("[RESET] end of simulation, sent reset.")
+
+                    # This is intentional shutdown of the Python TCP client.
+                    # Do not reconnect after the final simulation reset.
+                    stop_requested = True
                     break
-                
 
                 # ===== ENCODE + SEND =====
                 frame = encode_msg(MSG_TYPE_SIM_INPUT, payload)
@@ -211,20 +224,48 @@ def tcp_client(esp_connected: threading.Semaphore,
                 if handlers.on_set_air_brakes:
                     handlers.on_set_air_brakes(sim_time, airbrakes)
 
-        # Expected / normal disconnects
-        except (BrokenPipeError,
-                ConnectionResetError,
-                ConnectionAbortedError,
-                socket.timeout,
-                socket.error,
-                ConnectionError,
-                OSError):
-            print("[INFO] Socket closed. FSM transition. Reconnecting...")
-            pass
+        # Expected case:
+        # Flight controller FSM transition stopped the task and closed the socket.
+        except (
+            PeerClosedConnection,
+            BrokenPipeError,
+            ConnectionResetError,
+            ConnectionAbortedError,
+        ) as e:
+            if not stop_requested:
+                print(
+                    f"[INFO] FC closed socket during FSM transition: "
+                    f"{type(e).__name__}: {e}"
+                )
 
-        # Unexpected errors
+        # Expected during reconnect:
+        # The FC closed the old server/task, but the new one is not listening yet.
+        except ConnectionRefusedError as e:
+            if not stop_requested:
+                print(f"[INFO] FC TCP server not ready yet, retrying: {e}")
+
+        # Not treated as normal FSM shutdown:
+        # The socket stayed open, but the FC did not answer in time.
+        except socket.timeout as e:
+            if not stop_requested:
+                print(f"[TIMEOUT] FC did not answer in time: {e}")
+
+        # Protocol/data errors:
+        # These should not be hidden as normal reconnects.
+        except (ValueError, RuntimeError, struct.error) as e:
+            print(f"[PROTOCOL ERROR] {type(e).__name__}: {e}")
+
+        # Other OS-level socket errors:
+        # Keep visible because these may indicate real network/configuration bugs.
+        except OSError as e:
+            if not stop_requested:
+                print(f"[SOCKET ERROR] errno={e.errno}: {type(e).__name__}: {e}")
+
+        # Actual programming bugs:
+        # Do not hide them, otherwise debugging becomes impossible.
         except Exception as e:
-            print(f"[ERROR] {type(e).__name__}: {e}")
+            print(f"[BUG] Unexpected error: {type(e).__name__}: {e}")
+            raise
 
         finally:
             if sock is not None:
@@ -238,7 +279,10 @@ def tcp_client(esp_connected: threading.Semaphore,
                 except OSError:
                     pass
 
-            time.sleep(1.0)
+            if not stop_requested:
+                time.sleep(1.0)
+
+    print("[TCP] communication thread stopped")
 
 def tcp_client_thread_start(esp_connected, mailbox, handlers):
     th = threading.Thread(
