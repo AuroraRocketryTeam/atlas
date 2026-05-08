@@ -1,27 +1,14 @@
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
-import numpy as np
-# import time as pytime
+import time
+import threading
 from pathlib import Path
-import csv
-import math
-# import pandas as pd
 
 from rocketpy import Environment, Flight, SolidMotor, RocketV2
 from rocketpy import Accelerometer
 from rocketpy import Barometer
 from rocketpy import GnssReceiver  
 
-import threading
-from typing import Generic, TypeVar, Optional
-# import serial
-import struct
-
-
 # communication.py
 import communication
-
 
 class CommandState:
     def __init__(self):
@@ -188,7 +175,7 @@ print("Rocket... READY")
 # SENSORS
 # ----------------------------------------------------------------------
 accel_clean = Accelerometer(  
-    sampling_rate=50,
+    sampling_rate=sampling_rate,
     consider_gravity=True,
     orientation=(0, 0, 0),
     noise_density=0,  
@@ -202,7 +189,7 @@ accel_clean = Accelerometer(
 Nemesis.add_sensor(accel_clean, position=0)
   
 barometer_clean = Barometer(  
-    sampling_rate=50,  
+    sampling_rate=sampling_rate,  
     noise_density=0,  
     random_walk_density=0,  
     constant_bias=0,  
@@ -213,7 +200,7 @@ barometer_clean = Barometer(
 Nemesis.add_sensor(barometer_clean, position=0)
 
 gnss_clean = GnssReceiver(  
-    sampling_rate=50,
+    sampling_rate=sampling_rate,
     position_accuracy=0,
     altitude_accuracy=0,
     name="Clean GPS"  
@@ -268,9 +255,26 @@ def airbrakes_controller(time, sampling_rate, state_vector, state_history, obser
         airbrake.deployment_level = command_state.airbrakes_lvl
     return airbrake
 
-counter = 0
+
+# RocketPy may invoke controller callbacks more than once with the
+# exact same simulation timestamp. In tests, duplicated callbacks
+# carried identical state/sensor data.
 seq = 0
+last_sent_t = None
+TIMESTAMP_EPS = 1e-9
+
 def enqueue_data(t, state, sensors):
+    global seq
+    global last_sent_t
+
+    # Drop duplicated RocketPy callbacks at the same simulated time.
+    # Read main/hil/README.md "Bugs".
+    if last_sent_t is not None and abs(t - last_sent_t) < TIMESTAMP_EPS:
+        return
+
+    if seq % sampling_rate == 0:
+        print(f"t_sim = {t:.6f} | seq={seq}")
+    
     # x = state["x"]
     # y = state["y"]
     # z = state["z"]
@@ -284,15 +288,7 @@ def enqueue_data(t, state, sensors):
     # omega1 = state["omega1"]
     # omega2 = state["omega2"]
     # omega3 = state["omega3"]
-    global counter
-    global seq
-    if counter == 0:
-        print(f"t_sim = {t}")
-    
-    if counter >= sampling_rate:
-        counter = 0
-        print(f"t_sim = {t}")
-    
+
     ax = sensors["ax"]
     ay = sensors["ay"]
     az = sensors["az"]
@@ -305,8 +301,9 @@ def enqueue_data(t, state, sensors):
     payload = communication.build_payload(seq, t, ax, ay, az, p, lat, lon, alt)
     mailbox.put(payload)
 
-    counter += 1
-    seq+=1
+    # Update only after the packet has actually been queued.
+    last_sent_t = t
+    seq += 1
 
 mailbox = communication.OneSlotMailbox()
 handlers_dict = {
