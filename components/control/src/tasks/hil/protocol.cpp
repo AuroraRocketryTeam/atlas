@@ -24,7 +24,7 @@ bool protocol_encode_frame(const proto_msg_t *msg, uint8_t *out_buf, size_t out_
     memcpy(out_buf + 0, &magic_be, sizeof(magic_be));
     memcpy(out_buf + 4, &len_be,   sizeof(len_be));
     memcpy(out_buf + 6, &type_be,  sizeof(type_be));
-    memcpy(out_buf + 8, msg->payload, msg->len);
+    memcpy(out_buf + PROTO_HEADER_SIZE, msg->payload, msg->len);
 
     *out_len = total;
     return true;
