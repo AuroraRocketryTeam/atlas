@@ -247,6 +247,12 @@ void HilSimulationTask::reset() {
 
 void HilSimulationTask::taskFunction() {
 
+    if (_listen_sock < 0) {
+        LOG_ERROR(TAG, "HilSimulationTask cannot start: listen socket is invalid");
+        running = false;
+        return;
+    }
+
     proto_msg_t in_msg;
     proto_msg_t out_msg;
 
@@ -325,13 +331,14 @@ void HilSimulationTask::taskFunction() {
             type  = ntohs(type);
 
             if (magic != PROTO_MAGIC) {
-                LOG_WARNING(TAG, "skip: invalid magic 0x%08" PRIx32, magic);
-                continue;
+                LOG_WARNING(TAG, "closing: invalid magic 0x%08" PRIx32, magic);
+                break;
             }
 
             if (plen > PROTO_MAX_PAYLOAD_SIZE) {
-                LOG_WARNING(TAG, "skip: payload too large len=%u", plen);
-                continue;
+                LOG_WARNING(TAG, "closing: payload too large len=%u max=%u",
+                            plen, PROTO_MAX_PAYLOAD_SIZE);
+                break;
             }
 
             uint8_t frame[PROTO_HEADER_SIZE + PROTO_MAX_PAYLOAD_SIZE];
@@ -436,10 +443,10 @@ void HilSimulationTask::taskFunction() {
             memcpy(out_msg.payload, &wire, sizeof(wire));
 
             uint8_t out_buf[512];
-            size_t out_len;
+            size_t out_len = 0;
 
             if (!protocol_encode_frame(&out_msg, out_buf, sizeof(out_buf), &out_len)) {
-                LOG_WARNING(TAG, "closing: protocol_encode_frame failed len=%u", out_len);
+                LOG_WARNING(TAG, "closing: protocol_encode_frame failed payload_len=%zu", out_msg.len);
                 break;
             }
 
@@ -457,6 +464,12 @@ void HilSimulationTask::taskFunction() {
             //     pkt.ax, pkt.ay, pkt.az,
             //     pkt.alt
             // );
+        }
+
+        if (_client_sock >= 0) {
+            close(_client_sock);
+            _client_sock = -1;
+            LOG_INFO(TAG, "Client disconnected");
         }
 
     }
