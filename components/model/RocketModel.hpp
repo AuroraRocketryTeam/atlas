@@ -195,12 +195,48 @@ public:
      */
     std::shared_ptr<float> getCurrentHeight();
 
+    /**
+     * @brief Set the command to open the main parachute.
+     *
+     * @return true if the command was set successfully
+     * @return false otherwise
+     */
     bool setOpenMainCommand();
+
+    /**
+     * @brief Set the command to open the drogue parachute.
+     *
+     * @return true if the command was set successfully
+     * @return false otherwise
+     */
     bool setOpenDrogueCommand();
+
+    /**
+     * @brief Set the airbrakes command level.
+     *
+     * @param lvl Airbrakes actuation level to command
+     * @return true if the command was set successfully
+     * @return false otherwise
+     */
     bool setAirbrakesCommand(float lvl);
+
+    /**
+     * @brief Get the current command.
+     *
+     * @return Command currently stored by the model
+     */
     Command getCommand();
+
+    /**
+     * @brief Reset the current command to its default state.
+     *
+     */
     void resetCommand();
 
+    /**
+     * @brief Reset the rocket model state.
+     *
+     */
     void reset();
 
 private:
