@@ -24,7 +24,6 @@ uint32_t Utils::realMillis()
 
 void Utils::setSimMillis(uint32_t t)
 {
-    // LOG_INFO(TAG, "Set sim_millis to %u", t);
     _simMillis = t;
 }
 

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "esp_timer.h"
-#include <Logger.hpp>
 
 class Utils {
 public:

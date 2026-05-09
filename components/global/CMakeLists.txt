@@ -5,5 +5,5 @@
 idf_component_register(
     SRCS "src/utils.cpp"
     INCLUDE_DIRS "src"
-    REQUIRES nlohmann_json espressif__arduino-esp32 esp_driver_usb_serial_jtag core
+    REQUIRES nlohmann_json espressif__arduino-esp32 esp_driver_usb_serial_jtag
 )
