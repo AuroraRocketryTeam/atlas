@@ -40,9 +40,23 @@ class RocketV2(Rocket):
                 return
 
             # The most recent measurements of the sensors are provided with the ``sensor.measurement`` attribute.            
-            accel_clean     = _sensors[0].measurement
-            barometer_clean = _sensors[1].measurement
-            gnss_clean      = _sensors[2].measurement
+            # RocketPy passes sensors in the same order in which they were added to the rocket.
+            
+            # This controller expects:
+            #   sensors[0] -> accelerometer
+            #   sensors[1] -> barometer
+            #   sensors[2] -> GNSS
+            if len(_sensors) < 3:
+                raise ValueError(
+                    f"Airbrakes controller requires at least 3 sensors "
+                    f"(accelerometer, barometer, GNSS), got {len(_sensors)}"
+                )
+
+            accel_sensor, barometer_sensor, gnss_sensor = _sensors[:3]
+
+            accel_clean     = accel_sensor.measurement
+            barometer_clean = barometer_sensor.measurement
+            gnss_clean      = gnss_sensor.measurement
 
             if accel_clean is None:
                 print("accel_clean is None. Skip.")
@@ -55,6 +69,25 @@ class RocketV2(Rocket):
             if gnss_clean is None:
                 print("gnss_clean is None. Skip.")
                 return
+
+            if len(accel_clean) != 3:
+                raise ValueError(
+                    f"Accelerometer measurement must have 3 components, "
+                    f"got {len(accel_clean)}: {accel_clean}"
+                )
+
+            if len(barometer_clean) != 1:
+                raise ValueError(
+                    f"Barometer measurement must have 1 component, "
+                    f"got {len(barometer_clean)}: {barometer_clean}"
+                )
+
+            if len(gnss_clean) != 3:
+                raise ValueError(
+                    f"GNSS measurement must have 3 components, "
+                    f"got {len(gnss_clean)}: {gnss_clean}"
+                )
+                
 
             t = _sim_time
             x, y, z = _state[0], _state[1], _state[2]
