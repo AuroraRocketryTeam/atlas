@@ -12,7 +12,7 @@
 
 static const char *TAG = "HilSimulationTask";
 
-#define TCP_PORT 5000
+static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
 
 /* ===================== PACKETS ===================== */
 
@@ -170,7 +170,7 @@ void HilSimulationTask::onTaskStart() {
         if (success) {
             sockaddr_in addr{};
             addr.sin_family = AF_INET;
-            addr.sin_port = htons(TCP_PORT);
+            addr.sin_port = htons(HIL_SERVER_PORT);
             addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
             if (bind(_listen_sock, (sockaddr *)&addr, sizeof(addr)) < 0) {
@@ -189,7 +189,7 @@ void HilSimulationTask::onTaskStart() {
 
         /* ===== success path ===== */
         if (success) {
-            LOG_INFO(TAG, "Listening on port %d", TCP_PORT);
+            LOG_INFO(TAG, "Listening on port %d", HIL_SERVER_PORT);
             return;
         }
 

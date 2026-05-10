@@ -3,6 +3,13 @@
 
 static const char* TAG = "Airbrakes";
 
+namespace
+{
+    static constexpr float AIRBRAKES_OPEN_ALTITUDE_M = 1000.0f;
+    static constexpr float AIRBRAKES_CLOSE_ALTITUDE_M = 2000.0f;
+}
+
+
 AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
                              SemaphoreHandle_t modelMutex,
                              std::shared_ptr<RocketLogger> logger,
@@ -52,12 +59,12 @@ void AirbrakesTask::taskFunction()
         }
 
 
-        if (altitude > 1000 && deployment < 1) { // open once
+        if (altitude > AIRBRAKES_OPEN_ALTITUDE_M && deployment < 1) { // open once
             LOG_INFO(TAG, "opening airbrakes");
             deployment = 1.0f;
         }
 
-        if (altitude > 2000 && deployment >= 0.75) { // close once
+        if (altitude > AIRBRAKES_CLOSE_ALTITUDE_M && deployment >= 0.75) { // close once
             LOG_INFO(TAG, "closing airbrakes");
             deployment = 0.0f;
         }

@@ -20,6 +20,9 @@ menu "Atlas Configuration"
                 Manny flight computer board.
     endchoice
 
+endmenu
+
+menu "Aurora Hil Configuration"
     config AURORA_HIL_SIMULATION
         bool "Enable Hardware-in-the-Loop simulation mode"
         default n
@@ -27,4 +30,56 @@ menu "Atlas Configuration"
             Enables the HIL simulation task. In this mode the firmware
             receives simulated sensor data from the simulator and sends
             commands back to the simulator.
+
+    if AURORA_HIL_SIMULATION
+
+    config AURORA_HIL_WIFI_SSID
+        string "HIL SoftAP SSID"
+        default "Aurora-HIL"
+        help
+            SSID used by the ESP32 SoftAP when HIL simulation mode is enabled.
+
+    config AURORA_HIL_WIFI_PASSWORD
+        string "HIL SoftAP password"
+        default "aurorahil"
+        help
+            Password used by the ESP32 SoftAP when HIL simulation mode is enabled.
+            Leave empty to create an open AP. If non-empty, it must be at least
+            8 characters for WPA/WPA2/WPA3 modes.
+
+    config AURORA_HIL_WIFI_CHANNEL
+        int "HIL SoftAP WiFi channel"
+        default 1
+        range 1 13
+        help
+            WiFi channel used by the HIL SoftAP.
+
+    config AURORA_HIL_MAX_STA_CONN
+        int "HIL SoftAP maximum station connections"
+        default 1
+        range 1 4
+        help
+            Maximum number of clients that can connect to the HIL SoftAP.
+
+    config AURORA_HIL_AP_IP_ADDR
+        string "HIL SoftAP static IP address"
+        default "192.168.42.1"
+        help
+            Static IPv4 address assigned to the ESP32 SoftAP interface in HIL mode.
+
+    config AURORA_HIL_AP_NETMASK
+        string "HIL SoftAP netmask"
+        default "255.255.255.0"
+        help
+            IPv4 netmask for the ESP32 SoftAP interface in HIL mode.
+
+    config AURORA_HIL_SERVER_PORT
+        int "HIL TCP server port"
+        default 5000
+        range 1024 65535
+        help
+            TCP port used by the HIL simulation server running on the ESP32.
+
+    endif
+
 endmenu
