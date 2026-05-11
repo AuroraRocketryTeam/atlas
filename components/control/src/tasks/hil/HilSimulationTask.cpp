@@ -108,13 +108,11 @@ static bool send_all(int _client_sock, const uint8_t *buf, size_t len, const vol
 HilSimulationTask::HilSimulationTask(
     std::shared_ptr<RocketModel> rocketModel,
     SemaphoreHandle_t modelMutex,
-    std::shared_ptr<RocketLogger> logger,
-    SemaphoreHandle_t loggerMutex)
+    std::shared_ptr<RocketLogger> logger)
     : BaseTask("HilSimulationTask"),
       _rocketModel(rocketModel),
       _modelMutex(modelMutex),
-      _logger(logger),
-      _loggerMutex(loggerMutex)
+      _logger(logger)
 {
     // ctor
 }

@@ -20,11 +20,11 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _gps(gps),
     _isRising(std::make_shared<bool>(false)),
     _heightGainSpeed(std::make_shared<float>(0.0f)),
-    _currentHeight(std::make_shared<float>(0.0f)),
-    _storageMutex(xSemaphoreCreateMutex())
+    _currentHeight(std::make_shared<float>(0.0f))
 #if CONFIG_AURORA_HIL_SIMULATION
-    ,_reset_simulation(false)
+    , _reset_simulation(false)
 #endif
+    , _storageMutex(xSemaphoreCreateMutex())
 {
     // Configure and Initialize ADC unit
     adc_oneshot_unit_init_cfg_t adc1_config = {};

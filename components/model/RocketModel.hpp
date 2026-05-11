@@ -300,4 +300,12 @@ private:
     std::shared_ptr<bool> _isRising;
     std::shared_ptr<float> _heightGainSpeed;
     std::shared_ptr<float> _currentHeight;
+
+#if CONFIG_AURORA_HIL_SIMULATION
+    bool _reset_simulation;
+#endif
+
+    SemaphoreHandle_t _storageMutex;
+    std::shared_ptr<IStorage> _storage;
+    Command _cmd;
 };

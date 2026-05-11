@@ -90,15 +90,13 @@ void TaskManager::initializeTasks()
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
         _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
 #endif
         
     _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
         _rocketModel,
         _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
     
 
     // Create TelemetryTask with ESP-NOW and LoRa transmitters

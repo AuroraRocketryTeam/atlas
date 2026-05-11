@@ -12,13 +12,11 @@ namespace
 
 AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
                              SemaphoreHandle_t modelMutex,
-                             std::shared_ptr<RocketLogger> logger,
-                             SemaphoreHandle_t loggerMutex)
+                             std::shared_ptr<RocketLogger> logger)
     : BaseTask("AirbrakesTask"),
       _rocketModel(rocketModel),
       _modelMutex(modelMutex),
-      _logger(logger),
-      _loggerMutex(loggerMutex)
+      _logger(logger)
 {
     // LOG_INFO(TAG, "Constructor initialized");
 }
