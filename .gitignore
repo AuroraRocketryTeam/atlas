@@ -123,3 +123,6 @@ XUNIT_RESULT*.xml
 
 # Vale
 .vale/styles/*
+
+# Downloaded flash logs folder
+flash_logs/
