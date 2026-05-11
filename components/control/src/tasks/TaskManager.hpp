@@ -11,16 +11,22 @@
 #include "RocketModel.hpp"
 
 #include "SensorTask.hpp"
+#include "AirbrakesTask.hpp"
 #include "SDLoggingTask.hpp"
 #include "EkfTask.hpp"
 #include "GpsTask.hpp"
 #include "SimulationTask.hpp"
+
+#if CONFIG_AURORA_HIL_SIMULATION
+#include "HilSimulationTask.hpp"
+#endif
+
 #include "TelemetryTask.hpp"
 #include "BarometerTask.hpp"
 #include <EspNowTransmitter.hpp>
 #include <E220LoRaTransmitter.hpp>
 
-//#define SIMULATION_DATA // Comment this out to use real sensors
+// #define SIMULATION_DATA // Uncomment this out to use CSV file readings simulation data
 
 /**
  * @brief Class to manage tasks in the system.

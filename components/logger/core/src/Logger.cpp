@@ -35,6 +35,11 @@ namespace Logger
 
             // Add timestamp, log level, and tag
             unsigned long timestamp = Utils::millis();
+
+#if CONFIG_AURORA_HIL_SIMULATION
+            unsigned long real_timestamp = Utils::realMillis();
+#endif
+
             const char *levelStr = "";
             switch (level)
             {
@@ -56,8 +61,11 @@ namespace Logger
             }
 
             vsnprintf(buffer, sizeof(buffer), format, args);
+#if CONFIG_AURORA_HIL_SIMULATION            
+            printf("[%8" PRIu32 "][%8" PRIu32 "][%s][%s] %s\n", real_timestamp, timestamp, levelStr, tag, buffer);
+#else
             printf("[%8" PRIu32 "][%s][%s] %s\n", timestamp, levelStr, tag, buffer);
-
+#endif
             va_end(args);
             xSemaphoreGive(serialMutex);
         }

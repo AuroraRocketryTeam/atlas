@@ -11,6 +11,7 @@ enum class TaskType
 {
     SENSOR,
     SIMULATION,
+    HIL_SIMULATION,
     EKF,
     RECOVERY,
     DATA_COLLECTION,
@@ -18,7 +19,8 @@ enum class TaskType
     TELEMETRY,
     GPS,
     BAROMETER,
-    LOGGING
+    LOGGING,
+    AIRBRAKES
 };
 
 /**

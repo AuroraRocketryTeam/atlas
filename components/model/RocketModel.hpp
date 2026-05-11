@@ -11,6 +11,7 @@
 #include <AccelerometerSensorData.hpp>
 #include <PressureSensorData.hpp>
 #include <GPSData.hpp>
+#include <Command.hpp>
 #include <Termoresistenze.hpp>
 #include <RocketLogger.hpp>
 #include <config.h>
@@ -120,6 +121,24 @@ public:
      */
     std::shared_ptr<GPSData> getGPSData();
 
+
+#if CONFIG_AURORA_HIL_SIMULATION
+    // Simulation
+     /**
+     * @brief Setter of simulation reset flag.
+     *
+     * @param bool the reset flag value.
+     */
+    void setResetSimulationFlag(bool value);
+    
+     /**
+     * @brief Getter of simulation reset flag.
+     *
+     * @return bool the reset flag value.
+     */
+    bool getResetSimulationFlag();
+#endif
+
     /**
      * @brief Set the simulated BNO055 sensor data
      *
@@ -176,6 +195,50 @@ public:
      */
     std::shared_ptr<float> getCurrentHeight();
 
+    /**
+     * @brief Set the command to open the main parachute.
+     *
+     * @return true if the command was set successfully
+     * @return false otherwise
+     */
+    bool setOpenMainCommand();
+
+    /**
+     * @brief Set the command to open the drogue parachute.
+     *
+     * @return true if the command was set successfully
+     * @return false otherwise
+     */
+    bool setOpenDrogueCommand();
+
+    /**
+     * @brief Set the airbrakes command level.
+     *
+     * @param lvl Airbrakes actuation level to command
+     * @return true if the command was set successfully
+     * @return false otherwise
+     */
+    bool setAirbrakesCommand(float lvl);
+
+    /**
+     * @brief Get the current command.
+     *
+     * @return Command currently stored by the model
+     */
+    Command getCommand();
+
+    /**
+     * @brief Reset the current command to its default state.
+     *
+     */
+    void resetCommand();
+
+    /**
+     * @brief Reset the rocket model state.
+     *
+     */
+    void reset();
+
 private:
     // Logger instance
     std::shared_ptr<RocketLogger> _logger;
@@ -193,7 +256,7 @@ private:
     std::shared_ptr<PressureSensorData> _ms561101ba03Data_1;
     std::shared_ptr<PressureSensorData> _ms561101ba03Data_2;
     std::shared_ptr<GPSData> _gpsData;
-    
+
     adc_oneshot_unit_handle_t _adc1_handle;
     int _batteryAdc;
     float _batteryVoltage, _batteryPercentage;
@@ -202,4 +265,10 @@ private:
     std::shared_ptr<bool> _isRising;
     std::shared_ptr<float> _heightGainSpeed;
     std::shared_ptr<float> _currentHeight;
+
+    Command _cmd;
+
+#if CONFIG_AURORA_HIL_SIMULATION
+    bool _reset_simulation = false;
+#endif
 };
