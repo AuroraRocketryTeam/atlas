@@ -161,6 +161,8 @@ bool RocketModel::getResetSimulationFlag()
 #endif
 
 bool RocketModel::updateBNO055() {
+    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
+    if (!_bno) return true;
     bool result = _bno->updateData();
 
     _bnoData = _bno->getData();
@@ -169,6 +171,8 @@ bool RocketModel::updateBNO055() {
 }
 
 bool RocketModel::updateLIS3DHTR() {
+    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
+    if (!_lis3dh) return true;
     bool result = _lis3dh->updateData();
 
     _lis3dhData = _lis3dh->getData();
@@ -177,6 +181,8 @@ bool RocketModel::updateLIS3DHTR() {
 }
 
 bool RocketModel::updateMS561101BA03_1() {
+    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
+    if (!_ms56_1) return true;
     bool result = _ms56_1->updateData();
 
     _ms561101ba03Data_1 = _ms56_1->getData();
@@ -185,6 +191,8 @@ bool RocketModel::updateMS561101BA03_1() {
 }
 
 bool RocketModel::updateMS561101BA03_2() {
+    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
+    if (!_ms56_2) return true;
     bool result = _ms56_2->updateData();
 
     _ms561101ba03Data_2 = _ms56_2->getData();
@@ -193,6 +201,8 @@ bool RocketModel::updateMS561101BA03_2() {
 }
 
 bool RocketModel::updateGPS() {
+    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
+    if (!_gps) return true;
     bool result = _gps->updateData();
 
     _gpsData = _gps->getData();

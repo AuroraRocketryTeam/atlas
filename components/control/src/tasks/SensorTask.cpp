@@ -68,6 +68,7 @@ void SensorTask::taskFunction()
             }
         }
 
+#ifndef CONFIG_AURORA_HIL_SIMULATION
         // Log sensor data every 3 loops if logger is available
         if (logger && loopCount % 3 == 0)
         {
@@ -96,6 +97,7 @@ void SensorTask::taskFunction()
             // Log current RocketLogger memory usage for monitoring
             LOG_INFO("Sensor", "RocketLogger entries logged");
         }
+#endif
 
         loopCount++;
         
