@@ -12,12 +12,12 @@ public:
     AccelerometerSensorData(std::string sensorName) : SensorData(sensorName) {}
 
     // Acceleration (m/s^2)
-    float acceleration_x;
-    float acceleration_y;
-    float acceleration_z;
+    float acceleration_x = 0.0f;
+    float acceleration_y = 0.0f;
+    float acceleration_z = 0.0f;
     
     // Metadata
-    uint32_t timestamp;
+    uint32_t timestamp = 0;
 
     json toJSON() const override {
         json j;

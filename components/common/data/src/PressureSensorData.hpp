@@ -12,13 +12,13 @@ public:
     PressureSensorData(std::string sensorName) : SensorData(sensorName) {}
 
     // Pressure (hPa)
-    float pressure;
+    float pressure = 0.0f;
 
     // Temperature (°C)
-    float temperature;
+    float temperature = 0.0f;
 
     // Metadata
-    uint32_t timestamp;
+    uint32_t timestamp = 0;
 
     json toJSON() const override {
         json j;

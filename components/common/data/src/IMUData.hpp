@@ -12,52 +12,52 @@ public:
     IMUData(std::string sensorName) : SensorData(sensorName) {}
 
     // Calibration status
-    uint8_t calibration_sys;
-    uint8_t calibration_gyro;
-    uint8_t calibration_accel;
-    uint8_t calibration_mag;
+    uint8_t calibration_sys = 0;
+    uint8_t calibration_gyro = 0;
+    uint8_t calibration_accel = 0;
+    uint8_t calibration_mag = 0;
     
     // Orientation (Euler angles in degrees)
-    float orientation_x;
-    float orientation_y;
-    float orientation_z;
+    float orientation_x = 0.0f;
+    float orientation_y = 0.0f;
+    float orientation_z = 0.0f;
     
     // Angular velocity (rad/s)
-    float angular_velocity_x;
-    float angular_velocity_y;
-    float angular_velocity_z;
+    float angular_velocity_x = 0.0f;
+    float angular_velocity_y = 0.0f;
+    float angular_velocity_z = 0.0f;
     
     // Linear acceleration (m/s^2)
-    float linear_acceleration_x;
-    float linear_acceleration_y;
-    float linear_acceleration_z;
+    float linear_acceleration_x = 0.0f;
+    float linear_acceleration_y = 0.0f;
+    float linear_acceleration_z = 0.0f;
     
     // Total acceleration (m/s^2)
-    float acceleration_x;
-    float acceleration_y;
-    float acceleration_z;
+    float acceleration_x = 0.0f;
+    float acceleration_y = 0.0f;
+    float acceleration_z = 0.0f;
 
     // Gravity vector (m/s^2)
-    float gravity_x;
-    float gravity_y;
-    float gravity_z;
+    float gravity_x = 0.0f;
+    float gravity_y = 0.0f;
+    float gravity_z = 0.0f;
     
     // Magnetometer (microtesla)
-    float magnetometer_x;
-    float magnetometer_y;
-    float magnetometer_z;
+    float magnetometer_x = 0.0f;
+    float magnetometer_y = 0.0f;
+    float magnetometer_z = 0.0f;
     
     // Quaternion orientation
-    double quaternion_w;
-    double quaternion_x;
-    double quaternion_y;
-    double quaternion_z;
+    double quaternion_w = 1.0;
+    double quaternion_x = 0.0;
+    double quaternion_y = 0.0;
+    double quaternion_z = 0.0;
     
     // Temperature (°C)
-    float temperature;
+    float temperature = 0.0f;
     
     // Metadata
-    uint32_t timestamp;
+    uint32_t timestamp = 0;
     
     json toJSON() const override {
         json j;
