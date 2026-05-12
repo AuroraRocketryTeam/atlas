@@ -74,9 +74,10 @@ public:
      * @brief Serialize all buffered logs into a malloc-allocated JSON C string and clear the buffer.
      *
      * @param outJson Output pointer. Caller must free() on success.
+     * @param maxEntries Maximum number of log entries to consume in this call.
      * @return true on success, false if no data or allocation/lock failure.
      */
-    bool consumeAllAsJsonChar(char** outJson);
+    bool consumeAllAsJsonChar(char** outJson, size_t maxEntries);
 
 private:
     mutable SemaphoreHandle_t _mutex;

@@ -254,13 +254,6 @@ void HilSimulationTask::taskFunction() {
     proto_msg_t in_msg;
     proto_msg_t out_msg;
 
-    // Preallocated sensor objects (avoid heap churn)
-    auto bnoData = std::make_shared<IMUData>("Sim_IMU");
-    auto lis3dhData = std::make_shared<AccelerometerSensorData>("Sim_LIS3DH");
-    auto ms1 = std::make_shared<PressureSensorData>("Sim_MS5611_1");
-    auto ms2 = std::make_shared<PressureSensorData>("Sim_MS5611_2");
-    auto gps = std::make_shared<GPSData>("Sim_GPS");
-
     while (running) {
 
         esp_task_wdt_reset();
@@ -386,17 +379,28 @@ void HilSimulationTask::taskFunction() {
 
             /* ================= FILL SENSOR DATA ================= */
 
+            auto bnoData = std::make_shared<IMUData>("Sim_IMU");
+            auto lis3dhData = std::make_shared<AccelerometerSensorData>("Sim_LIS3DH");
+            auto ms1 = std::make_shared<PressureSensorData>("Sim_MS5611_1");
+            auto ms2 = std::make_shared<PressureSensorData>("Sim_MS5611_2");
+            auto gps = std::make_shared<GPSData>("Sim_GPS");
+
+            bnoData->timestamp = pkt.timestamp;
             bnoData->acceleration_x = pkt.ax;
             bnoData->acceleration_y = pkt.ay;
             bnoData->acceleration_z = pkt.az;
 
+            lis3dhData->timestamp = pkt.timestamp;
             lis3dhData->acceleration_x = pkt.ax;
             lis3dhData->acceleration_y = pkt.ay;
             lis3dhData->acceleration_z = pkt.az;
 
+            ms1->timestamp = pkt.timestamp;
             ms1->pressure = pkt.p;
+            ms2->timestamp = pkt.timestamp;
             ms2->pressure = pkt.p;
 
+            gps->timestamp = pkt.timestamp;
             gps->latitude  = pkt.lat;
             gps->longitude = pkt.lon;
             gps->altitude  = pkt.alt;
@@ -411,6 +415,13 @@ void HilSimulationTask::taskFunction() {
                 _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
                 _rocketModel->setSimulatedGPSData(gps);
     
+                if (_logger) {
+                    _logger->logSensorData(bnoData);
+                    _logger->logSensorData(lis3dhData);
+                    _logger->logSensorData(ms1);
+                    _logger->logSensorData(ms2);
+                }
+
                 xSemaphoreGive(_modelMutex);
             }
 

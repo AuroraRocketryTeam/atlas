@@ -262,6 +262,14 @@ void SimulationTask::taskFunction() {
                     _rocketModel->setSimulatedMS561101BA03Data_1(ms561101ba03Data_1);
                     _rocketModel->setSimulatedMS561101BA03Data_2(ms561101ba03Data_2);
                     _rocketModel->setSimulatedGPSData(gpsData);
+                    
+                    if (_logger) {
+                        _logger->logSensorData(bnoData);
+                        _logger->logSensorData(lis3dhData);
+                        _logger->logSensorData(ms561101ba03Data_1);
+                        _logger->logSensorData(ms561101ba03Data_2);
+                    }
+
                     xSemaphoreGive(_modelMutex);
                 }
                 

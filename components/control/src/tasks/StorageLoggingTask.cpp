@@ -45,7 +45,8 @@ void StorageLoggingTask::taskFunction() {
                 file_counter = currentFileCounter;
                 char* dataToWrite = nullptr;
 
-                if (!logger || !logger->consumeAllAsJsonChar(&dataToWrite)) {
+                // Limit the number of entries serialized to BATCH_SIZE so we don't run out of memory
+                if (!logger || !logger->consumeAllAsJsonChar(&dataToWrite, BATCH_SIZE)) {
                     continue;
                 }
 

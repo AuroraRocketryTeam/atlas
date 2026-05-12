@@ -137,7 +137,7 @@ void RocketLogger::clearData() {
     LOG_INFO("RocketLogger", "Clear complete. Before: %d, After: %d entries", initialCount, finalCount);
 }
 
-bool RocketLogger::consumeAllAsJsonChar(char** outJson) {
+bool RocketLogger::consumeAllAsJsonChar(char** outJson, size_t maxEntries) {
     if (outJson == nullptr) {
         return false;
     }
@@ -152,9 +152,12 @@ bool RocketLogger::consumeAllAsJsonChar(char** outJson) {
         return false;
     }
 
+    size_t entriesToConsume = std::min(maxEntries, this->logDataList.size());
+    if (entriesToConsume == 0) entriesToConsume = this->logDataList.size(); // Fallback if maxEntries=0
+
     json jsonDataList = json::array();
-    for (const auto& sensorData : this->logDataList) {
-        jsonDataList.push_back(sensorData.toJSON());
+    for (size_t i = 0; i < entriesToConsume; ++i) {
+        jsonDataList.push_back(this->logDataList[i].toJSON());
     }
 
     std::string jsonStr;
@@ -172,7 +175,9 @@ bool RocketLogger::consumeAllAsJsonChar(char** outJson) {
     }
 
     std::memcpy(jsonBuffer, jsonStr.c_str(), jsonStr.size() + 1);
-    this->logDataList.clear();
+    
+    // Remove only the items we consumed
+    this->logDataList.erase(this->logDataList.begin(), this->logDataList.begin() + entriesToConsume);
 
     xSemaphoreGive(_mutex);
     *outJson = jsonBuffer;
