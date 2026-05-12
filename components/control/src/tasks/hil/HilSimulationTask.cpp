@@ -473,6 +473,8 @@ void HilSimulationTask::taskFunction() {
             //     pkt.ax, pkt.ay, pkt.az,
             //     pkt.alt
             // );
+
+            vTaskDelay(pdMS_TO_TICKS(50)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
         }
 
         if (_client_sock >= 0) {
