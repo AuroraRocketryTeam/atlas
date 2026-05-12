@@ -73,7 +73,7 @@ void TaskManager::initializeTasks()
     //     _rocketModel,
     //     _modelMutex,
     //     _kalmanFilter);
-    _tasks[TaskType::SD_LOGGING] = std::make_unique<StorageLoggingTask>(
+    _tasks[TaskType::STORAGE] = std::make_unique<StorageLoggingTask>(
         _rocketModel,
         _logger);
     _tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
