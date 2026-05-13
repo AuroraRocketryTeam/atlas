@@ -420,6 +420,7 @@ void HilSimulationTask::taskFunction() {
                     _logger->logSensorData(lis3dhData);
                     _logger->logSensorData(ms1);
                     _logger->logSensorData(ms2);
+                    _logger->logSensorData(gps);
                 }
 
                 xSemaphoreGive(_modelMutex);

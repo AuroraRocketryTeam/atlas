@@ -268,6 +268,7 @@ void SimulationTask::taskFunction() {
                         _logger->logSensorData(lis3dhData);
                         _logger->logSensorData(ms561101ba03Data_1);
                         _logger->logSensorData(ms561101ba03Data_2);
+                        _logger->logSensorData(gpsData);
                     }
 
                     xSemaphoreGive(_modelMutex);
