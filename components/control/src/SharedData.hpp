@@ -13,7 +13,7 @@ struct SharedSensorData
     class SensorData baroData1;
     class SensorData baroData2;
     class SensorData gpsData;
-    uint32_t timestamp;
+    float timestamp;
     bool dataValid;
 
     SharedSensorData() : imuData("bno055"), baroData1("baro1"), baroData2("baro2"), gpsData("gps"), timestamp(0), dataValid(false) {}
@@ -28,6 +28,6 @@ struct SharedFilteredData
     float altitude;
     float verticalVelocity;
     float orientation[4]; // Quaternion [w, x, y, z]
-    uint32_t timestamp;
+    float timestamp;
     bool dataValid;
 };

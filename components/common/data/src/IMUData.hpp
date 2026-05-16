@@ -57,7 +57,7 @@ public:
     float temperature = 0.0f;
     
     // Metadata
-    uint32_t timestamp = 0;
+    float timestamp = 0;
     
     json toJSON() const override {
         json j;

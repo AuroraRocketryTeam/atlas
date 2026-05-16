@@ -18,22 +18,22 @@ public:
     uint8_t fixType = 0;
     
     // Latitude in degrees * 10^7
-    int32_t latitude = 0;
+    float latitude = 0;
     
     // Longitude in degrees * 10^7
-    int32_t longitude = 0;
+    float longitude = 0;
     
     // Altitude above mean sea level in meters
-    double altitude = 0.0;
+    float altitude = 0.0;
     
     // Ground speed in meters per second
-    double ground_speed = 0.0;
+    float ground_speed = 0.0;
     
     // Horizontal dilution of precision
-    double hdop = 0.0;
+    float hdop = 0.0;
     
     // Metadata
-    uint32_t timestamp = 0;
+    float timestamp = 0;
     json toJSON() const override {
         json j;
         j["source"] = getSensorName();

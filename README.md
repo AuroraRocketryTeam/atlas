@@ -245,7 +245,7 @@ Telemetry uses a fixed-size packet structure for reliable LoRa transmission:
 
 ```cpp
 struct TelemetryPacket {
-    uint32_t timestamp;          // Milliseconds since boot
+    float timestamp;          // Milliseconds since boot
     RocketState state;           // Current flight state
     float altitude;              // Meters ASL
     float vertical_velocity;     // m/s

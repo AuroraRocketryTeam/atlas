@@ -19,7 +19,7 @@ static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
 typedef struct __attribute__((packed)) {
     uint32_t seq;
     float sim_time;
-    uint32_t timestamp;
+    float timestamp;
 
     float ax;
     float ay;
@@ -385,26 +385,29 @@ void HilSimulationTask::taskFunction() {
             auto ms2 = std::make_shared<PressureSensorData>("Sim_MS5611_2");
             auto gps = std::make_shared<GPSData>("Sim_GPS");
 
-            bnoData->timestamp = pkt.timestamp;
+            bnoData->timestamp = pkt.sim_time;
             bnoData->acceleration_x = pkt.ax;
             bnoData->acceleration_y = pkt.ay;
             bnoData->acceleration_z = pkt.az;
 
-            lis3dhData->timestamp = pkt.timestamp;
+            lis3dhData->timestamp = pkt.sim_time;
             lis3dhData->acceleration_x = pkt.ax;
             lis3dhData->acceleration_y = pkt.ay;
             lis3dhData->acceleration_z = pkt.az;
 
-            ms1->timestamp = pkt.timestamp;
+            ms1->timestamp = pkt.sim_time;
             ms1->pressure = pkt.p;
-            ms2->timestamp = pkt.timestamp;
+            ms2->timestamp = pkt.sim_time;
             ms2->pressure = pkt.p;
 
-            gps->timestamp = pkt.timestamp;
+            gps->timestamp = pkt.sim_time;
             gps->latitude  = pkt.lat;
             gps->longitude = pkt.lon;
             gps->altitude  = pkt.alt;
 
+            ESP_LOGI(TAG, "Received sim packet: time=%.2f ax=%.2f ay=%.2f az=%.2f p=%.2f lat=%.6f lon=%.6f alt=%.2f",
+                pkt.sim_time, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.lat, pkt.lon, pkt.alt
+            );
             
             /* ================= UPDATE MODEL ================= */
 

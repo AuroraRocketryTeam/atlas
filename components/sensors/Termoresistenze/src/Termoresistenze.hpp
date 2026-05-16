@@ -25,7 +25,7 @@ public:
     double temperature;
 
     // Metadata
-    uint32_t timestamp;
+    float timestamp;
 
     json toJSON() const override {
         json j;

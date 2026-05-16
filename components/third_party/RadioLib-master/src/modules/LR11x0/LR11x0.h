@@ -1463,7 +1463,7 @@ class LR11x0: public PhysicalLayer {
     int16_t wifiReadCumulTimings(uint32_t* detection, uint32_t* capture, uint32_t* demodulation);
     int16_t wifiGetNbCountryCodeResults(uint8_t* nbResults);
     int16_t wifiReadCountryCodeResults(uint8_t index, uint8_t nbResults, uint8_t* results);
-    int16_t wifiCfgTimestampAPphone(uint32_t timestamp);
+    int16_t wifiCfgTimestampAPphone(float timestamp);
     int16_t wifiReadVersion(uint8_t* major, uint8_t* minor);
 
     int16_t gnssSetConstellationToUse(uint8_t mask);

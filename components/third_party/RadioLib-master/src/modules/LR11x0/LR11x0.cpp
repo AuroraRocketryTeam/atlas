@@ -2813,10 +2813,13 @@ int16_t LR11x0::wifiReadCountryCodeResults(uint8_t index, uint8_t nbResults, uin
   return(this->SPIcommand(RADIOLIB_LR11X0_CMD_WIFI_READ_COUNTRY_CODE_RESULTS, false, results, nbResults, reqBuff, sizeof(reqBuff)));
 }
 
-int16_t LR11x0::wifiCfgTimestampAPphone(uint32_t timestamp) {
+int16_t LR11x0::wifiCfgTimestampAPphone(float timestamp) {
+  // Cast the float to an unsigned 32-bit integer to allow bitwise operations
+  uint32_t ts = static_cast<uint32_t>(timestamp);
+  
   uint8_t buff[4] = {
-    (uint8_t)((timestamp >> 24) & 0xFF), (uint8_t)((timestamp >> 16) & 0xFF),
-    (uint8_t)((timestamp >> 8) & 0xFF), (uint8_t)(timestamp & 0xFF)
+    (uint8_t)((ts >> 24) & 0xFF), (uint8_t)((ts >> 16) & 0xFF),
+    (uint8_t)((ts >> 8) & 0xFF),  (uint8_t)(ts & 0xFF)
   };
   return(this->SPIcommand(RADIOLIB_LR11X0_CMD_WIFI_COUNTRY_CODE_TIME_LIMIT, true, buff, sizeof(buff)));
 }

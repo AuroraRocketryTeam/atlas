@@ -24,7 +24,7 @@
 #pragma pack(push, 1)
 struct TelemetryPacket
 {
-    uint32_t timestamp; ///< Milliseconds since boot
+    float timestamp; ///< Milliseconds since boot
     bool dataValid;     ///< True if sensor data was successfully collected
 
     struct
