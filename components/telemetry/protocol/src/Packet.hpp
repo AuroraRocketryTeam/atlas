@@ -94,6 +94,7 @@ enum class CommandId : uint8_t {
     NONE  = 0x00,
     PING  = 0x01,
     ABORT = 0x02,
+    EMERG_CHUTE_OPEN = 0x03
 };
 
 struct CommandPacket {

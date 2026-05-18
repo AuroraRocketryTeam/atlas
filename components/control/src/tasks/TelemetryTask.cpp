@@ -298,6 +298,10 @@ void TelemetryTask::handleCommand(CommandId id)
             LOG_WARNING("Telemetry", "ABORT command received! Sending event");
             _fsm->sendEvent(FSMEvent::EMERGENCY_ABORT);
             break;
+        case CommandId::EMERG_CHUTE_OPEN:
+            LOG_WARNING("Telemetry", "EMERG_CHUTE_OPEN command received! Forcing transition to APOGEE");
+            _fsm->forceTransition(RocketState::APOGEE);
+            break;
         default:
             LOG_WARNING("Telemetry", "Unknown command id: 0x%02X", id);
             break;
