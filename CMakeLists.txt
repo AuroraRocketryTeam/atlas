@@ -31,6 +31,7 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_SOURCE_DIR}/components/logger/implementation
 
     # persistence
+    ${CMAKE_SOURCE_DIR}/components/persistence/storage
     ${CMAKE_SOURCE_DIR}/components/persistence/SD
     ${CMAKE_SOURCE_DIR}/components/persistence/flash
 
