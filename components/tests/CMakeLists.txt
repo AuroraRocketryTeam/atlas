@@ -15,5 +15,5 @@ idf_component_register(
         flash
         I2C
         radio_lora
-    REQUIRES espressif__arduino-esp32
+        espressif__arduino-esp32
 )
