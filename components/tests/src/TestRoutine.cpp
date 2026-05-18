@@ -114,7 +114,8 @@ void TestRoutine::showTestPattern(int testNumber)
     case 7:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
     case 8:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
     case 9:  _statusManager.playBlockingPattern(TEST_SD,        1000); break;
-    case 10: _statusManager.playBlockingPattern(TEST_ALL,       2000); break;
+    case 10: _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
+    case 11: _statusManager.playBlockingPattern(TEST_ALL,       2000); break;
     default: break;
     }
 }
