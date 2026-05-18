@@ -18,6 +18,10 @@ StorageLoggingTask::StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
 
 StorageLoggingTask::~StorageLoggingTask() {
     stop();
+    if (pendingDataToWrite != nullptr) {
+        free(pendingDataToWrite);
+        pendingDataToWrite = nullptr;
+    }
 }
 
 void StorageLoggingTask::taskFunction() {
@@ -29,7 +33,7 @@ void StorageLoggingTask::taskFunction() {
         storageInitialized = rocketModel && rocketModel->isStorageInitialized();
         int currentLogCount = logger ? logger->getLogCount() : 0;
 
-        if (currentLogCount >= BATCH_SIZE) {
+        if (currentLogCount >= BATCH_SIZE || pendingDataToWrite != nullptr) {
             if (storageInitialized && running) {
                 LOG_INFO("Storage", "Creating unique filename for batch...");
                 String filename;
@@ -42,26 +46,29 @@ void StorageLoggingTask::taskFunction() {
 
                 if (!running) break;
 
-                file_counter = currentFileCounter;
-                char* dataToWrite = nullptr;
-
-                // Limit the number of entries serialized to BATCH_SIZE so we don't run out of memory
-                if (!logger || !logger->consumeAllAsJsonChar(&dataToWrite, BATCH_SIZE)) {
-                    continue;
+                if (pendingDataToWrite == nullptr) {
+                    if (!logger || !logger->consumeAllAsJsonChar(&pendingDataToWrite, BATCH_SIZE)) {
+                        continue;
+                    }
                 }
 
                 if (!running) break;
 
-                if (!rocketModel->storageWriteFile(filename.c_str(), dataToWrite)) {
-                    LOG_ERROR("StorageLoggingTask", "Failed to write batch to file.");
-                }
-
-                if (dataToWrite != nullptr) {
-                    free(dataToWrite);
+                if (!rocketModel->storageWriteFile(filename.c_str(), pendingDataToWrite)) {
+                    LOG_ERROR("StorageLoggingTask", "Failed to write batch to file. Retaining data in memory for retry.");
+                } else {
+                    file_counter = currentFileCounter;
+                    free(pendingDataToWrite);
+                    pendingDataToWrite = nullptr;
                 }
             } else if (!storageInitialized) {
                 if (logger) {
                     logger->clearData();
+                }
+                // Flush memory if storage completely disconnects to prevent memory leaks
+                if (pendingDataToWrite != nullptr) {
+                    free(pendingDataToWrite);
+                    pendingDataToWrite = nullptr;
                 }
             }
         }

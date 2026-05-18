@@ -3,6 +3,7 @@
 #include "IStorage.hpp"
 #include <memory>
 #include <vector>
+#include <string>
 
 class MirrorStorage : public IStorage {
 private:
@@ -22,8 +23,8 @@ public:
     bool writeFile(const char* filename, const char* content) override;
     bool appendFile(const char* filename, const char* content) override;
 
-    char* readFile(const char* filename) override;
-    char* readLine() override;
+    std::string readFile(const char* filename) override;
+    std::string readLine() override;
 
     bool clearMemory() override;
     bool fileExists(const char* filename) override;

@@ -60,35 +60,32 @@ bool MirrorStorage::appendFile(const char* filename, const char* content) {
     return success;
 }
 
-char* MirrorStorage::readFile(const char* filename) {
+std::string MirrorStorage::readFile(const char* filename) {
     if (filename == nullptr) {
-        return nullptr;
+        return "";
     }
 
     for (const auto& storage : _storages) {
         if (storage->isInitialized() && storage->fileExists(filename)) {
-            char* data = storage->readFile(filename);
-            if (data != nullptr) {
+            std::string data = storage->readFile(filename);
+            if (!data.empty()) {
                 return data;
             }
         }
     }
-    return nullptr;
+    return "";
 }
 
-char* MirrorStorage::readLine() {
+std::string MirrorStorage::readLine() {
     for (const auto& storage : _storages) {
         if (storage->isInitialized()) {
-            char* line = storage->readLine();
-            if (line != nullptr && line[0] != '\0') {
+            std::string line = storage->readLine();
+            if (!line.empty()) {
                 return line;
-            }
-            if (line != nullptr) {
-                free(line);
             }
         }
     }
-    return nullptr;
+    return "";
 }
 
 bool MirrorStorage::clearMemory() {

@@ -152,17 +152,17 @@ bool SD::appendFile(const char* filename, const char* content)
  *
  * @return char* the content of the file.
  */
-char *SD::readFile(const char* filename)
+std::string SD::readFile(const char* filename)
 {
     if (filename == nullptr) {
-        return nullptr;
+        return "";
     }
 
     if (this->file == nullptr)
     {
         if(!this->openFile(filename))
         {
-            return nullptr;
+            return "";
         }
     }
 
@@ -171,17 +171,16 @@ char *SD::readFile(const char* filename)
     fseek(this->file, 0, SEEK_SET);
 
     if (fileSize <= 0) {
-        return nullptr;
+        return "";
     }
 
-    char *content = (char *)malloc(fileSize + 1);
-    if (content == nullptr)
-    {
-        return nullptr;
-    }
+    std::string content;
+    content.resize(fileSize);
 
-    size_t result = fread(content, 1, fileSize, this->file);
-    content[result] = '\0';
+    size_t result = fread(&content[0], 1, fileSize, this->file);
+    if (result != fileSize) {
+        content.resize(result);
+    }
 
     return content;
 }
@@ -234,17 +233,17 @@ bool SD::fileExists(const char* filename)
  *
  * @return String containing the next line, or empty String if EOF or error
  */
-char* SD::readLine() {
+std::string SD::readLine() {
     if (this->file == nullptr) {
         LOG_INFO("SD-Task", "File not open");
-        return nullptr;
+        return "";
     }
 
     std::string str = "";
     char ch;
     
     while (fread(&ch, 1, 1, this->file) == 1) {
-        if (ch == '|') { // Based on original logic
+        if (ch == '|') {
             break;
         }
         if (ch != '\r') {
@@ -252,12 +251,6 @@ char* SD::readLine() {
         }
     }
     
-    char* out = static_cast<char*>(malloc(str.size() + 1));
-    if (out == nullptr) {
-        return nullptr;
-    }
-
-    memcpy(out, str.c_str(), str.size() + 1);
-    return out;
+    return str;
 }
 

@@ -84,7 +84,7 @@ public:
      * @brief Read the whole content of a file.
      * @note Caller is responsible for freeing the returned memory using `delete[]`.
      */
-    char *readFile(const char* filename) override;
+    std::string readFile(const char* filename) override;
     
     /**
      * @brief Clear external flash by formatting the LittleFS partition.
@@ -103,7 +103,7 @@ public:
      * @brief Read a single line from the currently open file.
      * * Streaming directly off the flash eliminates the RAM-spike vulnerability.
      */
-    char* readLine() override;
+    std::string readLine() override;
 
     bool isInitialized() const override { return _initialized; }
 };

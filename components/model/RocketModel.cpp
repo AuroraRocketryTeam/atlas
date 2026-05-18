@@ -297,26 +297,26 @@ bool RocketModel::storageResetReadCursor(const char* filename, uint32_t timeoutM
     return false;
 }
 
-char* RocketModel::storageReadFile(const char* filename, uint32_t timeoutMs) {
+std::string RocketModel::storageReadFile(const char* filename, uint32_t timeoutMs) {
     if (filename == nullptr) {
-        return nullptr;
+        return "";
     }
 
     if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
-        char* content = (_storage && _storage->isInitialized()) ? _storage->readFile(filename) : nullptr;
+        std::string content = (_storage && _storage->isInitialized()) ? _storage->readFile(filename) : "";
         xSemaphoreGive(_storageMutex);
         return content;
     }
-    return nullptr;
+    return "";
 }
 
-char* RocketModel::storageReadLine(uint32_t timeoutMs) {
+std::string RocketModel::storageReadLine(uint32_t timeoutMs) {
     if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
-        char* line = (_storage && _storage->isInitialized()) ? _storage->readLine() : nullptr;
+        std::string line = (_storage && _storage->isInitialized()) ? _storage->readLine() : "";
         xSemaphoreGive(_storageMutex);
         return line;
     }
-    return nullptr;
+    return "";
 }
 
 bool RocketModel::storageWriteFile(const char* filename, const char* content, uint32_t timeoutMs) {

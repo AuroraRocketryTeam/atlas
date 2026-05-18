@@ -436,10 +436,10 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         if (sdCard->writeFile("test.txt", content.c_str()))
         {
             LOG_INFO("Init", "SD card write test successful");
-            char *readContent = sdCard->readFile("test.txt");
-            if (readContent)
+            std::string readContent = sdCard->readFile("test.txt");
+            if (!readContent.empty())
             {
-                LOG_INFO("Init", "Read from SD card: %s", readContent);
+                LOG_INFO("Init", "Read from SD card: %s", readContent.c_str());
             }
             else
             {
@@ -499,7 +499,6 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Wi-Fi");
     }
 
-    // We don't need to initialize LEDManager anymore - StatusManager handles it
     LOG_INFO("Init", "Status indicators initialized");
 }
 
@@ -794,10 +793,10 @@ bool testSDCard()
         if (sdCard->writeFile(TEST_FILE, content.c_str()))
         {
             LOG_INFO("Test", "SD card write test successful");
-            char *readContent = sdCard->readFile(TEST_FILE);
-            if (readContent)
+            std::string readContent = sdCard->readFile(TEST_FILE);
+            if (!readContent.empty())
             {
-                LOG_INFO("Test", "Read from SD card: %s", readContent);
+                LOG_INFO("Test", "Read from SD card: %s", readContent.c_str());
             }
             else
             {
@@ -825,8 +824,6 @@ bool testFlashMemory()
 {
     LOG_INFO("Test", "[STEP 5] Flash memory test");
 
-    // Flash is already initialized during setup for mirrored logging.
-    // Reuse the same instance to avoid binding the same external chip twice.
     if (!flash)
     {
         flash = std::make_shared<Flash>();
@@ -864,13 +861,11 @@ bool testFlashMemory()
     const std::string testFile = "test.txt";
     const std::string missingFile = "ghost.txt";
 
-    // Missing file read should return nullptr.
-    LOG_INFO("Test", "Flash: read missing file '%s' (expected nullptr)", missingFile.c_str());
-    char *readData = flash->readFile(missingFile.c_str());
-    if (readData != nullptr)
+    LOG_INFO("Test", "Flash: read missing file '%s' (expected empty)", missingFile.c_str());
+    std::string readData = flash->readFile(missingFile.c_str());
+    if (!readData.empty())
     {
         LOG_ERROR("Test", "Unexpected data returned for missing file.");
-        delete[] readData;
     }
     else
     {
@@ -889,14 +884,13 @@ bool testFlashMemory()
 
     LOG_INFO("Test", "Flash: read '%s'", testFile.c_str());
     readData = flash->readFile(testFile.c_str());
-    if (readData == nullptr)
+    if (readData.empty())
     {
         LOG_ERROR("Test", "Flash read failed after write.");
     }
     else
     {
-        LOG_INFO("Test", "Flash read content: %s", readData);
-        delete[] readData;
+        LOG_INFO("Test", "Flash read content: %s", readData.c_str());
     }
 
     LOG_INFO("Test", "Flash: append to '%s'", testFile.c_str());
@@ -911,10 +905,9 @@ bool testFlashMemory()
 
     LOG_INFO("Test", "Flash: read back after append");
     readData = flash->readFile(testFile.c_str());
-    if (readData != nullptr)
+    if (!readData.empty())
     {
-        LOG_INFO("Test", "Flash read after append: %s", readData);
-        delete[] readData;
+        LOG_INFO("Test", "Flash read after append: %s", readData.c_str());
     }
     else
     {
@@ -990,8 +983,8 @@ bool dumpFlashJsonFiles()
         char filename[64] = {0};
         std::snprintf(filename, sizeof(filename), "JSON_data_%d.json", i);
 
-        char* content = flash->readFile(filename);
-        if (content == nullptr)
+        std::string content = flash->readFile(filename);
+        if (content.empty())
         {
             consecutiveMisses++;
             if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES) {
@@ -1004,19 +997,16 @@ bool dumpFlashJsonFiles()
         consecutiveMisses = 0;
 
         printf("START_FILE:%s\n", filename);
-        printf("%s", content);
+        printf("%s", content.c_str());
         
-        size_t len = std::strlen(content);
-        if (len == 0 || content[len - 1] != '\n')
+        if (!content.empty() && content.back() != '\n')
         {
             printf("\n");
         }
         
         printf("END_FILE:%s\n", filename); 
 
-        delete[] content;
         dumpedCount++;
-
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 

@@ -33,4 +33,7 @@ private:
     std::shared_ptr<RocketLogger> logger;
     bool storageInitialized = false;
     int file_counter = 0;
+    
+    // Buffer to hold data if a write fails
+    char* pendingDataToWrite = nullptr; 
 };

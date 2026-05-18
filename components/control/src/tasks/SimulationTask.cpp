@@ -65,17 +65,11 @@ void SimulationTask::onTaskStart() {
         _rocketModel->storageResetReadCursor(_csvFilePath.c_str());
         
         // Skip header
-        char* header = _rocketModel->storageReadLine();
-        if (header != nullptr) {
-            free(header);
-        }
+        std::string header = _rocketModel->storageReadLine();
         
         // Skip lines until we reach _filePosition
         for (uint32_t i = 1; i < _filePosition; i++) {
-            char* skipped = _rocketModel->storageReadLine();
-            if (skipped != nullptr) {
-                free(skipped);
-            }
+            std::string skipped = _rocketModel->storageReadLine();
         }
         LOG_INFO("SimulationTask", "Resumed at line %u", _filePosition);
     }
@@ -119,19 +113,12 @@ void SimulationTask::taskFunction() {
     try {
         while (running) {
             if (_firstTime) {
-                char* header = _rocketModel->storageReadLine(); // skip header
-                if (header != nullptr) {
-                    free(header);
-                }
+                std::string header = _rocketModel->storageReadLine(); // skip header
                 _firstTime = false;
                 _filePosition = 1; // After header, we're at line 1
             }
             
-            char* line = _rocketModel->storageReadLine();
-            std::string lineValue = (line != nullptr) ? line : "";
-            if (line != nullptr) {
-                free(line);
-            }
+            std::string lineValue = _rocketModel->storageReadLine();
             
             // Preprocess the line: trim whitespace and newlines
             std::string lineStr = trimString(lineValue);
@@ -146,7 +133,6 @@ void SimulationTask::taskFunction() {
                 std::getline(ss, cell, ',');
                 double time_s = std::stod(trimString(cell));
                 LOG_INFO("SimulationTask", "READ TIME: %.2f (Line %u)", time_s, _filePosition);
-
                 // Parse CSV columns into variables
                 #ifdef OLD_DATA
                     float AccBodyX_ms2, AccBodyY_ms2, AccBodyZ_ms2;

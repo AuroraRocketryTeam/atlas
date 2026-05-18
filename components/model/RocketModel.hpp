@@ -147,12 +147,12 @@ public:
     /**
      * @brief Thread-safe helper to read a line from storage.
      */
-    char* storageReadLine(uint32_t timeoutMs = 200);
+    std::string storageReadLine(uint32_t timeoutMs = 200);
 
     /**
      * @brief Thread-safe helper to read the entire content of a file from storage.
      */
-    char* storageReadFile(const char* filename, uint32_t timeoutMs = 200);
+    std::string storageReadFile(const char* filename, uint32_t timeoutMs = 200);
     
     /**
      * @brief Thread-safe helper to write content to a file in storage.

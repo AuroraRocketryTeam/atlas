@@ -212,31 +212,31 @@ bool Flash::appendFile(const char* filename, const char* content) {
     return os.good();
 }
 
-char* Flash::readFile(const char* filename) {
-    if (filename == nullptr) return nullptr;
-    if (!_initialized && !init()) return nullptr;
+std::string Flash::readFile(const char* filename) {
+    if (filename == nullptr) return "";
+    if (!_initialized && !init()) return "";
 
     std::ifstream is(getFullPath(filename), std::ios::in | std::ios::binary | std::ios::ate);
-    if (!is.is_open()) return nullptr;
+    if (!is.is_open()) return "";
 
     std::streamsize size = is.tellg();
     is.seekg(0, std::ios::beg);
 
     if (size <= 0) {
         is.close();
-        return nullptr;
+        return "";
     }
 
-    char* buffer = new char[size + 1];
-    if (is.read(buffer, size)) {
-        buffer[size] = '\0';
+    std::string buffer;
+    buffer.resize(size);
+    
+    if (is.read(&buffer[0], size)) {
         is.close();
         return buffer;
     }
 
-    delete[] buffer;
     is.close();
-    return nullptr;
+    return "";
 }
 
 bool Flash::clearMemory() {
@@ -261,18 +261,13 @@ bool Flash::fileExists(const char* filename) {
     return stat(getFullPath(filename).c_str(), &st) == 0;
 }
 
-char* Flash::readLine() {
-    if (!_active_stream.is_open()) return nullptr;
+std::string Flash::readLine() {
+    if (!_active_stream.is_open()) return "";
 
     std::string line;
     if (std::getline(_active_stream, line)) {
         line += "\n";
-        char* out = static_cast<char*>(malloc(line.size() + 1));
-        if (out == nullptr) {
-            return nullptr;
-        }
-        memcpy(out, line.c_str(), line.size() + 1);
-        return out;
+        return line;
     }
-    return nullptr;
+    return "";
 }
