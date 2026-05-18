@@ -49,14 +49,14 @@ def encode_msg(msg_type: int, payload: bytes) -> bytes:
 # Build simulator payload
 # ---------------------------------------------------------
 def build_payload(seq, t, ax, ay, az, p, lat, lon, alt):
-    timestamp = int(time.time())
+    timestamp = time.time_ns() // 1_000_000
 
     return struct.pack(
         PAYLOAD_FMT, 
         seq, t, timestamp, ax, ay, az, p, lat, lon, alt,
     )
 def unbuild_payload(payload):
-    timestamp = int(time.time())
+    timestamp = time.time_ns() // 1_000_000
 
     seq, t, timestamp, ax, ay, az, p, lat, lon, alt = struct.unpack(
         PAYLOAD_FMT, 

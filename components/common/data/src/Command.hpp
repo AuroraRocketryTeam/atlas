@@ -6,7 +6,7 @@
  * @brief Packed wire format (TCP payload)
  */
 struct __attribute__((packed)) FcCommandWire {
-    float sim_time;
+    uint32_t sim_time;
     uint8_t open_main;
     uint8_t open_drogue;
     float airbrakes_deployment;
@@ -49,7 +49,7 @@ public:
 
     /* ===================== SERIALIZATION ===================== */
 
-    FcCommandWire serialize(float sim_time) const {
+    FcCommandWire serialize(uint32_t sim_time) const {
         FcCommandWire w{};
         w.sim_time = sim_time;
         w.open_main = _open_main ? 1u : 0u;

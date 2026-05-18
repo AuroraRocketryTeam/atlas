@@ -33,7 +33,7 @@ public:
     float hdop = 0.0;
     
     // Metadata
-    float timestamp = 0;
+    uint32_t timestamp = 0;
     json toJSON() const override {
         json j;
         j["source"] = getSensorName();

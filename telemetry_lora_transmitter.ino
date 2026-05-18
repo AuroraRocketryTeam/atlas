@@ -133,7 +133,7 @@ constexpr uint8_t FLAG_END = 0x02;
  */
 #pragma pack(push, 1)
 struct TelemetryPacket {
-    float timestamp;     ///< Milliseconds since boot
+    uint32_t timestamp;     ///< Milliseconds since boot
     bool dataValid;         ///< True if sensor data was successfully collected
     
     struct {

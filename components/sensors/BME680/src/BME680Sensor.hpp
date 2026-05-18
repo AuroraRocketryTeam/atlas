@@ -36,7 +36,7 @@ public:
     float gasResistance;
 
     // Metadata
-    float timestamp;
+    uint32_t timestamp;
 
     json toJSON() const override {
         json j;

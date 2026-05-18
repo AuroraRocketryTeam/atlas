@@ -17,7 +17,7 @@ public:
     float acceleration_z = 0.0f;
     
     // Metadata
-    float timestamp = 0;
+    uint32_t timestamp = 0;
 
     json toJSON() const override {
         json j;

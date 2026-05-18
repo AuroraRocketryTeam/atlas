@@ -18,8 +18,8 @@ static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
 
 typedef struct __attribute__((packed)) {
     uint32_t seq;
-    float sim_time;
-    float timestamp;
+    uint32_t sim_time;
+    uint32_t timestamp;
 
     float ax;
     float ay;

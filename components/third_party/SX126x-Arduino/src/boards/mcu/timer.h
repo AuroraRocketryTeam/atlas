@@ -54,7 +54,7 @@ typedef struct TimerEvent_s
 {
 	uint8_t timerNum;			  /**< Used with ESP32 MCU 1 for TX, 2 for RX*/
 	bool oneShot = true;		  /**< True if it is a one shot timer */
-	float timestamp;			  /**< Current timer value */
+	uint32_t timestamp;			  /**< Current timer value */
 	uint32_t ReloadValue = 10000; /**< Timer delay value	*/
 	bool IsRunning;				  /**< Is the timer currently running	*/
 	void (*Callback)(void);		  /**< Timer IRQ callback function	*/
