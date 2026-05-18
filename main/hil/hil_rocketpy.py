@@ -56,7 +56,6 @@ custom_wind_u = [
     ( 200 , 1.2 * wind_magnitude_ground * s_heading),
     ( 250 , 1.25 * wind_magnitude_ground * s_heading),
     ( 300 , 1.3 * wind_magnitude_ground * s_heading),
-    # Add a ceiling beyond expected apogee to prevent SciPy extrapolation crashes
     ( 15000 , 1.3 * wind_magnitude_ground * s_heading),
 ]
 
@@ -68,6 +67,7 @@ custom_wind_v = [
     ( 200 , 1.2 * wind_magnitude_ground * c_heading),
     ( 250 , 1.25 * wind_magnitude_ground * c_heading),
     ( 300 , 1.3 * wind_magnitude_ground * c_heading),
+    ( 15000 , 1.3 * wind_magnitude_ground * c_heading),
 ]
 
 env.set_atmospheric_model(
@@ -168,7 +168,7 @@ tail = Nemesis.add_tail(
 Main = Nemesis.add_parachute(
     "Main",
     cd_s= 0.97 * 1.168,
-    trigger=simulator_check_drogue_opening,
+    trigger=simulator_check_main_opening,
     sampling_rate=105,
     lag=2.1, # lag_se + lag_rec (0.1 + 2)
     noise=(0, 6.5, 0.3),
