@@ -101,6 +101,21 @@ void TaskManager::initializeTasks()
         _logger,
         _loggerMutex);
 
+#if CONFIG_AURORA_HIL_SIMULATION
+        _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
+        _rocketModel,
+        _modelMutex,
+        _logger,
+        _loggerMutex);
+#endif
+        
+    _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
+        _rocketModel,
+        _modelMutex,
+        _logger,
+        _loggerMutex);
+    
+
     // Create TelemetryTask with ESP-NOW and LoRa transmitters
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
     auto telemetryTask = std::make_unique<TelemetryTask>(

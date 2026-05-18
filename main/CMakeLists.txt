@@ -1,6 +1,14 @@
+set(MAIN_SRCS)
+
+if(CONFIG_AURORA_HIL_SIMULATION)
+    list(APPEND MAIN_SRCS "main_hil.cpp")
+else()
+    list(APPEND MAIN_SRCS "main.cpp")
+endif()
+
 # register the component to the build system.
 idf_component_register(
-    SRCS "main.cpp"
+    SRCS ${MAIN_SRCS}
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         nvs_flash

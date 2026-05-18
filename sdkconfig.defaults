@@ -60,7 +60,7 @@ CONFIG_SPI_FLASH_DANGEROUS_WRITE_ABORTS=y
 
 # The ESP32-S3 has a built-in brownout detector which can detect if the voltage is lower than a specific value. 
 # If this happens, it will reset the chip in order to prevent unintended behaviour.
-CONFIG_BROWNOUT_DET=y
+CONFIG_ESP_BROWNOUT_DET=y
 
 # --- ARDUINO COMPONENT INTEGRATION ---
 

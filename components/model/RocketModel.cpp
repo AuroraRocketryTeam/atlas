@@ -18,6 +18,9 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     _isRising(std::make_shared<bool>(false)),
     _heightGainSpeed(std::make_shared<float>(0.0f)),
     _currentHeight(std::make_shared<float>(0.0f))
+#if CONFIG_AURORA_HIL_SIMULATION
+    ,_reset_simulation(false)
+#endif
 {
     // Configure and Initialize ADC unit
     adc_oneshot_unit_init_cfg_t adc1_config = {};
@@ -30,7 +33,39 @@ RocketModel::RocketModel(std::shared_ptr<RocketLogger> logger,
     channel_config.atten    = ADC_ATTEN_DB_12;
     channel_config.bitwidth = ADC_BITWIDTH_12;
     ESP_ERROR_CHECK(adc_oneshot_config_channel(_adc1_handle, ADC_PIN, &channel_config));
+
+
+    _cmd = Command();
 }
+
+void RocketModel::reset() {
+    _cmd.reset();
+
+    if (_isRising) {
+        *_isRising = false;
+    }
+
+    if (_heightGainSpeed) {
+        *_heightGainSpeed = 0.0f;
+    }
+
+    if (_currentHeight) {
+        *_currentHeight = 0.0f;
+    }
+
+#if CONFIG_AURORA_HIL_SIMULATION
+    _reset_simulation = false;
+
+    setSimulatedBNO055Data(nullptr);
+    setSimulatedLIS3DHTRData(nullptr);
+    setSimulatedMS561101BA03Data_1(nullptr);
+    setSimulatedMS561101BA03Data_2(nullptr);
+    setSimulatedGPSData(nullptr);
+
+    LOG_INFO("Main", "Set simulated data to nullptr");
+#endif
+}   
+
 
 void RocketModel::readBattery() {
     esp_err_t res = adc_oneshot_read(_adc1_handle, ADC_PIN, &_batteryAdc);
@@ -49,6 +84,60 @@ void RocketModel::readBattery() {
     
     //logger->logSensorData(voltageData);
 }
+
+bool RocketModel::setOpenMainCommand(){
+    // take lock;
+    _cmd.setMain(true);
+    // bitmask |= FSM_DONE;
+    // if bitmask == DONE:
+    //     bitmask = 0;
+    //     xTaskNotifyGive(); // unlock Simulation task to simulatorTask
+    // release lock;
+    return true;
+}
+
+bool RocketModel::setOpenDrogueCommand(){
+    // take lock;
+    _cmd.setDrogue(true);
+    // bitmask |= FSM_DONE;
+    // if bitmask == DONE:
+    //     bitmask = 0;
+    //     xTaskNotifyGive(); // unlock Simulation task to simulatorTask
+    // release lock;
+    return true;
+}
+
+bool RocketModel::setAirbrakesCommand(float lvl){
+    // take lock;
+    _cmd.setAirbrakes(lvl);
+    // bitmask |= AIRBRAKE_DONE;
+    // if bitmask == DONE:
+    //     bitmask = 0;    
+    //     xTaskNotifyGive(); // unlock Simulation task to simulatorTask
+    // release lock;
+    return true;
+}
+
+Command RocketModel::getCommand() {
+    return _cmd;
+}
+
+void RocketModel::resetCommand()
+{
+    _cmd.reset();
+}
+
+#if CONFIG_AURORA_HIL_SIMULATION
+void RocketModel::setResetSimulationFlag(bool value)
+{
+    _reset_simulation = value;
+}
+
+bool RocketModel::getResetSimulationFlag()
+{
+    return _reset_simulation;
+}
+#endif
 
 bool RocketModel::updateBNO055() {
     bool result = _bno->updateData();
@@ -141,3 +230,4 @@ std::shared_ptr<float> RocketModel::getHeightGainSpeed() {
 std::shared_ptr<float> RocketModel::getCurrentHeight() {
     return _currentHeight;
 }
+
