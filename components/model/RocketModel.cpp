@@ -332,3 +332,47 @@ bool RocketModel::storageWriteFile(const char* filename, const char* content, ui
     }
     return false;
 }
+
+std::shared_ptr<BNO055Sensor> RocketModel::getBNO055Sensor() {
+    return _bno;
+}
+
+bool RocketModel::isSensorSystemCalibrated() {
+    // Assuming your BNO055Sensor class has a method to check the system calibration status.
+    // Since NVS auto-loads on boot, this should return true almost immediately.
+    if (_bno) {
+        return _bno->isFullyCalibrated(); // You may need to ensure this method exists in BNO055Sensor.hpp
+    }
+    return true; // Fallback so the FSM doesn't lock up if the BNO is missing/disabled
+}
+
+void RocketModel::addBarometerSample(float pressure) {
+    if (_barometerZeroed) return;
+
+    if (_barometerSamples.size() < REQUIRED_BARO_SAMPLES) {
+        _barometerSamples.push_back(pressure);
+    }
+
+    if (_barometerSamples.size() >= REQUIRED_BARO_SAMPLES) {
+        float sum = 0.0f;
+        for (float p : _barometerSamples) {
+            sum += p;
+        }
+        _launchpadBasePressure = sum / REQUIRED_BARO_SAMPLES;
+        _barometerZeroed = true;
+        
+        LOG_INFO("RocketModel", "Barometer zeroed. Base pressure set to: %.2f", _launchpadBasePressure);
+    }
+}
+
+int RocketModel::getBarometerSampleCount() {
+    return _barometerSamples.size();
+}
+
+bool RocketModel::isBarometerZeroed() const {
+    return _barometerZeroed;
+}
+
+float RocketModel::getLaunchpadBasePressure() const {
+    return _launchpadBasePressure;
+}

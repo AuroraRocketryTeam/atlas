@@ -464,7 +464,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::STORAGE, "Storage_Landing_9", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Landing", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
@@ -687,12 +687,36 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::CALIBRATING:
-        if (Utils::millis() - _stateStartTime > 5000U)
+    {
+        // Gather Barometer samples for zeroing
+        auto baroData = _rocketModel->getMS561101BA03Data_1();
+        if (baroData && baroData->pressure > 0.0f) {
+            _rocketModel->addBarometerSample(baroData->pressure);
+        }
+
+        // Check if both systems are ready
+        bool isBaroReady = _rocketModel->isBarometerZeroed();
+        bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();
+
+        LOG_INFO("RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d", 
+                 isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
+
+        // Evaluate transition
+        if (isBaroReady && isBnoReady)
         {
+            LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed & IMU calibrated.");
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
-        // Calibration timeout fallback
+        // Fallback timeout: Increased to 10s to ensure we get enough samples if sensor reads are slow
+        else if (Utils::millis() - _stateStartTime > 10000U) 
+        {
+            LOG_WARNING("RocketFSM", "Calibration timeout! Forcing completion. Baro Ready: %d, IMU Ready: %d", 
+                        isBaroReady, isBnoReady);
+            sendEvent(FSMEvent::CALIBRATION_COMPLETE);
+        }
         break;
+    }
+
     case RocketState::READY_FOR_LAUNCH:
         try {
             auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);

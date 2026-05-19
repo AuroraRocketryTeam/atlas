@@ -282,6 +282,34 @@ public:
      */
     void reset();
 
+    /**
+     * @brief Get the BNO055 sensor instance.
+     */
+    std::shared_ptr<BNO055Sensor> getBNO055Sensor();
+
+    /**
+     * @brief Check if the IMU is fully calibrated (Status == 3)
+     */
+    bool isSensorSystemCalibrated();
+
+    /**
+     * @brief Feed a pressure reading into the zeroing algorithm
+     * @param pressure The current pressure reading
+     */
+    void addBarometerSample(float pressure);
+
+    int getBarometerSampleCount();
+
+    /**
+     * @brief Check if the barometer has finished accumulating baseline samples
+     */
+    bool isBarometerZeroed() const;
+
+    /**
+     * @brief Get the calculated launchpad baseline pressure
+     */
+    float getLaunchpadBasePressure() const;
+
 private:
     // Sensor instances
     std::shared_ptr<BNO055Sensor> _bno;
@@ -313,4 +341,10 @@ private:
     SemaphoreHandle_t _storageMutex;
     std::shared_ptr<IStorage> _storage;
     Command _cmd;
+
+    // Calibration and Zeroing variables
+    std::vector<float> _barometerSamples;
+    float _launchpadBasePressure = 0.0f;
+    bool _barometerZeroed = false;
+    static constexpr size_t REQUIRED_BARO_SAMPLES = 100;
 };
