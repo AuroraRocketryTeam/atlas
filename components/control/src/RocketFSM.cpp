@@ -665,7 +665,7 @@ void RocketFSM::checkTransitions()
     }
 
     // Cache some persistent values across calls to avoid repeated allocations
-    static unsigned long launchHighSince = 0;
+    static uint32_t launchHighSince = 0;
 
     // Get accelerometer data before switch statement
     auto accX = 0.0f;
@@ -727,12 +727,15 @@ void RocketFSM::checkTransitions()
                 {
                     launchHighSince = Utils::millis();
                 }
-                else if (Utils::millis() - launchHighSince > static_cast<unsigned long>(LIFTOFF_TIMEOUT_MS))
+                else if (Utils::millis() - launchHighSince >= static_cast<uint32_t>(LIFTOFF_TIMEOUT_MS))
                 {
                     _launchDetectionTime = Utils::millis();
                     sendEvent(FSMEvent::LAUNCH_DETECTED);
-                    launchHighSince = 0;
                 }
+            }
+            else 
+            {
+                launchHighSince = 0;
             }
         } catch (const std::exception& e) {
             LOG_ERROR("RocketFSM", "READY_FOR_LAUNCH: Exception occurred: %s", e.what());
