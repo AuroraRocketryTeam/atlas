@@ -142,6 +142,31 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
     return ResponseStatusContainer(E220_SUCCESS, "Data sent successfully.");
 }
 
+bool E220LoRaTransmitter::receive(CommandPacket* packet)
+{
+    int avail = transmitter.available();
+    LOG_DEBUG("LoRa", "Read available: %d", avail);
+    if (avail <= 0) return false;
+
+    auto response = transmitter.receiveMessage(sizeof(CommandPacket));
+    LOG_DEBUG("LoRa", "RX: receiveMessage status=%d (%s)", response.status.code, 
+        response.status.getResponseDescription().c_str());
+    if (response.status.code != E220_SUCCESS)
+    {
+        response.close();
+        return false;
+    }
+
+    memcpy(packet, response.data, sizeof(CommandPacket));
+    response.close();
+
+    LOG_INFO("LoRa", "RX cmd_id: 0x%02X payload: %02X %02X %02X %02X",
+             packet->command_id,
+             packet->payload[0], packet->payload[1], packet->payload[2], packet->payload[3]);
+
+    return true;
+}
+
 ResponseStatusContainer E220LoRaTransmitter::configure(Configuration configuration)
 {
     auto response = transmitter.setConfiguration(configuration, WRITE_CFG_PWR_DWN_SAVE);

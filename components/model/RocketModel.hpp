@@ -121,6 +121,7 @@ public:
      */
     std::shared_ptr<GPSData> getGPSData();
 
+    bool hasGPS() { return _gps != nullptr; }
 
 #if CONFIG_AURORA_HIL_SIMULATION
     // Simulation
@@ -130,7 +131,7 @@ public:
      * @param bool the reset flag value.
      */
     void setResetSimulationFlag(bool value);
-    
+
      /**
      * @brief Getter of simulation reset flag.
      *

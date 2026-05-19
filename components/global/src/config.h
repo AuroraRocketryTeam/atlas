@@ -107,5 +107,6 @@
 #define GRAVITY 9.80665f
 
 
+
 // Telemetry configuration
 constexpr uint8_t RECEIVER_MAC_ADDRESS[] = { 0x34, 0xCD, 0xB0, 0x3D, 0x97, 0xFC };  // MAC dell'ESP32 ricevente: // 34:CD:B0:3D:97:FC

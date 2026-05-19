@@ -7,6 +7,7 @@
 #include "Logger.hpp"
 #include <Packet.hpp>
 #include <PacketManager.hpp>
+#include "IStateMachine.hpp"
 #include <memory>
 #include <cstdint>
 #include "esp_task_wdt.h"
@@ -51,6 +52,9 @@ struct TelemetryPacket
         float longitude; ///< Longitude (degrees)
         float altitude;  ///< GPS altitude (meters)
     } gps;
+
+    uint8_t flight_phase; ///< 0 = INACTIVE, 10 = RECOVERED
+    uint8_t last_ack_command_id; ///< Last successfully received command (CommandId), 0x00 = none
 };
 #pragma pack(pop)
 
@@ -69,9 +73,12 @@ private:
     SemaphoreHandle_t _modelMutex;
     std::shared_ptr<EspNowTransmitter> _transmitter;
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
+    IStateMachine* _fsm;
 
     uint32_t _transmitIntervalMs;
     uint32_t _lastTransmitTime;
+
+    uint8_t _lastAckCommandId;
 
     // Statistics
     uint32_t _messagesCreated;
@@ -90,7 +97,8 @@ public:
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
                   SemaphoreHandle_t modelMutex,
                   std::shared_ptr<EspNowTransmitter> espNowTransmitter,
-                  uint32_t intervalMs = 1000);
+                  uint32_t intervalMs = 1000,
+                  IStateMachine* fsm = nullptr);
 
     /**
      * @brief Get transmission statistics.
@@ -125,4 +133,15 @@ private:
      * @return true if all packets sent successfully.
      */
     bool transmitMessage(const std::vector<uint8_t> &message);
+
+    /**
+     * @brief Poll the LoRa receiver for commands, automatically dispaches them.
+     */
+    void pollLoRaRx();
+
+    /**
+     * @brief Dispatch a received command to the FSM.
+     * @param id The command identifier.
+     */
+    void handleCommand(CommandId id);
 };

@@ -11,6 +11,7 @@
 #include <memory>
 #include <map>
 #include <RocketModel.hpp>
+#include <IBoardHardware.hpp>
 
 /**
  * @brief Enumeration for the different rocket states.
@@ -28,7 +29,8 @@ public:
      */
     RocketFSM(std::shared_ptr<RocketModel> rocketModel,
               std::shared_ptr<SD> sd,
-              std::shared_ptr<RocketLogger> logger
+              std::shared_ptr<RocketLogger> logger,
+              IBoardHardware* board
             );
     
     /**
@@ -118,6 +120,7 @@ private:
     SemaphoreHandle_t _loggerMutex;
 
     std::shared_ptr<SD> _sd;
+    IBoardHardware* _board;
 
     // Important timers and tresholds
     const unsigned long LAUNCH_TO_BALLISTIC_THRESHOLD = 6000;

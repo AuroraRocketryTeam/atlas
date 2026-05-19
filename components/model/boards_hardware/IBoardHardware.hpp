@@ -44,6 +44,7 @@ public:
     virtual gpio_num_t get_lora_rx_pin() const = 0;
 
     virtual gpio_num_t get_barometer2_cs_pin() const = 0;
+    virtual gpio_num_t get_sd_cs_pin() const = 0;
 
     virtual bool is_armed() const = 0;
 
