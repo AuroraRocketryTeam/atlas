@@ -48,4 +48,5 @@ private:
     bool testE220Connector();
     bool clearFlashMemory();
     bool dumpFlashJsonFiles();
+    bool calibrateAndSaveIMU();
 };

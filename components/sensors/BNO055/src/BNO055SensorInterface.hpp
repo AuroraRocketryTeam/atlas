@@ -269,4 +269,18 @@ public:
      * @return Temperature in degrees Celsius
      */
     float get_temperature();
+
+    /**
+     * @brief Get the sensor calibration profile into a buffer
+     * @param profile_buffer Pointer to a buffer to store the calibration profile data
+     * @return true if calibration profile retrieved successfully, false otherwise
+     */
+    bool get_calibration_profile(uint8_t* profile_buffer);
+
+    /**
+     * @brief Set the sensor calibration profile from a buffer containing the calibration data
+     * @param profile_buffer Pointer to a buffer containing the calibration profile data
+     * @return true if calibration profile set successfully, false otherwise
+     */
+    bool set_calibration_profile(const uint8_t* profile_buffer);
 };

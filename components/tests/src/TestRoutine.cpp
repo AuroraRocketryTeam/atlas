@@ -701,6 +701,50 @@ void TestRoutine::testFSMTransitions(RocketFSM& fsm)
     }
 }
 
+bool TestRoutine::calibrateAndSaveIMU()
+{
+    LOG_INFO("Test", "\n[STEP 12] IMU Calibration");
+    LOG_INFO("Test", "Please perform figure-8 movements and rest the sensor on various axes.");
+    
+    auto bnoSensor = _model->getBNO055Sensor();
+    if (!bnoSensor) {
+        LOG_ERROR("Test", "BNO055 Sensor not available!");
+        return waitForUserInput("Type FAILED to continue");
+    }
+
+    bool calibrated = false;
+    LOG_INFO("Test", "Waiting for calibration");
+
+    // Loop until calibration reaches 3 for all sub-sensors
+    while (!calibrated)
+    {
+        _model->updateBNO055();
+        auto data = _model->getBNO055Data();
+        
+        LOG_INFO("Test", "Calib Status -> SYS: %d, GYRO: %d, ACCEL: %d, MAG: %d",
+                 data->calibration_sys, data->calibration_gyro, 
+                 data->calibration_accel, data->calibration_mag);
+
+        if (data->calibration_sys == 3 && data->calibration_gyro == 3 && 
+            data->calibration_accel == 3 && data->calibration_mag == 3) 
+        {
+            LOG_INFO("Test", "IMU is FULLY CALIBRATED!");
+            calibrated = true;
+            break;
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    // Save directly to the internal ESP32 partition
+    if (bnoSensor->saveCalibrationToNVS()) {
+        return waitForUserInput("Saved successfully! Type PASSED to continue");
+    } else {
+        LOG_ERROR("Test", "Failed to save to NVS.");
+        return waitForUserInput("Type FAILED to continue");
+    }
+}
+
 void TestRoutine::run()
 {
     LOG_INFO("Test", "=== SYSTEM TEST ROUTINE INITIATED ===");
@@ -723,6 +767,7 @@ void TestRoutine::run()
         printf("11 - Esegui tutti i test in sequenza\n");
         printf("12 - Dump JSON files from Flash\n");
         printf("13 - Format Flash memory\n");
+        printf("14 - Calibra IMU e salva in NVS (Internal Flash)\n");
         printf("0 - Esci dal menu test\n");
         printf("Inserisci il numero del test da eseguire:\n");
 
@@ -763,6 +808,8 @@ void TestRoutine::run()
                 do { testPassed = dumpFlashJsonFiles(); } while (!testPassed); break;
         case 13:
                 do { testPassed = clearFlashMemory(); } while (!testPassed); break;
+        case 14:
+                do { testPassed = calibrateAndSaveIMU(); } while (!testPassed); break;
         case 0:
             _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
