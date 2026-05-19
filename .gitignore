@@ -126,3 +126,6 @@ XUNIT_RESULT*.xml
 
 # Downloaded flash logs folder
 flash_logs/
+
+# HIL simulation captures from sim to flight controller
+main/hil/hil_captures/
