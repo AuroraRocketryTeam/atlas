@@ -10,6 +10,7 @@
 #include "SD-master.hpp"
 #include "IStorage.hpp"
 #include "RocketModel.hpp"
+#include "IStateMachine.hpp"
 
 #include "SensorTask.hpp"
 #include "AirbrakesTask.hpp"
@@ -46,7 +47,8 @@ public:
     TaskManager(std::shared_ptr<RocketModel> rocketModel,
             SemaphoreHandle_t modelMutex,
             std::shared_ptr<SD> sd,
-            std::shared_ptr<RocketLogger> logger);
+            std::shared_ptr<RocketLogger> logger,
+            IStateMachine* fsm = nullptr);
     
     /**
      * @brief Destroy the Task Manager object
@@ -124,4 +126,6 @@ private:
     // Telemetry
     std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
+
+    IStateMachine* _fsm;
 };

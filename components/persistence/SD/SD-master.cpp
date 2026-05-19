@@ -10,7 +10,7 @@
  *
  * @return true if the SD card is initialized, false otherwise
  */
-bool SD::init(SPIBus* bus)
+bool SD::init(SPIBus* bus, gpio_num_t cs_pin)
 {
     esp_err_t ret;
 
@@ -26,7 +26,7 @@ bool SD::init(SPIBus* bus)
     host.slot = bus->get_host();
     // This initializes the slot without card detect (CD) and write protect (WP) signals.
     sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = (gpio_num_t)SD_CS;
+    slot_config.gpio_cs = cs_pin;
     slot_config.host_id = bus->get_host();
 
     LOG_INFO("SD-Task", "Mounting filesystem");

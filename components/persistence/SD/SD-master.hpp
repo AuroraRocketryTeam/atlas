@@ -23,7 +23,7 @@ private:
     const std::string mount_point = "/sdcard";
 
 public:
-    bool init(SPIBus* bus);
+    bool init(SPIBus* bus, gpio_num_t cs_pin);
 
     /**
      * @brief Initialize the SD card.

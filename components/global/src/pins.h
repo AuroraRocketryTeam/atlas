@@ -40,8 +40,6 @@
 #define SD_CS                       GPIO_NUM_21         // From Arduino D10
 
 // Actuators
-#define DROGUE_ACTUATOR_PIN         GPIO_NUM_44         // From Arduino D0
-#define MAIN_ACTUATOR_PIN           GPIO_NUM_43         // From Arduino D1
 #define BUZZER_PIN                  GPIO_NUM_5          // From Arduino D2
 
 // LED
@@ -59,32 +57,11 @@
 #define BAR2_S                      GPIO_NUM_7          // From Arduino D4
 #define ACC_S                       GPIO_NUM_13         // From Arduino A6
 
-#elifdef CONFIG_ATLAS_MCU_ESP32S3_WROOM
-
-// SD Card pins.
-#define SD_CLK                      GPIO_NUM_17
-#define SD_SO                       GPIO_NUM_13
-#define SD_SI                       GPIO_NUM_37
-#define SD_CS                       GPIO_NUM_10
-
-// Actuators
-#define DROGUE_ACTUATOR_PIN         GPIO_NUM_5
-#define MAIN_ACTUATOR_PIN           GPIO_NUM_4
-#define BUZZER_PIN                  GPIO_NUM_21
-
-// LED
-#define LED_RED_PIN                 GPIO_NUM_18
-#define LED_GREEN_PIN               GPIO_NUM_8
-#define LED_BLUE_PIN                GPIO_NUM_7
-
-#define HOLD_FLASH                  GPIO_NUM_9
-#define WP_FLASH                    GPIO_NUM_14
-
 #endif
 
-// Arbitrary builtin LED
-
+#ifdef LED_BLUE_PIN
 #define LED_BUILT_IN LED_BLUE_PIN
+#endif
 
 // GPS UART pins (TX -> GPS RX, RX -> GPS TX)
 #ifndef GPS_TX_PIN
@@ -99,6 +76,7 @@
 #define HIGH       0x1
 
 // --- GPIO CONFIGURATIONS ---
+#ifdef LED_RED_PIN
 const gpio_config_t led_gpio_config = {
     .pin_bit_mask = (1ULL << LED_RED_PIN) | (1ULL << LED_GREEN_PIN) | (1ULL << LED_RED_PIN) | (1ULL << LED_BUILT_IN),
     .mode         = GPIO_MODE_OUTPUT,
@@ -106,14 +84,8 @@ const gpio_config_t led_gpio_config = {
     .pull_down_en = GPIO_PULLDOWN_DISABLE,
     .intr_type    = GPIO_INTR_DISABLE
 };
+#endif
 
-const gpio_config_t actuators_gpio_config = {
-    .pin_bit_mask = (1ULL << DROGUE_ACTUATOR_PIN) | (1ULL << MAIN_ACTUATOR_PIN) | (1ULL << BUZZER_PIN),
-    .mode         = GPIO_MODE_OUTPUT,
-    .pull_up_en   = GPIO_PULLUP_DISABLE,
-    .pull_down_en = GPIO_PULLDOWN_DISABLE,
-    .intr_type    = GPIO_INTR_DISABLE
-};
 
 #ifdef IMU_S
 const gpio_config_t sensors_gpio_config = {

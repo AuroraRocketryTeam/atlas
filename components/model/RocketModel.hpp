@@ -129,7 +129,12 @@ public:
      */
     std::shared_ptr<GPSData> getGPSData();
 
-        /**
+    /**
+     * @brief Check GPS availability
+     */
+    bool hasGPS() { return _gps != nullptr; }
+    
+    /**
      * @brief Thread-safe helper to check storage availability.
      */
     bool isStorageInitialized(uint32_t timeoutMs = 100) const;
@@ -168,7 +173,7 @@ public:
      * @param bool the reset flag value.
      */
     void setResetSimulationFlag(bool value);
-    
+
      /**
      * @brief Getter of simulation reset flag.
      *

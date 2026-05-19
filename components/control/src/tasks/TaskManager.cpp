@@ -8,11 +8,13 @@
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          SemaphoreHandle_t modelMutex,
                          std::shared_ptr<SD> sd,
-                         std::shared_ptr<RocketLogger> logger) : 
+                         std::shared_ptr<RocketLogger> logger,
+                         IStateMachine* fsm) :
                          _rocketModel(rocketModel),
                          _logger(logger),
                          _modelMutex(modelMutex),
-                         _sd(sd)
+                         _sd(sd),
+                         _fsm(fsm)
 {
     LOG_INFO("TaskMgr", "Initialized with model");
 
@@ -65,10 +67,13 @@ void TaskManager::initializeTasks()
         _rocketModel,
         _modelMutex,
         _logger);
-    _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
-        _rocketModel,
-        _modelMutex,
-        _logger);
+    if (_rocketModel->hasGPS())
+    {
+        _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
+            _rocketModel,
+            _modelMutex,
+            _logger);
+    } else LOG_INFO("TaskManager", "GPS unavailable. Skipping GPS task");
     // _tasks[TaskType::EKF] = std::make_unique<EkfTask>(
     //     _rocketModel,
     //     _modelMutex,
@@ -105,7 +110,8 @@ void TaskManager::initializeTasks()
         _rocketModel,
         _modelMutex,
         _espNowTransmitter,
-        TELEMETRY_INTERVAL_MS);
+        TELEMETRY_INTERVAL_MS,
+        _fsm);
     if (_loraTransmitter)
     {
         telemetryTask->setLoRaTransmitter(_loraTransmitter);
