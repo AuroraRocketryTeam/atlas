@@ -3,13 +3,11 @@
 
 SensorTask::SensorTask(std::shared_ptr<RocketModel> rocketModel,
                        SemaphoreHandle_t modelMutex,
-                       std::shared_ptr<RocketLogger> logger, 
-                       SemaphoreHandle_t loggerMutex)
+                        std::shared_ptr<RocketLogger> logger)
     : BaseTask("SensorTask"), 
       rocketModel(rocketModel), 
       modelMutex(modelMutex),
-      logger(logger), 
-      loggerMutex(loggerMutex)
+      logger(logger)
 {
     LOG_INFO("Sensor", "SensorTask constructor initialized");
 }
@@ -70,8 +68,9 @@ void SensorTask::taskFunction()
             }
         }
 
+#ifndef CONFIG_AURORA_HIL_SIMULATION
         // Log sensor data every 3 loops if logger is available
-        if (logger && loopCount % 3 == 0 && xSemaphoreTake(loggerMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        if (logger && loopCount % 3 == 0)
         {
             // Log sensor data through the model
             if (rocketModel)
@@ -94,12 +93,11 @@ void SensorTask::taskFunction()
                     logger->logSensorData(lis3dhData);
                 }
             }
-            
-            xSemaphoreGive(loggerMutex);
-            
+
             // Log current RocketLogger memory usage for monitoring
             LOG_INFO("Sensor", "RocketLogger entries logged");
         }
+#endif
 
         loopCount++;
         

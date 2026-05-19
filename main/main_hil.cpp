@@ -43,6 +43,7 @@
 
 // Storage and logging
 #include <SD-master.hpp>
+#include <Flash.hpp>
 #include <RocketLogger.hpp>
 #include <Logger.hpp>
 
@@ -67,6 +68,7 @@ StatusManager statusManager(ledController, buzzerController);
 std::shared_ptr<RocketModel> rocketModel = nullptr;
 
 std::shared_ptr<SD> sdCard = nullptr;
+std::shared_ptr<Flash> flash = nullptr;
 
 // Define the RocketLogger
 std::shared_ptr<RocketLogger> logger = nullptr;
@@ -107,12 +109,6 @@ static_assert(
 
 void setup()
 {
-    // Initialize actuator pins
-    gpio_config(&actuators_gpio_config);
-
-    gpio_set_level(MAIN_ACTUATOR_PIN, LOW);
-    gpio_set_level(DROGUE_ACTUATOR_PIN, LOW);
-
     // Initialize LED pins (only those not handled by controllers)
     gpio_config(&led_gpio_config);
 
@@ -164,8 +160,19 @@ void setup()
     logger = std::make_shared<RocketLogger>();
     LOG_INFO("Init", "Rocket logger initialized");
 
-    // Create Nemesis instance (constructor expects: logger, bno, lis3dh, ms56_1, ms56_2, gps)
-    rocketModel = std::make_shared<RocketModel>(logger, bno055, accl, baro1, baro2, gps);
+    LOG_INFO("Init", "Initializing external flash for mirrored logging...");
+    flash = std::make_shared<Flash>();
+    if (flash && flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+    {
+        LOG_INFO("Init", "External flash initialized");
+    }
+    else
+    {
+        LOG_ERROR("Init", "Failed to initialize external flash");
+    }
+
+    // Create Nemesis instance (constructor expects: bno, lis3dh, ms56_1, ms56_2, gps, sdCard, flash)
+    rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
     LOG_INFO("Main", "RocketModel system model created");
 
     // Print system information
@@ -200,7 +207,7 @@ static void createAndStartFSM()
 {
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
 
-    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board);
     rocketFSM->init();
 
     vTaskDelay(1000 / portTICK_PERIOD_MS);

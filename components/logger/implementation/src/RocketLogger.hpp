@@ -3,6 +3,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <nlohmann/json.hpp>
 #include <ILogger.hpp>
 #include <LogMessage.hpp>
@@ -15,10 +17,17 @@
  */
 class RocketLogger : public ILogger {
 public:
+    RocketLogger();
+
     /**
      * @brief Destructor to clean up dynamically allocated memory.
      */
     ~RocketLogger();
+
+    /**
+     * @brief Thread-safe count of buffered log entries.
+     */
+    int getLogCount() const;
 
     /**
      * @brief Log an informational message.
@@ -60,4 +69,16 @@ public:
      * 
      */
     void clearData() override;
+
+    /**
+     * @brief Serialize all buffered logs into a malloc-allocated JSON C string and clear the buffer.
+     *
+     * @param outJson Output pointer. Caller must free() on success.
+     * @param maxEntries Maximum number of log entries to consume in this call.
+     * @return true on success, false if no data or allocation/lock failure.
+     */
+    bool consumeAllAsJsonChar(char** outJson, size_t maxEntries);
+
+private:
+    mutable SemaphoreHandle_t _mutex;
 };

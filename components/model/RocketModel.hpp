@@ -1,6 +1,8 @@
 #pragma once
 
 #include "esp_private/adc_private.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <Arduino.h>
 #include <BNO055Sensor.hpp>
 #include <MPRLSSensor.hpp>
@@ -13,32 +15,38 @@
 #include <GPSData.hpp>
 #include <Command.hpp>
 #include <Termoresistenze.hpp>
-#include <RocketLogger.hpp>
+#include <SD-master.hpp>
+#include <Flash.hpp>
+#include <IStorage.hpp>
 #include <config.h>
 
 /**
- * @brief Class representing the Nemesis rocket model, encapsulating sensors and logger.
+ * @brief Class representing the Nemesis rocket model and sensor/state storage.
  *
  */
 class RocketModel
 {
 public:
+    ~RocketModel();
+
     /**
      * @brief Construct a new Nemesis object
      *
-     * @param logger Shared pointer to the RocketLogger instance.
      * @param bno Shared pointer to the BNO055Sensor instance.
      * @param lis3dh Shared pointer to the LIS3DHTRSensor instance.
      * @param ms56_1 Shared pointer to the first MS561101BA03 instance.
      * @param ms56_2 Shared pointer to the second MS561101BA03 instance.
      * @param gps Shared pointer to the GPS instance.
+     * @param sd Shared pointer to SD storage backend (optional).
+     * @param flash Shared pointer to external flash backend (optional).
      */
-    RocketModel(std::shared_ptr<RocketLogger> logger,
-            std::shared_ptr<BNO055Sensor> bno,
+    RocketModel(std::shared_ptr<BNO055Sensor> bno,
             std::shared_ptr<LIS3DHTRSensor> lis3dh,
             std::shared_ptr<MS561101BA03> ms56_1,
             std::shared_ptr<MS561101BA03> ms56_2,
-            std::shared_ptr<GPS> gps);
+            std::shared_ptr<GPS> gps,
+            std::shared_ptr<SD> sd = nullptr,
+            std::shared_ptr<Flash> flash = nullptr);
 
     /**
      * @brief Update the BNO055 sensor data
@@ -121,7 +129,41 @@ public:
      */
     std::shared_ptr<GPSData> getGPSData();
 
+    /**
+     * @brief Check GPS availability
+     */
     bool hasGPS() { return _gps != nullptr; }
+    
+    /**
+     * @brief Thread-safe helper to check storage availability.
+     */
+    bool isStorageInitialized(uint32_t timeoutMs = 100) const;
+
+    /**
+     * @brief Thread-safe helper to check if a file exists in storage.
+     */
+    bool storageFileExists(const char* filename, uint32_t timeoutMs = 200);
+
+    /**
+     * @brief Thread-safe helper to reset the read cursor of a file in storage.
+     */
+    bool storageResetReadCursor(const char* filename, uint32_t timeoutMs = 200);
+
+    /**
+     * @brief Thread-safe helper to read a line from storage.
+     */
+    std::string storageReadLine(uint32_t timeoutMs = 200);
+
+    /**
+     * @brief Thread-safe helper to read the entire content of a file from storage.
+     */
+    std::string storageReadFile(const char* filename, uint32_t timeoutMs = 200);
+    
+    /**
+     * @brief Thread-safe helper to write content to a file in storage.
+     */
+    bool storageWriteFile(const char* filename, const char* content, uint32_t timeoutMs = 200);
+
 
 #if CONFIG_AURORA_HIL_SIMULATION
     // Simulation
@@ -241,9 +283,6 @@ public:
     void reset();
 
 private:
-    // Logger instance
-    std::shared_ptr<RocketLogger> _logger;
-
     // Sensor instances
     std::shared_ptr<BNO055Sensor> _bno;
     std::shared_ptr<LIS3DHTRSensor> _lis3dh;
@@ -267,9 +306,11 @@ private:
     std::shared_ptr<float> _heightGainSpeed;
     std::shared_ptr<float> _currentHeight;
 
-    Command _cmd;
-
 #if CONFIG_AURORA_HIL_SIMULATION
-    bool _reset_simulation = false;
+    bool _reset_simulation;
 #endif
+
+    SemaphoreHandle_t _storageMutex;
+    std::shared_ptr<IStorage> _storage;
+    Command _cmd;
 };

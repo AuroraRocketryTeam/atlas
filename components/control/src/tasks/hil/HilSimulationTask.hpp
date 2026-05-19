@@ -35,8 +35,7 @@ public:
     HilSimulationTask(
         std::shared_ptr<RocketModel> rocketModel,
         SemaphoreHandle_t modelMutex,
-        std::shared_ptr<RocketLogger> logger,
-        SemaphoreHandle_t loggerMutex
+        std::shared_ptr<RocketLogger> logger
     );
 
     ~HilSimulationTask();
@@ -56,7 +55,6 @@ private:
     SemaphoreHandle_t _modelMutex;
 
     std::shared_ptr<RocketLogger> _logger;
-    SemaphoreHandle_t _loggerMutex;
 
     int _listen_sock = -1;
     int _client_sock = -1;

@@ -21,12 +21,14 @@
 TestRoutine::TestRoutine(IBoardHardware& board,
                          std::shared_ptr<RocketModel> model,
                          std::shared_ptr<SD> sdCard,
+                         std::shared_ptr<Flash> flash,
                          StatusManager& statusManager,
                          LEDController& ledController,
                          BuzzerController& buzzerController)
     : _board(board),
       _model(model),
       _sdCard(sdCard),
+      _flash(flash),
       _statusManager(statusManager),
       _ledController(ledController),
       _buzzerController(buzzerController)
@@ -210,12 +212,15 @@ bool TestRoutine::testSDCard()
 
     if (_sdCard->openFile(TEST_FILE)) {
         std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms\n";
-        if (_sdCard->writeFile(TEST_FILE, content)) {
+        if (_sdCard->writeFile(TEST_FILE, content.c_str())) {
             LOG_INFO("Test", "SD card write test successful");
-            char* readContent = _sdCard->readFile(TEST_FILE);
-            if (readContent)
-                LOG_INFO("Test", "Read from SD card: %s", readContent);
-            else {
+            std::string readContent = _sdCard->readFile(TEST_FILE);
+            if (!readContent.empty())
+            {
+                LOG_INFO("Test", "Read from SD card: %s", readContent.c_str());
+            }
+            else
+            {
                 _statusManager.playBlockingPattern(SD_READ_FAIL, 2000);
                 LOG_ERROR("Test", "Failed to read back from SD card");
             }
@@ -229,84 +234,258 @@ bool TestRoutine::testSDCard()
         LOG_ERROR("Test", "Failed to open test file on SD card");
     }
 
-    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    return waitForUserInput("Type PASSED to continue or FAILED to repeat");
 }
 
 bool TestRoutine::testFlashMemory()
 {
-    LOG_INFO("Test", "[STEP 5] Test Flash memory");
 
-    _flash = std::make_shared<Flash>();
-    const uint32_t t0 = Utils::millis();
+    // Print _board.get_spi_bus(), _board.get_flash_cs_pin(), _board.get_flash_hold_pin(), _board.get_flash_wp_pin()
+    LOG_INFO("Test", "SPI Bus: %d", _board.get_spi_bus());
+    LOG_INFO("Test", "Flash CS Pin: %d", _board.get_flash_cs_pin());
+    LOG_INFO("Test", "Flash Hold Pin: %d", _board.get_flash_hold_pin());
+    LOG_INFO("Test", "Flash WP Pin: %d", _board.get_flash_wp_pin());
 
-    if (_flash && _flash->init(_board.get_spi_bus(), _board.get_flash_cs_pin(),
-                               _board.get_flash_hold_pin(), _board.get_flash_wp_pin()))
-        LOG_INFO("Test", "External Flash initialized");
-    else
-        LOG_ERROR("Test", "Failed to initialize External Flash");
+
+    LOG_INFO("Test", "[STEP 5] Flash memory test");
 
     if (!_flash)
-        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    {
+        _flash = std::make_shared<Flash>();
+    }
 
-    if (!_flash->init()) {
-        LOG_ERROR("Test", "Flash init failed: verify external SPI flash wiring.");
+    const uint32_t t0 = Utils::millis();
+
+    if (!_flash) {
+        LOG_ERROR("Test", "Flash pointer is null! Initialization failed in setup.");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    if (!_flash->isInitialized())
+    {
+        if (!_flash->init(_board.get_spi_bus(), _board.get_flash_cs_pin(), _board.get_flash_hold_pin(), _board.get_flash_wp_pin()))
+        {
+            LOG_ERROR("Init", "Failed to initialize External Flash");
+            return waitForUserInput("Type PASSED to continue or FAILED to retry");
+        }
+        LOG_INFO("Init", "External Flash initialized");
+    }
+    else
+    {
+        LOG_INFO("Init", "External Flash already initialized, reusing instance");
+    }
+
+    LOG_INFO("Test", "Flash: verifying readiness...");
+    if (!_flash->isInitialized())
+    {
+        LOG_ERROR("Test", "Flash init failed: verify external SPI flash wiring and availability.");
         return waitForUserInput("Type PASSED to continue or FAILED to retry");
     }
     LOG_INFO("Test", "Flash: init OK (%lu ms)", (unsigned long)(Utils::millis() - t0));
 
-    const std::string testFile    = "test.txt";
+    const std::string testFile = "test.txt";
     const std::string missingFile = "ghost.txt";
 
-    char* readData = _flash->readFile(missingFile);
-    if (readData != nullptr) {
+    LOG_INFO("Test", "Flash: read missing file '%s' (expected empty)", missingFile.c_str());
+    std::string readData = _flash->readFile(missingFile.c_str());
+    if (!readData.empty())
+    {
         LOG_ERROR("Test", "Unexpected data returned for missing file.");
-        delete[] readData;
-    } else {
+    }
+    else
+    {
         LOG_INFO("Test", "Flash: missing file check OK");
     }
 
-    if (!_flash->writeFile(testFile, "Hello, ESP32 Flash Storage!\n"))
+    LOG_INFO("Test", "Flash: write '%s'", testFile.c_str());
+    if (!_flash->writeFile(testFile.c_str(), "Hello, ESP32 Flash Storage!\n"))
+    {
         LOG_ERROR("Test", "Flash write failed.");
+    }
     else
+    {
         LOG_INFO("Test", "Flash: write OK");
-
-    readData = _flash->readFile(testFile);
-    if (readData == nullptr)
-        LOG_ERROR("Test", "Flash read failed after write.");
-    else {
-        LOG_INFO("Test", "Flash read content: %s", readData);
-        delete[] readData;
     }
 
-    if (!_flash->appendFile(testFile, "Appended line.\n"))
-        LOG_ERROR("Test", "Flash append failed.");
+    LOG_INFO("Test", "Flash: read '%s'", testFile.c_str());
+    readData = _flash->readFile(testFile.c_str());
+    if (readData.empty())
+    {
+        LOG_ERROR("Test", "Flash read failed after write.");
+    }
     else
-        LOG_INFO("Test", "Flash: append OK");
+    {
+        LOG_INFO("Test", "Flash read content: %s", readData.c_str());
+    }
 
-    readData = _flash->readFile(testFile);
-    if (readData != nullptr) {
-        LOG_INFO("Test", "Flash read after append: %s", readData);
-        delete[] readData;
-    } else {
+    LOG_INFO("Test", "Flash: append to '%s'", testFile.c_str());
+    if (!_flash->appendFile(testFile.c_str(), "Appended line.\n"))
+    {
+        LOG_ERROR("Test", "Flash append failed.");
+    }
+    else
+    {
+        LOG_INFO("Test", "Flash: append OK");
+    }
+
+    LOG_INFO("Test", "Flash: read back after append");
+    readData = _flash->readFile(testFile.c_str());
+    if (!readData.empty())
+    {
+        LOG_INFO("Test", "Flash read after append: %s", readData.c_str());
+    }
+    else
+    {
         LOG_ERROR("Test", "Flash read failed after append.");
     }
 
-    if (!_flash->fileExists(testFile))
+    if (!_flash->fileExists(testFile.c_str()))
+    {
         LOG_ERROR("Test", "Flash file existence check failed.");
+    }
     else
+    {
         LOG_INFO("Test", "Flash: fileExists('%s') OK", testFile.c_str());
+    }
 
     const uint32_t t_clear = Utils::millis();
-    LOG_INFO("Test", "Flash: clear start (this can take several seconds)...");
+    LOG_INFO("Test", "Flash: clear start (this can take several seconds on full-chip erase)...");
+    
     if (!_flash->clearFlash())
+    {
         LOG_ERROR("Test", "Flash clear failed.");
-    else if (_flash->fileExists(testFile))
+    }
+    else if (_flash->fileExists(testFile.c_str()))
+    {
         LOG_ERROR("Test", "Flash clear did not remove test file.");
+    }
     else
+    {
         LOG_INFO("Test", "Flash: clear OK (%lu ms)", (unsigned long)(Utils::millis() - t_clear));
+    }
 
     LOG_INFO("Test", "Flash: test completed in %lu ms", (unsigned long)(Utils::millis() - t0));
-    return waitForUserInput("Check the logs above. Type PASSED to continue or FAILED to retry");
+
+    return waitForUserInput("Check the logs above in the serial console. Type PASSED to continue or FAILED to retry");
+}
+
+bool TestRoutine::clearFlashMemory()
+{
+    LOG_INFO("Test", "\n=== TEST FLASH ERASE ===");
+    
+    if (!_flash)
+    {
+        _flash = std::make_shared<Flash>();
+    }
+
+    if (!_flash->isInitialized() && !_flash->init(_board.get_spi_bus(), _board.get_flash_cs_pin(), _board.get_flash_hold_pin(), _board.get_flash_wp_pin()))
+    {
+        LOG_ERROR("Test", "Flash init failed");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    printf("WARNING: This operation will format the entire Flash memory.\n");
+    printf("All data will be lost!\n");
+    printf("Are you sure you want to continue? (Y/n): ");
+    
+    char buffer[16] = {0};
+    Utils::readLine(buffer, sizeof(buffer));
+    std::string input(buffer);
+    trimString(input);
+    
+    if (input == "Y" || input == "y") {
+        LOG_INFO("Test", "Formatting in progress... it might take some time.");
+        if (_flash->clearMemory()) {
+            LOG_INFO("Test", "Formatting completed successfully!");
+            return waitForUserInput("Memory cleared. Type PASSED to continue or FAILED to retry");
+        } else {
+            LOG_ERROR("Test", "Error during formatting!");
+        }
+    } else {
+        LOG_INFO("Test", "Operation cancelled.");
+    }
+    
+    return waitForUserInput("Type PASSED to continue or FAILED to retry");
+}
+
+bool TestRoutine::dumpFlashJsonFiles()
+{
+    LOG_INFO("Test", "[DUMP] Export JSON files from external flash");
+
+    if (!_flash)
+    {
+        _flash = std::make_shared<Flash>();
+    }
+
+    if (!_flash)
+    {
+        LOG_ERROR("Dump", "Failed to initialize External Flash");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    if (!_flash->isInitialized() && !_flash->init(_board.get_spi_bus(), _board.get_flash_cs_pin(), _board.get_flash_hold_pin(), _board.get_flash_wp_pin()))
+    {
+        LOG_ERROR("Dump", "Flash init failed");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    printf("\n=== JSON DUMP START ===\n");
+    printf("Capture this serial output to a file on PC.\n");
+
+    int dumpedCount = 0;
+    int consecutiveMisses = 0;
+    const int MAX_CONSECUTIVE_MISSES = 20;
+    const int MAX_FILES_TO_CHECK = 10000;
+
+    for (int i = 0; i < MAX_FILES_TO_CHECK; ++i)
+    {
+        // Periodic watchdog update
+        if (i % 25 == 0) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
+        char filename[64] = {0};
+        std::snprintf(filename, sizeof(filename), "JSON_data_%d.json", i);
+
+        std::string content = _flash->readFile(filename);
+        if (content.empty())
+        {
+            consecutiveMisses++;
+            if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES) {
+                LOG_INFO("Dump", "Reached end of file sequence (stopped scanning at index %d).", i);
+                break;
+            }
+            continue;
+        }
+
+        consecutiveMisses = 0;
+
+        printf("START_FILE:%s\n", filename);
+        printf("%s", content.c_str());
+        
+        if (!content.empty() && content.back() != '\n')
+        {
+            printf("\n");
+        }
+        
+        printf("END_FILE:%s\n", filename); 
+
+        dumpedCount++;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    printf("=== JSON DUMP END (%d file%s) ===\n\n", dumpedCount, dumpedCount == 1 ? "" : "s");
+
+    if (dumpedCount == 0)
+    {
+        LOG_WARNING("Dump", "No JSON_data_*.json files found on flash");
+    }
+    else
+    {
+        LOG_INFO("Dump", "Successfully exported %d JSON files", dumpedCount);
+    }
+
+    return waitForUserInput("JSON dump printed on serial. Type PASSED to continue or FAILED to retry");
 }
 
 bool TestRoutine::testTelemetry()
@@ -486,7 +665,6 @@ bool TestRoutine::testE220Connector()
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
-
 void TestRoutine::testFSMTransitions(RocketFSM& fsm)
 {
     LOG_INFO("Test", "\n\n=== STARTING AUTOMATED FSM TEST ===");
@@ -543,6 +721,8 @@ void TestRoutine::run()
         printf("9 - Test Flash memory\n");
         printf("10 - Test ricezione comando LoRa\n");
         printf("11 - Esegui tutti i test in sequenza\n");
+        printf("12 - Dump JSON files from Flash\n");
+        printf("13 - Format Flash memory\n");
         printf("0 - Esci dal menu test\n");
         printf("Inserisci il numero del test da eseguire:\n");
 
@@ -579,6 +759,10 @@ void TestRoutine::run()
             _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
             break;
+        case 12:
+                do { testPassed = dumpFlashJsonFiles(); } while (!testPassed); break;
+        case 13:
+                do { testPassed = clearFlashMemory(); } while (!testPassed); break;
         case 0:
             _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
@@ -589,7 +773,7 @@ void TestRoutine::run()
             continue;
         }
 
-        if (choice >= 1 && choice <= 11) {
+        if (choice >= 1 && choice <= 13) {
             LOG_INFO("Test", "Test completato con successo!");
             _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
         }

@@ -9,12 +9,10 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          SemaphoreHandle_t modelMutex,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
-                         SemaphoreHandle_t loggerMutex,
                          IStateMachine* fsm) :
                          _rocketModel(rocketModel),
                          _logger(logger),
                          _modelMutex(modelMutex),
-                         _loggerMutex(loggerMutex),
                          _sd(sd),
                          _fsm(fsm)
 {
@@ -68,28 +66,21 @@ void TaskManager::initializeTasks()
     _tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
         _rocketModel,
         _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
     if (_rocketModel->hasGPS())
     {
         _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
             _rocketModel,
             _modelMutex,
-            _logger,
-            _loggerMutex);
+            _logger);
     } else LOG_INFO("TaskManager", "GPS unavailable. Skipping GPS task");
     // _tasks[TaskType::EKF] = std::make_unique<EkfTask>(
     //     _rocketModel,
     //     _modelMutex,
     //     _kalmanFilter);
-    if (_sd)
-    {
-        _tasks[TaskType::SD_LOGGING] = std::make_unique<SDLoggingTask>(
-            _logger,
-            _loggerMutex,
-            _sd);
-    }
-    else LOG_INFO("TaskManager", "SD card unavailable. Skipping SD logging task");
+    _tasks[TaskType::STORAGE] = std::make_unique<StorageLoggingTask>(
+        _rocketModel,
+        _logger);
     _tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
         // Using a different simulation file where at the end of each line there is a
         // pipe symbol, this was needed as the readLine function had problem recognizing
@@ -98,22 +89,19 @@ void TaskManager::initializeTasks()
         _sd,
         _rocketModel,
         _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
 
 #if CONFIG_AURORA_HIL_SIMULATION
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
         _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
 #endif
         
     _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
         _rocketModel,
         _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
     
 
     // Create TelemetryTask with ESP-NOW and LoRa transmitters

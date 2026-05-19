@@ -15,6 +15,7 @@ public:
     TestRoutine(IBoardHardware& board,
                 std::shared_ptr<RocketModel> model,
                 std::shared_ptr<SD> sdCard,
+                std::shared_ptr<Flash> flash,
                 StatusManager& statusManager,
                 LEDController& ledController,
                 BuzzerController& buzzerController);
@@ -45,4 +46,6 @@ private:
     bool testI2CScan();
     bool configureE220();
     bool testE220Connector();
+    bool clearFlashMemory();
+    bool dumpFlashJsonFiles();
 };

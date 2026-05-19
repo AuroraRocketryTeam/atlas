@@ -137,14 +137,14 @@ void setup()
     logger = std::make_shared<RocketLogger>();
     LOG_INFO("Init", "Rocket logger initialized");
 
-    // Create Nemesis instance (constructor expects: logger, bno, lis3dh, ms56_1, ms56_2, gps)
-    rocketModel = std::make_shared<RocketModel>(logger, bno055, accl, baro1, baro2, gps);
+    // Create Nemesis instance (storage backends are optional)
+    rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
     LOG_INFO("Main", "RocketModel system model created");
 
 #ifdef ENABLE_TEST_ROUTINE
     vTaskDelay(5000 / portTICK_PERIOD_MS);
     LOG_INFO("Main", "=== TEST MODE ENABLED ===");
-    TestRoutine tests(board, rocketModel, sdCard, statusManager, ledController, buzzerController);
+    TestRoutine tests(board, rocketModel, sdCard, flash, statusManager, ledController, buzzerController);
     tests.run();
 #endif
 
@@ -381,13 +381,20 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         sdCard = std::make_shared<SD>();
         if (sdCard->init(board.get_spi_bus(), board.get_sd_cs_pin()))
         {
-            LOG_INFO("Init", "SD card initialized");
+            LOG_ERROR("Init", "SD card write test failed");
         }
-        else
-        {
-            LOG_ERROR("Init", "Failed to initialize SD card");
-            sdCard = nullptr;
-        }
+        sdCard->closeFile();
+    }
+
+    LOG_INFO("Init", "Initializing external flash for mirrored logging...");
+    flash = std::make_shared<Flash>();
+    if (flash && flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+    {
+        LOG_INFO("Init", "External flash initialized");
+    }
+    else
+    {
+        LOG_ERROR("Init", "Failed to initialize external flash");
     }
 
     // Initializa ESP-NOW connection for telemetry
@@ -421,7 +428,6 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Wi-Fi");
     }
 
-    // We don't need to initialize LEDManager anymore - StatusManager handles it
     LOG_INFO("Init", "Status indicators initialized");
 }
 

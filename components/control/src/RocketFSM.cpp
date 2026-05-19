@@ -47,12 +47,6 @@ RocketFSM::~RocketFSM()
         _modelMutex = nullptr;
     }
 
-    if (_loggerMutex)
-    {
-        vSemaphoreDelete(_loggerMutex);
-        _loggerMutex = nullptr;
-    }
-
     LOG_INFO("RocketFSM", "Destructor completed");
 }
 
@@ -93,18 +87,6 @@ void RocketFSM::init()
         _stateMutex = nullptr;
         return;
     }
-    _loggerMutex = xSemaphoreCreateMutex();
-    if (!_loggerMutex)
-    {
-        LOG_ERROR("RocketFSM", "ERROR: Failed to create loggerMutex");
-        vQueueDelete(_eventQueue);
-        _eventQueue = nullptr;
-        vSemaphoreDelete(_stateMutex);
-        _stateMutex = nullptr;
-        vSemaphoreDelete(_modelMutex);
-        _modelMutex = nullptr;
-        return;
-    }
     // Initialize managers
     LOG_INFO("RocketFSM", "Initializing TaskManager...");
     _taskManager = std::make_unique<TaskManager>(
@@ -112,7 +94,6 @@ void RocketFSM::init()
         _modelMutex,
         _sd,
         _logger,
-        _loggerMutex,
         this
     );
     LOG_INFO("RocketFSM", "INITIALIZING TASKS...");
@@ -334,7 +315,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Launch", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
         .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "Started_SD_Logging", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true));
+        .addTask(TaskConfig(TaskType::STORAGE, "Started_Storage", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true));
     // READY_FOR_LAUNCH state
     _stateActions[RocketState::READY_FOR_LAUNCH] = std::make_unique<StateAction>(RocketState::READY_FOR_LAUNCH);
     _stateActions[RocketState::READY_FOR_LAUNCH]
@@ -349,7 +330,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "Started_SD_Logging_2", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Started_Storage_2", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask((TaskConfig(TaskType::TELEMETRY, "Telemetry_Ready", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true)));
@@ -367,7 +348,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "SD_Logging_Launch_3", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Launch_3", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Launch", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
@@ -384,7 +365,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "SD_Logging_Accel_4", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Accel_4", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Accel", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
 
@@ -400,7 +381,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "SD_Logging_Ballistic_5", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Ballistic_5", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Ballistic", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Ballistic", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Ballistic", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
@@ -426,7 +407,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Apogee", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "SD_Logging_Apogee_6", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Apogee_6", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Apogee", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
 
@@ -451,7 +432,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Stabilization", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "SD_Logging_Stabilization_7", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Stabilization_7", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Stabilization", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Stabilization", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
 
@@ -468,7 +449,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Deceleration", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "SD_Logging_Deceleration_8", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Deceleration_8", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Deceleration", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Deceleration", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
     _stateActions[RocketState::LANDING] = std::make_unique<StateAction>(RocketState::LANDING);
@@ -484,7 +465,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::BAROMETER, "Barometer_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "SD_Logging_Landing_9", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Landing_9", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Landing", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
     _stateActions[RocketState::RECOVERED] = std::make_unique<StateAction>(RocketState::RECOVERED);
@@ -499,7 +480,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::SD_LOGGING, "SD_Logging_PostFlight_10", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_PostFlight_10", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_PostFlight", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_PostFlight", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
     LOG_INFO("RocketFSM", "State actions setup complete");
@@ -754,7 +735,7 @@ void RocketFSM::checkTransitions()
         auto elapsed = Utils::millis() - _launchDetectionTime;
         auto isRising = _rocketModel->getIsRising();
         //LOG_INFO("RocketFSM", "now: %.3lu, stateStartTime: %.3lu, evaluated: %.3lu, treshold: %.3lu", Utils::millis(), stateStartTime, elapsed, LAUNCH_TO_APOGEE_THRESHOLD);
-        if(!*isRising || (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD)){
+        if((isRising && !*isRising) || (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD)){
             sendEvent(FSMEvent::APOGEE_REACHED);
         }
 
@@ -772,11 +753,15 @@ void RocketFSM::checkTransitions()
     case RocketState::STABILIZATION:
     {
         auto currentHeight = _rocketModel->getCurrentHeight();
-        LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", *currentHeight);
-        if (*currentHeight < MAIN_ALTITUDE_THRESHOLD)
-        {
-            LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", *currentHeight, Utils::millis() - _stateStartTime);
-            sendEvent(FSMEvent::STABILIZATION_COMPLETE);
+        if (currentHeight) {
+            LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", *currentHeight);
+            if (*currentHeight < MAIN_ALTITUDE_THRESHOLD)
+            {
+                LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", *currentHeight, Utils::millis() - _stateStartTime);
+                sendEvent(FSMEvent::STABILIZATION_COMPLETE);
+            }
+        } else {
+            LOG_INFO("RocketFSM", "STABILIZATION: currentHeight is null");
         }
     
         break;
@@ -788,7 +773,7 @@ void RocketFSM::checkTransitions()
         // !!! choose if chenge the control to be with negative values or to invert the value here
 
         auto currentHeight = _rocketModel->getCurrentHeight();
-        if (*currentHeight < TOUCHDOWN_ALTITUDE_THRESHOLD)
+        if (currentHeight && *currentHeight < TOUCHDOWN_ALTITUDE_THRESHOLD)
         {
             sendEvent(FSMEvent::DECELERATION_COMPLETE);
         }

@@ -50,6 +50,9 @@ def encode_msg(msg_type: int, payload: bytes) -> bytes:
 # ---------------------------------------------------------
 def build_payload(seq, t, ax, ay, az, p, lat, lon, alt):
     timestamp = int(time.time())
+    #t *= 1000
+
+    print(f"Building payload: seq={seq}, t={t}, timestamp={timestamp}, ax={ax}, ay={ay}, az={az}, p={p}, lat={lat}, lon={lon}, alt={alt}")
 
     return struct.pack(
         PAYLOAD_FMT, 

@@ -8,12 +8,13 @@
 #include "TaskConfig.hpp"
 #include "Logger.hpp"
 #include "SD-master.hpp"
+#include "IStorage.hpp"
 #include "RocketModel.hpp"
 #include "IStateMachine.hpp"
 
 #include "SensorTask.hpp"
 #include "AirbrakesTask.hpp"
-#include "SDLoggingTask.hpp"
+#include "StorageLoggingTask.hpp"
 #include "EkfTask.hpp"
 #include "GpsTask.hpp"
 #include "SimulationTask.hpp"
@@ -47,7 +48,6 @@ public:
             SemaphoreHandle_t modelMutex,
             std::shared_ptr<SD> sd,
             std::shared_ptr<RocketLogger> logger,
-            SemaphoreHandle_t loggerMutex,
             IStateMachine* fsm = nullptr);
     
     /**
@@ -121,10 +121,8 @@ private:
     std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
     SemaphoreHandle_t _modelMutex;
-    SemaphoreHandle_t _loggerMutex;
 
     std::shared_ptr<SD> _sd;
-    
     // Telemetry
     std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;

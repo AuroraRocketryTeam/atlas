@@ -15,7 +15,7 @@ enum class TaskType
     EKF,
     RECOVERY,
     DATA_COLLECTION,
-    SD_LOGGING,
+    STORAGE,
     TELEMETRY,
     GPS,
     BAROMETER,
