@@ -144,7 +144,7 @@ void setup()
 #ifdef ENABLE_TEST_ROUTINE
     vTaskDelay(5000 / portTICK_PERIOD_MS);
     LOG_INFO("Main", "=== TEST MODE ENABLED ===");
-    TestRoutine tests(board, rocketModel, sdCard, statusManager, ledController, buzzerController);
+    TestRoutine tests(board, rocketModel, sdCard, flash, statusManager, ledController, buzzerController);
     tests.run();
 #endif
 
@@ -384,10 +384,6 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
             LOG_ERROR("Init", "SD card write test failed");
         }
         sdCard->closeFile();
-    }
-    else
-    {
-        LOG_ERROR("Init", "Failed to initialize SD card");
     }
 
     LOG_INFO("Init", "Initializing external flash for mirrored logging...");
