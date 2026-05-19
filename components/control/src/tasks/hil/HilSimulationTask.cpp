@@ -385,30 +385,30 @@ void HilSimulationTask::taskFunction() {
             auto ms2 = std::make_shared<PressureSensorData>("Sim_MS5611_2");
             auto gps = std::make_shared<GPSData>("Sim_GPS");
             
-            pkt.sim_time = pkt.sim_time *1000; // convert to ms
+            const uint32_t sim_time_ms = static_cast<uint32_t>(pkt.sim_time * 1000.0f);
 
-            bnoData->timestamp = pkt.sim_time;
+            bnoData->timestamp = sim_time_ms;
             bnoData->acceleration_x = pkt.ax;
             bnoData->acceleration_y = pkt.ay;
             bnoData->acceleration_z = pkt.az;
 
-            lis3dhData->timestamp = pkt.sim_time;
+            lis3dhData->timestamp = sim_time_ms;
             lis3dhData->acceleration_x = pkt.ax;
             lis3dhData->acceleration_y = pkt.ay;
             lis3dhData->acceleration_z = pkt.az;
 
-            ms1->timestamp = pkt.sim_time;
+            ms1->timestamp = sim_time_ms;
             ms1->pressure = pkt.p;
-            ms2->timestamp = pkt.sim_time;
+            ms2->timestamp = sim_time_ms;
             ms2->pressure = pkt.p;
 
-            gps->timestamp = pkt.sim_time;
+            gps->timestamp = sim_time_ms;
             gps->latitude  = pkt.lat;
             gps->longitude = pkt.lon;
             gps->altitude  = pkt.alt;
 
-            ESP_LOGI(TAG, "Received sim packet: time=%.2f ax=%.2f ay=%.2f az=%.2f p=%.2f lat=%.6f lon=%.6f alt=%.2f",
-                pkt.sim_time, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.lat, pkt.lon, pkt.alt
+            ESP_LOGI(TAG, "Received sim packet: time=%d ax=%.2f ay=%.2f az=%.2f p=%.2f lat=%.6f lon=%.6f alt=%.2f",
+                sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.lat, pkt.lon, pkt.alt
             );
             
             /* ================= UPDATE MODEL ================= */
@@ -431,7 +431,7 @@ void HilSimulationTask::taskFunction() {
                 xSemaphoreGive(_modelMutex);
             }
 
-            Utils::setSimMillis(pkt.sim_time);
+            Utils::setSimMillis(sim_time_ms);
 
             vTaskDelay(1); // yield in order to let the other task to set the command
             if(!running) break;
