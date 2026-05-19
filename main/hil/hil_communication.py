@@ -173,8 +173,8 @@ def tcp_client(esp_connected: threading.Semaphore,
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((ESP_IP, PORT))
             sock.settimeout(3.0)
+            sock.connect((ESP_IP, PORT))
 
             if not announced_connected:
                 esp_connected.release()
