@@ -18,7 +18,7 @@ enum class TaskType
     STORAGE,
     TELEMETRY,
     GPS,
-    BAROMETER,
+    ALTITUDE,
     LOGGING,
     AIRBRAKES
 };

@@ -82,11 +82,11 @@
 #define GPS_BIAS 3.0f
 
 // Barometer noise filtering
-// BAROMETER_FILTER_WINDOW: Size of median filter window for pressure/altitude smoothing
+// ALTITUDE_FILTER_WINDOW: Size of median filter window for pressure/altitude smoothing
 // Smaller = faster response but more noise (1 = no filtering)
 // Larger = smoother but more lag (recommended: 3-7)
 // At 10Hz sampling: window=5 adds 50ms lag
-#define BAROMETER_FILTER_WINDOW 9
+#define ALTITUDE_FILTER_WINDOW 9
 #define APOGEE_DETECTION_WINDOW_SIZE 15
 
 #define STATE_INDEX_ALTITUDE 0
