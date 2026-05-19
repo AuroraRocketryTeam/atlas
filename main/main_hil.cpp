@@ -109,12 +109,6 @@ static_assert(
 
 void setup()
 {
-    // Initialize LED pins (only those not handled by controllers)
-    gpio_config(&led_gpio_config);
-
-    gpio_set_level(LED_BUILT_IN, LOW);
-    gpio_set_level(LED_RED_PIN, HIGH);
-
     // Install driver for blocking reads of Utils::readLine
     // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
     usb_serial_jtag_driver_config_t usb_cfg = {
@@ -125,7 +119,8 @@ void setup()
 
     // Signal initialization start
     board.init();
-    gpio_set_level(LED_RED_PIN, HIGH);
+    gpio_set_level(board.get_rgb_blue_pin(), LOW);
+    gpio_set_level(board.get_rgb_red_pin(), HIGH);
 
     // Initialize controllers
     ledController.init();
@@ -198,8 +193,8 @@ void setup()
     statusManager.setSystemCode(FLIGHT_MODE);
 
     // Signal successful initialization
-    gpio_set_level(LED_RED_PIN, LOW);
-    gpio_set_level(LED_GREEN_PIN, HIGH);
+    gpio_set_level(board.get_rgb_red_pin(), LOW);
+    gpio_set_level(board.get_rgb_green_pin(), HIGH);
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
@@ -273,8 +268,8 @@ static void resetHilSimulation()
 
     statusManager.setSystemCode(FLIGHT_MODE);
 
-    gpio_set_level(LED_RED_PIN, LOW);
-    gpio_set_level(LED_GREEN_PIN, HIGH);
+    gpio_set_level(board.get_rgb_red_pin(), LOW);
+    gpio_set_level(board.get_rgb_green_pin(), HIGH);
 
     LOG_INFO("Main", "HIL simulation reset complete");
 }
@@ -301,7 +296,7 @@ void loop()
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
 
         ledState = !ledState;
-        gpio_set_level(LED_BUILT_IN, ledState);
+        gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
         LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
 
