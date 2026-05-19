@@ -55,5 +55,6 @@ pip install .
 - connect to the WiFi AP, ssid=```myssid``` and psw=```mypassword```.
 - ```bash
   cd main/hil
-  python3 hil_rocketpy.py
+  python3 hil_rocketpy.py --rocket=fred
+  python3 hil_rocketpy.py --rocket=nemesis
   ```
