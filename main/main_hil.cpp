@@ -109,12 +109,6 @@ static_assert(
 
 void setup()
 {
-    // Initialize actuator pins
-    gpio_config(&actuators_gpio_config);
-
-    gpio_set_level(MAIN_ACTUATOR_PIN, LOW);
-    gpio_set_level(DROGUE_ACTUATOR_PIN, LOW);
-
     // Initialize LED pins (only those not handled by controllers)
     gpio_config(&led_gpio_config);
 
@@ -213,7 +207,7 @@ static void createAndStartFSM()
 {
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
 
-    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board);
     rocketFSM->init();
 
     vTaskDelay(1000 / portTICK_PERIOD_MS);

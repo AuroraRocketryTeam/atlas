@@ -665,7 +665,6 @@ bool TestRoutine::testE220Connector()
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
-
 void TestRoutine::testFSMTransitions(RocketFSM& fsm)
 {
     LOG_INFO("Test", "\n\n=== STARTING AUTOMATED FSM TEST ===");
@@ -722,6 +721,8 @@ void TestRoutine::run()
         printf("9 - Test Flash memory\n");
         printf("10 - Test ricezione comando LoRa\n");
         printf("11 - Esegui tutti i test in sequenza\n");
+        printf("12 - Dump JSON files from Flash\n");
+        printf("13 - Format Flash memory\n");
         printf("0 - Esci dal menu test\n");
         printf("Inserisci il numero del test da eseguire:\n");
 
@@ -758,6 +759,10 @@ void TestRoutine::run()
             _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
             break;
+        case 12:
+                do { testPassed = dumpFlashJsonFiles(); } while (!testPassed); break;
+        case 13:
+                do { testPassed = clearFlashMemory(); } while (!testPassed); break;
         case 0:
             _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
             LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
@@ -768,7 +773,7 @@ void TestRoutine::run()
             continue;
         }
 
-        if (choice >= 1 && choice <= 11) {
+        if (choice >= 1 && choice <= 13) {
             LOG_INFO("Test", "Test completato con successo!");
             _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
         }

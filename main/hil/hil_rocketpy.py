@@ -15,7 +15,7 @@ class CommandState:
     def __init__(self):
         self.lock = threading.Lock()
 
-        self.sim_time = 0.0
+        self.sim_time = 0
         self.open_main = False
         self.open_drogue = False
         self.airbrakes_lvl = 0.0

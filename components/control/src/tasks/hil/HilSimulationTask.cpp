@@ -18,7 +18,7 @@ static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
 
 typedef struct __attribute__((packed)) {
     uint32_t seq;
-    uint32_t sim_time;
+    float sim_time;
     uint32_t timestamp;
 
     float ax;
@@ -384,6 +384,8 @@ void HilSimulationTask::taskFunction() {
             auto ms1 = std::make_shared<PressureSensorData>("Sim_MS5611_1");
             auto ms2 = std::make_shared<PressureSensorData>("Sim_MS5611_2");
             auto gps = std::make_shared<GPSData>("Sim_GPS");
+            
+            pkt.sim_time = pkt.sim_time *1000; // convert to ms
 
             bnoData->timestamp = pkt.sim_time;
             bnoData->acceleration_x = pkt.ax;
@@ -429,7 +431,7 @@ void HilSimulationTask::taskFunction() {
                 xSemaphoreGive(_modelMutex);
             }
 
-            Utils::setSimMillis(pkt.sim_time * 1000);
+            Utils::setSimMillis(pkt.sim_time);
 
             vTaskDelay(1); // yield in order to let the other task to set the command
             if(!running) break;
