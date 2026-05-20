@@ -48,11 +48,11 @@
 
 /* Flight parameters configuration */
 #define LIFTOFF_ACCELERATION_THRESHOLD GRAVITY * 3.0f // Threshold for the detection of liftoff when relative_acceleration is > 2G in any direction (relative_acceleration = acceleration - gravity)
-#define LIFTOFF_TIMEOUT_MS 500    // Threshold for the detection of liftoff
-#define DROGUE_APOGEE_TIMEOUT 1000 // Threshold for opening the drogue parachute after apogee is detected
+#define LIFTOFF_TIMEOUT_MS 250    // Threshold for the detection of liftoff
+#define DROGUE_APOGEE_TIMEOUT 0 // Threshold for opening the drogue parachute after apogee is detected
 #define MAIN_ALTITUDE_THRESHOLD 450.0f // Altitude threshold for the deployment of the main parachute (in meters)
 #define TOUCHDOWN_VELOCITY_THRESHOLD 2.0f // Vertical velocity threshold for touchdown detection (in m/s)
-#define LAUNCH_TO_BALLISTIC_THRESHOLD 6000 // Time threshold for transition from LAUNCH to BALLISTIC_FLIGHT if apogee is not detected
+#define LAUNCH_TO_BALLISTIC_THRESHOLD 1000 // Time threshold for transition from LAUNCH to BALLISTIC_FLIGHT if apogee is not detected
 #define LAUNCH_TO_APOGEE_THRESHOLD 27000 //24850 + 2150 = 27000, Time threshold for transition from LAUNCH to APOGEE if apogee is not detected but the rocket is no more rising
 
 /* ESP-NOW Telemetry Configuration */
