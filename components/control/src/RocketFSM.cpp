@@ -4,6 +4,7 @@
 
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
+static constexpr RecoveryMode RECOVERY_MODE = AURORA_RECOVERY_MODE;
 
 RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
                      std::shared_ptr<SD> sd,
@@ -287,6 +288,79 @@ bool RocketFSM::isFinished()
     return getCurrentState() == RocketState::RECOVERED;
 }
 
+void RocketFSM::deployMain()
+{
+    if (_mainDeploymentCommanded)
+    {
+        LOG_INFO("RocketFSM", "MAIN already commanded, skipping");
+        return;
+    }
+
+    LOG_INFO("RocketFSM", "Deploying MAIN");
+
+    gpio_set_level(_board->get_main_actuator_pin(), HIGH);
+    _mainDeploymentCommanded = true;
+
+    if (_rocketModel && xSemaphoreTake(_modelMutex, portMAX_DELAY))
+    {
+        _rocketModel->setOpenMainCommand();
+        xSemaphoreGive(_modelMutex);        
+    }
+    
+}
+
+
+void RocketFSM::deployDrogue()
+{
+    if (_drogueDeploymentCommanded)
+    {
+        LOG_INFO("RocketFSM", "DROGUE already commanded, skipping");
+        return;
+    }
+
+    
+    LOG_INFO("RocketFSM", "Deploying DROGUE");
+    
+    gpio_set_level(_board->get_drogue_actuator_pin(), HIGH);
+    _drogueDeploymentCommanded = true;
+    
+    if (_rocketModel && xSemaphoreTake(_modelMutex, portMAX_DELAY))
+    {
+        _rocketModel->setOpenDrogueCommand();
+        xSemaphoreGive(_modelMutex);
+    }
+}
+
+
+void RocketFSM::deployApogeeRecovery()
+{
+    if constexpr (RECOVERY_MODE == RecoveryMode::MainOnly)
+    {
+        LOG_INFO("RocketFSM", "APOGEE recovery policy: MAIN_ONLY -> deploy MAIN");
+        deployMain();
+    }
+    else if constexpr (RECOVERY_MODE == RecoveryMode::DrogueAndMain)
+    {
+        LOG_INFO("RocketFSM", "APOGEE recovery policy: DROGUE_AND_MAIN -> deploy DROGUE");
+        deployDrogue();
+    }
+}
+
+
+void RocketFSM::deployStabilizationExitRecovery()
+{
+    if constexpr (RECOVERY_MODE == RecoveryMode::MainOnly)
+    {
+        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: MAIN_ONLY -> no deployment");
+        return;
+    }
+    else if constexpr (RECOVERY_MODE == RecoveryMode::DrogueAndMain)
+    {
+        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: DROGUE_AND_MAIN -> deploy MAIN");
+        deployMain();
+    }
+}
+
 void RocketFSM::setupStateActions()
 {
     LOG_INFO("RocketFSM", "Setting up state actions...");
@@ -389,15 +463,11 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::APOGEE] = std::make_unique<StateAction>(RocketState::APOGEE);
     _stateActions[RocketState::APOGEE]
         ->setEntryAction([this]()
-                         {
-                             LOG_INFO("RocketFSM", "Entering APOGEE");
-                             gpio_set_level(_board->get_drogue_actuator_pin(), HIGH); // Activate drogue deployment
-                             if (_rocketModel && xSemaphoreTake(_modelMutex, portMAX_DELAY)) {
-                                 _rocketModel->setOpenDrogueCommand();
-                                 xSemaphoreGive(_modelMutex);
-                             }
-                             // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
-                         })
+                        {
+                            LOG_INFO("RocketFSM", "Entering APOGEE");
+                            deployApogeeRecovery();
+                            // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
+                        })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_6", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #elif CONFIG_AURORA_HIL_SIMULATION
@@ -414,15 +484,11 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::STABILIZATION] = std::make_unique<StateAction>(RocketState::STABILIZATION);
     _stateActions[RocketState::STABILIZATION]
         ->setExitAction([this]()
-                         {
-                             LOG_INFO("RocketFSM", "Exiting STABILIZATION");
-                             gpio_set_level(_board->get_main_actuator_pin(), HIGH); // Activate main deployment
-                             if (_rocketModel && xSemaphoreTake(_modelMutex, portMAX_DELAY)) {
-                                 _rocketModel->setOpenMainCommand();
-                                 xSemaphoreGive(_modelMutex);
-                             }
-                             // tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
-                         })
+                        {
+                            LOG_INFO("RocketFSM", "Exiting STABILIZATION");
+                            deployStabilizationExitRecovery();
+                            // tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
+                        })
         #if defined(SIMULATION_DATA)
         .addTask(TaskConfig(TaskType::SIMULATION, "Simulation_7", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #elif CONFIG_AURORA_HIL_SIMULATION

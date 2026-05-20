@@ -121,6 +121,15 @@ private:
     std::shared_ptr<SD> _sd;
     IBoardHardware* _board;
 
+    // Parachutes states
+    bool _mainDeploymentCommanded = false;
+    bool _drogueDeploymentCommanded = false;
+
+    void deployMain();
+    void deployDrogue();
+    void deployApogeeRecovery();
+    void deployStabilizationExitRecovery();
+
     // Important timers and tresholds
     unsigned long _launchDetectionTime = 0;
 };
