@@ -164,6 +164,10 @@ public:
      */
     bool storageWriteFile(const char* filename, const char* content, uint32_t timeoutMs = 200);
 
+    /**
+     * @brief Thread-safe helper to append content to a file in storage.
+     */
+    bool storageAppendFile(const char* filename, const char* content, uint32_t timeoutMs = 200);
 
 #if CONFIG_AURORA_HIL_SIMULATION
     // Simulation
@@ -298,6 +302,9 @@ public:
      */
     void addBarometerSample(float pressure);
 
+    /**
+     * @brief Get the number of barometer samples collected for zeroing
+     */
     int getBarometerSampleCount();
 
     /**
@@ -306,9 +313,25 @@ public:
     bool isBarometerZeroed() const;
 
     /**
+     * @brief Check if the temperature has finished accumulating baseline samples
+     */
+    bool isTemperatureZeroed() const;
+
+    /**
      * @brief Get the calculated launchpad baseline pressure
      */
     float getLaunchpadBasePressure() const;
+
+    /**
+     * @brief Add a temperature sample for zeroing
+     * @param temperature The current temperature reading
+     */
+    void addTemperatureSample(float temperature);
+
+    /**
+     * @brief Get the calculated launchpad baseline temperature
+     */
+    float getLaunchpadBaseTemperature() const;
 
 private:
     // Sensor instances
@@ -347,4 +370,9 @@ private:
     float _launchpadBasePressure = 0.0f;
     bool _barometerZeroed = false;
     static constexpr size_t REQUIRED_BARO_SAMPLES = 100;
+
+    std::vector<float> _temperatureSamples;
+    float _launchpadBaseTemperature = 0.0f;
+    bool _temperatureZeroed = false;
+    static constexpr size_t REQUIRED_TEMPERATURE_SAMPLES = 100;
 };

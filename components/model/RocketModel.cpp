@@ -333,6 +333,22 @@ bool RocketModel::storageWriteFile(const char* filename, const char* content, ui
     return false;
 }
 
+bool RocketModel::storageAppendFile(const char* filename, const char* content, uint32_t timeoutMs) {
+    if (filename == nullptr || content == nullptr) {
+        return false;
+    }
+
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        const bool ready = _storage && _storage->isInitialized();
+        
+        const bool ok = ready && _storage->appendFile(filename, content);
+        
+        xSemaphoreGive(_storageMutex);
+        return ok;
+    }
+    return false;
+}
+
 std::shared_ptr<BNO055Sensor> RocketModel::getBNO055Sensor() {
     return _bno;
 }
@@ -365,6 +381,25 @@ void RocketModel::addBarometerSample(float pressure) {
     }
 }
 
+void RocketModel::addTemperatureSample(float temperature) {
+    if (_temperatureZeroed) return;
+
+    if (_temperatureSamples.size() < REQUIRED_TEMPERATURE_SAMPLES) {
+        _temperatureSamples.push_back(temperature);
+    }
+
+    if (_temperatureSamples.size() >= REQUIRED_TEMPERATURE_SAMPLES) {
+        float sum = 0.0f;
+        for (float p : _temperatureSamples) {
+            sum += p;
+        }
+        _launchpadBaseTemperature = sum / REQUIRED_TEMPERATURE_SAMPLES;
+        _temperatureZeroed = true;
+        
+        LOG_INFO("RocketModel", "Temperature zeroed. Base temperature set to: %.2f", _launchpadBaseTemperature);
+    }
+}
+
 int RocketModel::getBarometerSampleCount() {
     return _barometerSamples.size();
 }
@@ -373,6 +408,14 @@ bool RocketModel::isBarometerZeroed() const {
     return _barometerZeroed;
 }
 
+bool RocketModel::isTemperatureZeroed() const {
+    return _temperatureZeroed;
+}
+
 float RocketModel::getLaunchpadBasePressure() const {
     return _launchpadBasePressure;
+}
+
+float RocketModel::getLaunchpadBaseTemperature() const {
+    return _launchpadBaseTemperature;
 }

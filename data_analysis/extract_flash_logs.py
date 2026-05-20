@@ -5,10 +5,12 @@ import sys
 import threading
 
 def read_serial(ser, output_dir):
-    current_file = None
-    file_content = []
+    current_filepath = None
+    active_file = None
+    
     while True:
         try:
+            # Read line and normalize line endings
             line = ser.readline().decode('utf-8', errors='replace').replace('\r', '')
             
             if not line:
@@ -16,25 +18,36 @@ def read_serial(ser, output_dir):
 
             if line.startswith("START_FILE:"):
                 filename = line.split(":", 1)[1].strip()
-                current_file = os.path.join(output_dir, filename)
-                file_content = []
-                print(f"\nReceiving {filename}...")
+                current_filepath = os.path.join(output_dir, filename)
+                
+                # Close any previously dangling file just in case
+                if active_file:
+                    active_file.close()
+                    
+                # Open directly in write mode to stream the data to disk
+                active_file = open(current_filepath, 'w')
+                print(f"\nReceiving {filename} (Streaming data directly to disk)...")
                 continue
             
             if line.startswith("END_FILE"):
-                if current_file:
-                    with open(current_file, 'w') as f:
-                        f.writelines(file_content)
-                    print(f"Saved -> {current_file}")
-                    current_file = None
+                if active_file:
+                    active_file.close()
+                    active_file = None
+                    print(f"Saved -> {current_filepath}")
+                    current_filepath = None
                 continue
             
-            # If we are inside a file block, capture the data
-            if current_file is not None:
-                file_content.append(line)
+            # If we are inside a file block, write directly to the file stream
+            if active_file is not None:
+                active_file.write(line)
             else:
+                # Normal serial prints from the ESP32 (debug logs, etc.)
                 print(line, end='', flush=True)
+                
         except Exception as e:
+            print(f"\nSerial read exception: {e}")
+            if active_file:
+                active_file.close()
             break
 
 def extract_logs_from_serial(port, baudrate, output_dir):
@@ -42,8 +55,8 @@ def extract_logs_from_serial(port, baudrate, output_dir):
         os.makedirs(output_dir)
 
     print(f"Listening on {port} at {baudrate} baud...")
-    print(f"Saving extracted JSON files to '{output_dir}/'")
-    print("You can now type commands (e.g., '12' or '11') and press Enter.")
+    print(f"Saving extracted files to '{output_dir}/'")
+    print("You can now type commands and press Enter.")
     print("Press Ctrl+C to stop.\n")
 
     try:
@@ -68,8 +81,8 @@ def extract_logs_from_serial(port, baudrate, output_dir):
         ser.close()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Extract JSON logs from ESP32 serial dump")
-    parser.add_argument("--port", "-p", required=True, help="Serial port (e.g., /dev/ttyUSB0 or COM3)")
+    parser = argparse.ArgumentParser(description="Extract JSONL logs from ESP32 serial dump")
+    parser.add_argument("--port", "-p", required=True, help="Serial port (e.g., /dev/ttyUSB0)")
     parser.add_argument("--baud", "-b", type=int, default=115200, help="Baud rate (default: 115200)")
     parser.add_argument("--out", "-o", default="flash_logs", help="Output directory (default: flash_logs)")
     

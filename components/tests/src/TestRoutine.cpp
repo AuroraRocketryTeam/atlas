@@ -410,17 +410,11 @@ bool TestRoutine::clearFlashMemory()
 
 bool TestRoutine::dumpFlashJsonFiles()
 {
-    LOG_INFO("Test", "[DUMP] Export JSON files from external flash");
+    LOG_INFO("Test", "[DUMP] Export JSONL telemetry from external flash");
 
     if (!_flash)
     {
         _flash = std::make_shared<Flash>();
-    }
-
-    if (!_flash)
-    {
-        LOG_ERROR("Dump", "Failed to initialize External Flash");
-        return waitForUserInput("Type PASSED to continue or FAILED to retry");
     }
 
     if (!_flash->isInitialized() && !_flash->init(_board.get_spi_bus(), _board.get_flash_cs_pin(), _board.get_flash_hold_pin(), _board.get_flash_wp_pin()))
@@ -429,63 +423,61 @@ bool TestRoutine::dumpFlashJsonFiles()
         return waitForUserInput("Type PASSED to continue or FAILED to retry");
     }
 
-    printf("\n=== JSON DUMP START ===\n");
+    const char* TELEMETRY_FILENAME = "flight_telemetry.jsonl";
+
+    if (!_flash->fileExists(TELEMETRY_FILENAME))
+    {
+        LOG_WARNING("Dump", "No telemetry file found (%s) on flash.", TELEMETRY_FILENAME);
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    printf("\n=== JSONL DUMP START ===\n");
     printf("Capture this serial output to a file on PC.\n");
 
-    int dumpedCount = 0;
-    int consecutiveMisses = 0;
-    const int MAX_CONSECUTIVE_MISSES = 20;
-    const int MAX_FILES_TO_CHECK = 10000;
-
-    for (int i = 0; i < MAX_FILES_TO_CHECK; ++i)
+    // Open file stream directly to read line-by-line
+    if (!_flash->openFile(TELEMETRY_FILENAME))
     {
-        // Periodic watchdog update
-        if (i % 25 == 0) {
+        LOG_ERROR("Dump", "Failed to open telemetry file for reading.");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    // Trigger Python script to open the file
+    printf("START_FILE:%s\n", TELEMETRY_FILENAME);
+
+    int lineCount = 0;
+    std::string line;
+    
+    // Stream line-by-line to prevent RAM exhaustion
+    while (true)
+    {
+        line = _flash->readLine();
+        if (line.empty()) 
+        {
+            break; // End of file reached
+        }
+
+        // Print directly to serial. 
+        // Note: readLine() already includes the '\n' at the end.
+        printf("%s", line.c_str());
+        
+        lineCount++;
+
+        // Feed the FreeRTOS watchdog to prevent resets during massive file dumps
+        if (lineCount % 50 == 0) 
+        {
             vTaskDelay(pdMS_TO_TICKS(10));
         }
-
-        char filename[64] = {0};
-        std::snprintf(filename, sizeof(filename), "JSON_data_%d.json", i);
-
-        std::string content = _flash->readFile(filename);
-        if (content.empty())
-        {
-            consecutiveMisses++;
-            if (consecutiveMisses >= MAX_CONSECUTIVE_MISSES) {
-                LOG_INFO("Dump", "Reached end of file sequence (stopped scanning at index %d).", i);
-                break;
-            }
-            continue;
-        }
-
-        consecutiveMisses = 0;
-
-        printf("START_FILE:%s\n", filename);
-        printf("%s", content.c_str());
-        
-        if (!content.empty() && content.back() != '\n')
-        {
-            printf("\n");
-        }
-        
-        printf("END_FILE:%s\n", filename); 
-
-        dumpedCount++;
-        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
-    printf("=== JSON DUMP END (%d file%s) ===\n\n", dumpedCount, dumpedCount == 1 ? "" : "s");
+    // Ensure we are on a new line before sending the termination string
+    printf("\nEND_FILE:%s\n", TELEMETRY_FILENAME);
 
-    if (dumpedCount == 0)
-    {
-        LOG_WARNING("Dump", "No JSON_data_*.json files found on flash");
-    }
-    else
-    {
-        LOG_INFO("Dump", "Successfully exported %d JSON files", dumpedCount);
-    }
+    _flash->closeFile();
 
-    return waitForUserInput("JSON dump printed on serial. Type PASSED to continue or FAILED to retry");
+    printf("=== JSONL DUMP END (%d lines extracted) ===\n\n", lineCount);
+    LOG_INFO("Dump", "Successfully exported telemetry file.");
+
+    return waitForUserInput("JSONL dump printed on serial. Type PASSED to continue or FAILED to retry");
 }
 
 bool TestRoutine::testTelemetry()
@@ -765,7 +757,7 @@ void TestRoutine::run()
         printf("9 - Test Flash memory\n");
         printf("10 - Test ricezione comando LoRa\n");
         printf("11 - Esegui tutti i test in sequenza\n");
-        printf("12 - Dump JSON files from Flash\n");
+        printf("12 - Dump JSONL telemetry from Flash\n");
         printf("13 - Format Flash memory\n");
         printf("14 - Calibra IMU e salva in NVS (Internal Flash)\n");
         printf("0 - Esci dal menu test\n");
