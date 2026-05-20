@@ -760,6 +760,12 @@ void RocketFSM::checkTransitions()
             _rocketModel->addBarometerSample(baroData->pressure);
         }
 
+        // Gather Temperature samples
+        if (baroData) {
+            auto kelvinTemp = baroData->temperature + 273.15f;
+            _rocketModel->addTemperatureSample(kelvinTemp);
+        }
+
         // Check if both systems are ready
         bool isBaroReady = _rocketModel->isBarometerZeroed();
         bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();

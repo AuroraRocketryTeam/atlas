@@ -155,7 +155,7 @@ void MS561101BA03::calculatePressureAndTemperature(uint32_t D1, uint32_t D2, flo
     int64_t SENS2 = 0;
 
     if (TEMP < 2000) {
-        T2 = (dT * dT) >> 31;
+        T2 = ((int64_t)dT * dT) >> 31;
         OFF2 = (5 * (TEMP - 2000) * (TEMP - 2000)) >> 1;
         SENS2 = OFF2 >> 1;
 

@@ -68,8 +68,13 @@ float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
 {
     if (pressureRef <= 0.0f || pressure <= 0.0f) return 0.0f;
     
+    float tempRef = TEMP_REF;
+    if (_rocketModel->isTemperatureZeroed()) {
+        tempRef = _rocketModel->getLaunchpadBaseTemperature();
+    }
+
     // Hypsometric formula
-    return (TEMP_REF / TEMP_GRADIENT) * (1.0f - powf(pressure / pressureRef, N_INV));
+    return (tempRef / TEMP_GRADIENT) * (1.0f - powf(pressure / pressureRef, N_INV));
 }
 
 void AltitudeTask::updateRisingTrend(float currentAltitude)
