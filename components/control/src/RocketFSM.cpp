@@ -830,11 +830,22 @@ void RocketFSM::checkTransitions()
 
     case RocketState::BALLISTIC_FLIGHT:
     {
-        //LOG_INFO("RocketFSM", "BALLISTIC_FLIGHT: is rising = %u", *isRising);
         auto elapsed = Utils::millis() - _launchDetectionTime;
         auto isRising = _rocketModel->getIsRising();
-        //LOG_INFO("RocketFSM", "now: %.3lu, stateStartTime: %.3lu, evaluated: %.3lu, treshold: %.3lu", Utils::millis(), stateStartTime, elapsed, LAUNCH_TO_APOGEE_THRESHOLD);
-        if((isRising && !*isRising) || (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD)){
+        
+        // Ignore all sensor apogee logic until the initial chaotic burn phase ends
+        if (elapsed > APOGEE_LOCKOUT_MS) 
+        {
+            if ((isRising && !*isRising) || (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD)) 
+            {
+                LOG_INFO("RocketFSM", "Apogee detected! Elapsed: %lu ms", elapsed);
+                sendEvent(FSMEvent::APOGEE_REACHED);
+            }
+        } 
+        // If we somehow haven't hit the lockout but the max time elapsed, trigger anyway
+        else if (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD) 
+        {
+            LOG_WARNING("RocketFSM", "Apogee Lockout bypassed due to absolute max time limit!");
             sendEvent(FSMEvent::APOGEE_REACHED);
         }
 

@@ -7,21 +7,63 @@ void AltitudeTask::taskFunction()
 {
     LOG_INFO("AltitudeTask", "Starting Altitude task pipeline...");
 
+    uint32_t lastTimestamp = 0;
+    
+    // Baseline for the slew rate limiter
+    static float lastValidPressure = -1.0f; 
+
     while (running)
     {
         esp_task_wdt_reset();
         if(!running) break;
-        
-        // Pressure Reading and Filtering
-        float rawPressure = readPressure();
-        if (rawPressure <= 0.0f) {
-            vTaskDelay(pdMS_TO_TICKS(100));
+
+#ifdef BARO_1
+        auto baroData = _rocketModel->getMS561101BA03Data_1();
+#else
+        auto baroData = _rocketModel->getMS561101BA03Data_2();
+#endif
+
+        if (!baroData) {
+            LOG_ERROR("AltitudeTask", "Barometer data not available");
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        // Reject identical simulated packets
+        if (baroData->pressure <= 0.0f || baroData->timestamp == lastTimestamp) {
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
         
-        float filteredPressure = pressureFilter.update(rawPressure);
+        lastTimestamp = baroData->timestamp;
+        float rawPressure = baroData->pressure;
+
+        // Physics Lock, if the pressure change is too extreme, clamp it 
+        // to a maximum plausible change based on physical limits of the 
+        // atmosphere and the sampling rate (prevents spikes instability errors)
+        if (lastValidPressure < 0.0f) {
+            lastValidPressure = rawPressure;
+        } else {
+            float deltaP = rawPressure - lastValidPressure;
+            
+            // Clamp the pressure change to physical reality
+            if (deltaP > MAX_DELTA_P_PER_TICK) {
+                rawPressure = lastValidPressure + MAX_DELTA_P_PER_TICK;
+            } else if (deltaP < -MAX_DELTA_P_PER_TICK) {
+                rawPressure = lastValidPressure - MAX_DELTA_P_PER_TICK;
+            }
+            lastValidPressure = rawPressure;
+        }
         
-        // Establish Baseline (Fallback to sea-level if not zeroed)
+        // Median Filter (removes isolated outliers)
+        float filteredPressure = pressureFilter.update(rawPressure);
+
+        if (!pressureFilter.isReady()) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+        
+        // Altitude Calculation
         float pressureRef = _rocketModel->isBarometerZeroed() ? 
                             _rocketModel->getLaunchpadBasePressure() : 
                             101325.0f;
@@ -39,29 +81,14 @@ void AltitudeTask::taskFunction()
         if (auto heightPtr = _rocketModel->getCurrentHeight()) {
             *heightPtr = currentAltitude;
         }
+        
+        float currentVelocity = apogeeDetector.getVelocity();
 
-        LOG_INFO("AltitudeTask", "Alt: %0.2f m | Max: %0.2f m", currentAltitude, _max_altitude_read);
+        LOG_INFO("AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m", 
+                 currentAltitude, currentVelocity, _max_altitude_read);
         
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-}
-
-float AltitudeTask::readPressure()
-{
-#ifdef BARO_1
-    auto baroData = _rocketModel->getMS561101BA03Data_1();
-    if (!baroData) {
-        LOG_ERROR("AltitudeTask", "Barometer 1 data not available");
-        return 0.0f;
-    }
-#else
-    auto baroData = _rocketModel->getMS561101BA03Data_2();
-    if (!baroData) {
-        LOG_ERROR("AltitudeTask", "Barometer 2 data not available");
-        return 0.0f;
-    }
-#endif
-    return baroData->pressure;
 }
 
 float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
@@ -73,7 +100,6 @@ float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
         tempRef = _rocketModel->getLaunchpadBaseTemperature();
     }
 
-    // Hypsometric formula
     return (tempRef / TEMP_GRADIENT) * (1.0f - powf(pressure / pressureRef, N_INV));
 }
 
@@ -82,22 +108,7 @@ void AltitudeTask::updateRisingTrend(float currentAltitude)
     auto isRisingPtr = _rocketModel->getIsRising();
     if (!isRisingPtr) return;
 
-    if (altitudeTrendBuffer.size() >= trendBufferSize) {
-        altitudeTrendBuffer.erase(altitudeTrendBuffer.begin());
-    }
-    altitudeTrendBuffer.push_back(currentAltitude);
-
-    // Evaluate trend
-    if (altitudeTrendBuffer.size() < trendBufferSize) {
-        *isRisingPtr = true;
-    } else {
-        bool currentlyRising = false;
-        for (float alt : altitudeTrendBuffer) {
-            if (alt >= _max_altitude_read) {
-                currentlyRising = true;
-                break;
-            }
-        }
-        *isRisingPtr = currentlyRising;
-    }
+    apogeeDetector.update(currentAltitude);
+    
+    *isRisingPtr = apogeeDetector.isRising();
 }

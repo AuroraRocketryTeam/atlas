@@ -49,6 +49,7 @@
 /* Flight parameters configuration */
 #define LIFTOFF_ACCELERATION_THRESHOLD GRAVITY * 3.0f // Threshold for the detection of liftoff when relative_acceleration is > 2G in any direction (relative_acceleration = acceleration - gravity)
 #define LIFTOFF_TIMEOUT_MS 250    // Threshold for the detection of liftoff
+#define APOGEE_LOCKOUT_MS 5000 // Time after launch during which apogee detection is disabled to avoid false positives during initial phase
 #define DROGUE_APOGEE_TIMEOUT 0 // Threshold for opening the drogue parachute after apogee is detected
 #define MAIN_ALTITUDE_THRESHOLD 450.0f // Altitude threshold for the deployment of the main parachute (in meters)
 #define TOUCHDOWN_VELOCITY_THRESHOLD 2.0f // Vertical velocity threshold for touchdown detection (in m/s)
