@@ -88,8 +88,8 @@
 // Smaller = faster response but more noise (1 = no filtering)
 // Larger = smoother but more lag (recommended: 3-7)
 // At 10Hz sampling: window=5 adds 50ms lag
-#define ALTITUDE_FILTER_WINDOW 9
-#define APOGEE_DETECTION_WINDOW_SIZE 15
+#define ALTITUDE_FILTER_WINDOW 11
+#define APOGEE_DETECTION_WINDOW_SIZE 65
 
 #define STATE_INDEX_ALTITUDE 0
 #define STATE_INDEX_VELOCITY 1
