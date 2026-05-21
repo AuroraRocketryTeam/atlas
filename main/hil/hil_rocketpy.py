@@ -95,8 +95,8 @@ parser.add_argument(
 parser.add_argument(
     "--sampling-rate",
     type=positive_int,
-    default=20,
-    help="Sampling rate in Hz for sensors, logger, airbrakes and parachutes. Default: 20 Hz.",
+    default=50,
+    help="Sampling rate in Hz for sensors, logger, airbrakes and parachutes. Default: 50 Hz.",
 )
 
 args = parser.parse_args()
@@ -202,6 +202,19 @@ print("Rocket... READY")
 # ----------------------------------------------------------------------
 # SENSORS
 # ----------------------------------------------------------------------
+
+accel_noisy = Accelerometer(
+        sampling_rate=105, consider_gravity=True, orientation=(0,0,0), measurement_range=100,
+        resolution=0.25, noise_density=0.02, random_walk_density=0.005, constant_bias=1.0,
+        temperature_bias=0.05, operating_temperature=25, cross_axis_sensitivity=0.02, name="Accelerometer"
+    )
+
+barometer_noisy = Barometer(
+    sampling_rate=50, measurement_range=200000, resolution=4.2, noise_density=15.0,
+    noise_variance=15.0, random_walk_density=0.01, constant_bias=150, operating_temperature=25,
+    temperature_bias=0.03, temperature_scale_factor=0.02, name="Noisy Barometer"
+)
+
 accel_clean = Accelerometer(
     sampling_rate=sampling_rate,
     consider_gravity=True,
@@ -214,7 +227,6 @@ accel_clean = Accelerometer(
     cross_axis_sensitivity=0,
     name="Clean Accelerometer",
 )
-rocket.add_sensor(accel_clean, position=0)
 
 barometer_clean = Barometer(
     sampling_rate=sampling_rate,
@@ -225,7 +237,9 @@ barometer_clean = Barometer(
     temperature_scale_factor=0,
     name="Clean Barometer",
 )
-rocket.add_sensor(barometer_clean, position=0)
+
+rocket.add_sensor(accel_noisy, position=0)
+rocket.add_sensor(barometer_noisy, position=0)
 
 gnss_clean = GnssReceiver(
     sampling_rate=sampling_rate,

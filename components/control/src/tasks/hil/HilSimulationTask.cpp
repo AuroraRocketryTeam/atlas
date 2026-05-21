@@ -433,7 +433,8 @@ void HilSimulationTask::taskFunction() {
 
             Utils::setSimMillis(sim_time_ms);
 
-            vTaskDelay(1); // yield in order to let the other task to set the command
+            // yield in order to let the other task to set the command
+            taskYIELD();
             if(!running) break;
 
             /* ================= READ COMMAND FROM MODEL ================= */
@@ -480,7 +481,7 @@ void HilSimulationTask::taskFunction() {
             //     pkt.alt
             // );
 
-            vTaskDelay(pdMS_TO_TICKS(50)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
+            vTaskDelay(pdMS_TO_TICKS(20)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
         }
 
         if (_client_sock >= 0) {
