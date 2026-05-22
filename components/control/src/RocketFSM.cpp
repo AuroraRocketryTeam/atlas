@@ -342,6 +342,7 @@ void RocketFSM::deployApogeeRecovery()
     else if constexpr (RECOVERY_MODE == RecoveryMode::DrogueAndMain)
     {
         LOG_INFO("RocketFSM", "APOGEE recovery policy: DROGUE_AND_MAIN -> deploy DROGUE");
+        deployMain();
         deployDrogue();
     }
 }
