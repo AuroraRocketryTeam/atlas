@@ -51,10 +51,10 @@
 #define LIFTOFF_TIMEOUT_MS 250    // Threshold for the detection of liftoff
 #define APOGEE_LOCKOUT_MS 5000 // Time after launch during which apogee detection is disabled to avoid false positives during initial phase
 #define DROGUE_APOGEE_TIMEOUT 0 // Threshold for opening the drogue parachute after apogee is detected
-#define MAIN_ALTITUDE_THRESHOLD 450.0f // Altitude threshold for the deployment of the main parachute (in meters)
+#define MAIN_ALTITUDE_THRESHOLD 50.0f // Altitude threshold for the deployment of the main parachute (in meters)
 #define TOUCHDOWN_VELOCITY_THRESHOLD 2.0f // Vertical velocity threshold for touchdown detection (in m/s)
-#define LAUNCH_TO_BALLISTIC_THRESHOLD 1000 // Time threshold for transition from LAUNCH to BALLISTIC_FLIGHT if apogee is not detected
-#define LAUNCH_TO_APOGEE_THRESHOLD 27000 //24850 + 2150 = 27000, Time threshold for transition from LAUNCH to APOGEE if apogee is not detected but the rocket is no more rising
+#define LAUNCH_TO_BALLISTIC_THRESHOLD 4000 // Time threshold for transition from LAUNCH to BALLISTIC_FLIGHT if apogee is not detected
+#define LAUNCH_TO_APOGEE_THRESHOLD 6700 //24850 + 2150 = 27000, Time threshold for transition from LAUNCH to APOGEE if apogee is not detected but the rocket is no more rising
 
 /* ESP-NOW Telemetry Configuration */
 // MAC address of the peer receiver (ESP32 that will relay to LoRa)

@@ -160,8 +160,11 @@ private:
     
     // OLS Apogee Detector: 
     // Uses the window size defined in config.h. Assuming 50Hz task rate (20ms delay).
-    // Triggers when estimated vertical velocity drops below -1.5 m/s.
-    OLSApogeeDetector<APOGEE_DETECTION_WINDOW_SIZE> apogeeDetector{50.0f, -1.0f};
+    // Triggers when estimated vertical velocity drops below -0.5 m/s.
+    // We could switch the -0.5 to something positive like 1.0/2.0 to try triggering 
+    // it before the apogee, but we should be carefull at the end of the motor burnout, 
+    // as there is a strong drag force (which shouldn't be a problem thanks to the APOGEE_LOCKOUT_MS timer)
+    OLSApogeeDetector<APOGEE_DETECTION_WINDOW_SIZE> apogeeDetector{50.0f, -0.5f};
 
     // Atmospheric Constants
     static constexpr float TEMP_GRADIENT = 0.0065f; // [K/m]

@@ -9,15 +9,15 @@
   "max_expected_height": 4500,
 
   "set_atmospheric_model": {
-    "type": "Ensemble",
-    "file": "Villafranca_ensemble_5to11may2020to2026.nc",
+    "type": "Windy",
+    "file": "GFS",
     "dictionary": {
       "ensemble": "number",
       "time": "valid_time",
       "latitude": "latitude",
       "longitude": "longitude",
       "level": "pressure_level",
-      "temperature": "t",
+      "temperature": "",
       "surface_geopotential_height": null,
       "geopotential_height": null,
       "geopotential": "z",
@@ -27,14 +27,14 @@
   },
 
   "SolidMotor": {
-    "thrust_source": "SRAD_thrustcurve_BRICO_45_7mm.csv",
-    "dry_mass": 0.7871568876139587,
+    "thrust_source": "reshape_test_2026-05-21_21-07-43.csv",
+    "dry_mass": 0.622,
     "dry_inertia": [0.66, 0.66, 0.00001],
     "nozzle_radius": 0.01371,
     "throat_radius": 0.0095,
     "grain_number": 1,
 
-    "_grain_mass": 0.19694061309132402,
+    "_grain_mass": 0.196,
     "grain_outer_radius": 0.0165,
     "grain_initial_inner_radius": 0.0065,
     "grain_initial_height": 0.147,
@@ -44,19 +44,19 @@
     "grains_center_of_mass_position": 0.125,
     "center_of_dry_mass_position": 0.09941,
     "nozzle_position": 0,
-    "burn_time": 0.64,
+    "burn_time": 2.30,
     "coordinate_system_orientation": "nozzle_to_combustion_chamber"
   },
 
   "RocketV2": {
     "radius": 0.0425,
-    "_dry_mass": 2.595,
+    "_dry_mass": 2.201,
     "_ballast": 0.0,
     "mass": "= $RocketV2._dry_mass + $RocketV2._ballast",
     "inertia": [1.49, 1.49, 0.01],
-    "power_off_drag": "FRED_v2.0_CD_power_off.csv",
-    "power_on_drag": "FRED_v2.0_CD_power_on.csv",
-    "center_of_mass_without_motor": 0.373,
+    "power_off_drag": "CD_power_off_v2.3_TEST.csv",
+    "power_on_drag": "CD_power_on_v2.3_TEST.csv",
+    "center_of_mass_without_motor": 0.409,
     "coordinate_system_orientation": "nose_to_tail"
   },
 
@@ -100,17 +100,17 @@
       "_cd": 0.97,
       "_area": 1.168,
       "cd_s": "= $_cd * $_area",
-      "_lag_se": 0.1,
-      "_lag_rec": 2.0,
+        "_lag_se": 1,
+      "_lag_rec": 1,
       "lag": "= $_lag_se + $_lag_rec",
       "noise": [0, 6.5, 0.3]
     }
   ],
 
   "Flight": {
-    "rail_length": 2,
-    "inclination": 75,
-    "heading": 305,
+    "rail_length": 1.5,
+    "inclination": 80,
+    "heading": 160,
     "time_overshoot": false
   }
 }
