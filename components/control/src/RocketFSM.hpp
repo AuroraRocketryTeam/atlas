@@ -121,8 +121,15 @@ private:
     std::shared_ptr<SD> _sd;
     IBoardHardware* _board;
 
+    // Parachutes states
+    bool _mainDeploymentCommanded = false;
+    bool _drogueDeploymentCommanded = false;
+
+    void deployMain();
+    void deployDrogue();
+    void deployApogeeRecovery();
+    void deployStabilizationExitRecovery();
+
     // Important timers and tresholds
-    const unsigned long LAUNCH_TO_BALLISTIC_THRESHOLD = 6000;
-    const unsigned long LAUNCH_TO_APOGEE_THRESHOLD = 27000; //24850 + 2150 = 27000
     unsigned long _launchDetectionTime = 0;
 };

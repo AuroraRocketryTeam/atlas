@@ -50,9 +50,6 @@ def encode_msg(msg_type: int, payload: bytes) -> bytes:
 # ---------------------------------------------------------
 def build_payload(seq, t, ax, ay, az, p, lat, lon, alt):
     timestamp = int(time.time())
-    #t *= 1000
-
-    print(f"Building payload: seq={seq}, t={t}, timestamp={timestamp}, ax={ax}, ay={ay}, az={az}, p={p}, lat={lat}, lon={lon}, alt={alt}")
 
     return struct.pack(
         PAYLOAD_FMT, 
@@ -176,8 +173,8 @@ def tcp_client(esp_connected: threading.Semaphore,
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((ESP_IP, PORT))
             sock.settimeout(3.0)
+            sock.connect((ESP_IP, PORT))
 
             if not announced_connected:
                 esp_connected.release()

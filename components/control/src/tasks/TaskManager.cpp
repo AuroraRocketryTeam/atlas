@@ -61,7 +61,7 @@ void TaskManager::initializeTasks()
 
     // Create all task instances but don't start them yet
     // Note: Most tasks still need refactoring to use the model-based architecture
-    // For now, only BarometerTask has been updated to use the Nemesis model
+    // For now, only AltitudeTask has been updated to use the Nemesis model
     
     _tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
         _rocketModel,
@@ -118,7 +118,7 @@ void TaskManager::initializeTasks()
     }
     _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
 
-    _tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
+    _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
         _rocketModel,
         _modelMutex);
 

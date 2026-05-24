@@ -371,3 +371,34 @@ float BNO055SensorInterface::get_temperature() {
     // Conversion: 1 LSB = 1°C, so just cast to float
     return static_cast<float>(raw_temp);
 }
+
+bool BNO055SensorInterface::get_calibration_profile(uint8_t* profile_buffer) {
+    uint8_t prev_mode;
+    get_operation_mode(&prev_mode);
+    
+    // Enable config mode to read calibration data from registers
+    set_operation_mode(BNO055_OPERATION_MODE_CONFIG);
+    vTaskDelay(pdMS_TO_TICKS(25)); 
+    
+    // Read 22 bytes starting from register 0x55
+    s8 res = bno.bus_read(bno.dev_addr, 0x55, profile_buffer, 22);
+    
+    set_operation_mode(prev_mode);
+    vTaskDelay(pdMS_TO_TICKS(25));
+    return (res == BNO055_SUCCESS);
+}
+
+bool BNO055SensorInterface::set_calibration_profile(const uint8_t* profile_buffer) {
+    uint8_t prev_mode;
+    get_operation_mode(&prev_mode);
+    
+    set_operation_mode(BNO055_OPERATION_MODE_CONFIG);
+    vTaskDelay(pdMS_TO_TICKS(25)); 
+    
+    // Write 22 bytes starting from register 0x55
+    s8 res = bno.bus_write(bno.dev_addr, 0x55, const_cast<uint8_t*>(profile_buffer), 22);
+    
+    set_operation_mode(prev_mode);
+    vTaskDelay(pdMS_TO_TICKS(25));
+    return (res == BNO055_SUCCESS);
+}

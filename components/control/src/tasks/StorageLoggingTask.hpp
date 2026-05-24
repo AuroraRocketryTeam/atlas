@@ -10,18 +10,18 @@
 #include <Logger.hpp>
 
 /**
- * @brief Class to implement a generic storage logging task.
+ * @brief Class to implement a generic storage logging task using JSONL architecture.
  */
 class StorageLoggingTask : public BaseTask {
 public:
     /**
      * @brief Construct a new StorageLoggingTask object
      *
-    * @param rocketModel The shared pointer to the rocket model storage wrapper
-    * @param logger The shared pointer to the RocketLogger instance
+     * @param rocketModel The shared pointer to the rocket model storage wrapper
+     * @param logger The shared pointer to the RocketLogger instance
      */
     StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
-                   std::shared_ptr<RocketLogger> logger);
+                       std::shared_ptr<RocketLogger> logger);
 
     ~StorageLoggingTask() override;
 
@@ -32,7 +32,9 @@ private:
     std::shared_ptr<RocketModel> rocketModel;
     std::shared_ptr<RocketLogger> logger;
     bool storageInitialized = false;
-    int file_counter = 0;
+    
+    // Single append-only file for all flight telemetry
+    const char* TELEMETRY_FILENAME = "flight_telemetry.jsonl";
     
     // Buffer to hold data if a write fails
     char* pendingDataToWrite = nullptr; 

@@ -30,7 +30,7 @@ private:
 
     // State used by openFile()/readLine() compatibility path
     std::string _open_filename;
-    std::ifstream _active_stream;
+    FILE* _active_file;
 
     // Helper to format absolute paths for the VFS
     std::string getFullPath(const std::string& filename) const;

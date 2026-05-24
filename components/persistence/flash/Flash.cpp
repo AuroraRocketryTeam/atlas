@@ -168,21 +168,25 @@ bool Flash::openFile(const char* filename) {
 
     closeFile();
     _open_filename = getFullPath(filename);
-    _active_stream.open(_open_filename);
+    
+    // Open for reading ("r"). 
+    _active_file = fopen(_open_filename.c_str(), "r");
 
-    // If the file doesn't exist, it is created
-    if (!_active_stream.is_open()) {
-        std::ofstream create(_open_filename);
-        create.close();
-        _active_stream.open(_open_filename);
+    // If it doesn't exist, safely create it in append/update mode ("a+") 
+    // to guarantee we never truncate existing data.
+    if (!_active_file) {
+        _active_file = fopen(_open_filename.c_str(), "a+");
+        // Reset read pointer to the beginning such that the append will work fine
+        if (_active_file) fseek(_active_file, 0, SEEK_SET); 
     }
 
-    return _active_stream.is_open();
+    return _active_file != nullptr;
 }
 
 bool Flash::closeFile() {
-    if (_active_stream.is_open()) {
-        _active_stream.close();
+    if (_active_file) {
+        fclose(_active_file);
+        _active_file = nullptr;
     }
     _open_filename.clear();
     return true;
@@ -192,51 +196,73 @@ bool Flash::writeFile(const char* filename, const char* content) {
     if (filename == nullptr || content == nullptr) return false;
     if (!_initialized && !init()) return false;
 
-    std::ofstream os(getFullPath(filename), std::ios::trunc | std::ios::out);
-    if (!os.is_open()) return false;
+    FILE* f = fopen(getFullPath(filename).c_str(), "w");
+    if (!f) return false;
 
-    os << content;
-    os.close();
-    return os.good();
+    fputs(content, f);
+    fclose(f);
+    return true;
 }
 
 bool Flash::appendFile(const char* filename, const char* content) {
     if (filename == nullptr || content == nullptr) return false;
     if (!_initialized && !init()) return false;
 
-    std::ofstream os(getFullPath(filename), std::ios::app | std::ios::out);
-    if (!os.is_open()) return false;
+    FILE* f = fopen(getFullPath(filename).c_str(), "a");
+    if (!f) return false;
 
-    os << content;
-    os.close();
-    return os.good();
+    fputs(content, f);
+    fclose(f);
+    return true;
 }
 
 std::string Flash::readFile(const char* filename) {
     if (filename == nullptr) return "";
     if (!_initialized && !init()) return "";
 
-    std::ifstream is(getFullPath(filename), std::ios::in | std::ios::binary | std::ios::ate);
-    if (!is.is_open()) return "";
+    FILE* f = fopen(getFullPath(filename).c_str(), "rb");
+    if (!f) return "";
 
-    std::streamsize size = is.tellg();
-    is.seekg(0, std::ios::beg);
+    
+    
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
 
     if (size <= 0) {
-        is.close();
+        fclose(f);
         return "";
     }
 
     std::string buffer;
     buffer.resize(size);
     
-    if (is.read(&buffer[0], size)) {
-        is.close();
+    size_t read_bytes = fread(&buffer[0], 1, size, f);
+    fclose(f);
+    
+    if (read_bytes == size) {
         return buffer;
     }
-
-    is.close();
     return "";
+}
+
+std::string Flash::readLine() {
+    if (!_active_file) return "";
+
+    std::string line;
+    // Pre-allocate a safe baseline to prevent early heap fragmentation
+    line.reserve(1024);
+    char buffer[256]; 
+
+    while (fgets(buffer, sizeof(buffer), _active_file) != nullptr) {
+        line += buffer;
+        
+        if (!line.empty() && line.back() == '\n') {
+            break; 
+        }
+    }
+
+    return line;
 }
 
 bool Flash::clearMemory() {
@@ -259,15 +285,4 @@ bool Flash::fileExists(const char* filename) {
 
     struct stat st;
     return stat(getFullPath(filename).c_str(), &st) == 0;
-}
-
-std::string Flash::readLine() {
-    if (!_active_stream.is_open()) return "";
-
-    std::string line;
-    if (std::getline(_active_stream, line)) {
-        line += "\n";
-        return line;
-    }
-    return "";
 }

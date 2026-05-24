@@ -24,7 +24,7 @@
 #endif
 
 #include "TelemetryTask.hpp"
-#include "BarometerTask.hpp"
+#include "AltitudeTask.hpp"
 #include <EspNowTransmitter.hpp>
 #include <E220LoRaTransmitter.hpp>
 

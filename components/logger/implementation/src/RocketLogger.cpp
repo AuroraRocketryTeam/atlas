@@ -155,14 +155,17 @@ bool RocketLogger::consumeAllAsJsonChar(char** outJson, size_t maxEntries) {
     size_t entriesToConsume = std::min(maxEntries, this->logDataList.size());
     if (entriesToConsume == 0) entriesToConsume = this->logDataList.size(); // Fallback if maxEntries=0
 
-    json jsonDataList = json::array();
-    for (size_t i = 0; i < entriesToConsume; ++i) {
-        jsonDataList.push_back(this->logDataList[i].toJSON());
-    }
-
     std::string jsonStr;
-    try {
-        jsonStr = jsonDataList.dump();
+    try {   
+        // Pre-allocate memory to reduce ESP32 heap fragmentation. 
+        // Assuming roughly 703 bytes as longest JSON found empirically, 
+        // we round up to 1024 bytes per entry for safety.
+        jsonStr.reserve(entriesToConsume * 1024);
+        
+        for (size_t i = 0; i < entriesToConsume; ++i) {
+            jsonStr += this->logDataList[i].toJSON().dump();
+            jsonStr += "\n";
+        }
     } catch (const std::exception&) {
         xSemaphoreGive(_mutex);
         return false;

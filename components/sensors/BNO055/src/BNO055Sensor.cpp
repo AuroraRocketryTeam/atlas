@@ -13,9 +13,11 @@ bool BNO055Sensor::init()
     bool initialized = false;
     
     while (attempts++ < SENSOR_LOOKUP_MAX_ATTEMPTS) {
-        
         if (_bno_interface.init()) {
-            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_NDOF)) {
+            // Auto-load calibration from NVS
+            loadCalibrationFromNVS();
+
+            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_AMG)) {
                 initialized = true;
                 break;
             } else {
@@ -122,4 +124,62 @@ bool BNO055Sensor::hardwareTest() {
 
 std::shared_ptr<IMUData> BNO055Sensor::getData() {
     return _data;
+}
+
+bool BNO055Sensor::isFullyCalibrated() {
+    if (!this->isInitialized()) {
+        return false;
+    }
+
+    // If the calibration was restored from NVS, we can assume it's fully calibrated
+    // As stated in the datasheet, the calibration values gets reset to 0 on startup,
+    // and increase only with movements calibration (which not happen on file loading)
+    //References (Section 3.11/3.11.4): https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bno055-ds000.pdf
+    if (_calibration_restored) {
+        return true; 
+    }
+    
+    return _bno_interface.check_calibration() == 3;
+}
+
+bool BNO055Sensor::saveCalibrationToNVS() {
+    uint8_t calib_data[22];
+    if (!_bno_interface.get_calibration_profile(calib_data)) {
+        LOG_ERROR("BNO055", "Failed to read calibration from sensor.");
+        return false;
+    }
+
+    nvs_handle_t my_handle;
+    // "bno055" is the namespace inside the nvs partition
+    if (nvs_open("bno055", NVS_READWRITE, &my_handle) != ESP_OK) return false;
+
+    esp_err_t err = nvs_set_blob(my_handle, "calib_profile", calib_data, sizeof(calib_data));
+    if (err == ESP_OK) {
+        nvs_commit(my_handle);
+        LOG_INFO("BNO055", "Calibration saved to internal NVS successfully!");
+    }
+    nvs_close(my_handle);
+    return (err == ESP_OK);
+}
+
+bool BNO055Sensor::loadCalibrationFromNVS() {
+    nvs_handle_t my_handle;
+    if (nvs_open("bno055", NVS_READONLY, &my_handle) != ESP_OK) {
+        LOG_WARNING("BNO055", "No calibration found in NVS (Normal on first boot).");
+        return false;
+    }
+
+    size_t required_size = 22;
+    uint8_t calib_data[22];
+    esp_err_t err = nvs_get_blob(my_handle, "calib_profile", calib_data, &required_size);
+    nvs_close(my_handle);
+
+    if (err == ESP_OK && required_size == 22) {
+        if (_bno_interface.set_calibration_profile(calib_data)) {
+            LOG_INFO("BNO055", "Calibration loaded from NVS successfully! Current calibration status: %d", _bno_interface.check_calibration());
+            _calibration_restored = true;
+            return true;
+        }
+    }
+    return false;
 }

@@ -47,11 +47,14 @@
 #define MAX_LOG_ENTRIES 20
 
 /* Flight parameters configuration */
-#define LIFTOFF_ACCELERATION_THRESHOLD GRAVITY * 2.0f // Threshold for the detection of liftoff when relative_acceleration is > 2G in any direction (relative_acceleration = acceleration - gravity)
-#define LIFTOFF_TIMEOUT_MS 1000    // Threshold for the detection of liftoff
-#define DROGUE_APOGEE_TIMEOUT 2000 // Threshold for opening the drogue parachute after apogee is detected
-#define MAIN_ALTITUDE_THRESHOLD 450.0f // Altitude threshold for the deployment of the main parachute (in meters)
+#define LIFTOFF_ACCELERATION_THRESHOLD GRAVITY * 3.0f // Threshold for the detection of liftoff when relative_acceleration is > 2G in any direction (relative_acceleration = acceleration - gravity)
+#define LIFTOFF_TIMEOUT_MS 250    // Threshold for the detection of liftoff
+#define APOGEE_LOCKOUT_MS 5000 // Time after launch during which apogee detection is disabled to avoid false positives during initial phase
+#define DROGUE_APOGEE_TIMEOUT 0 // Threshold for opening the drogue parachute after apogee is detected
+#define MAIN_ALTITUDE_THRESHOLD 50.0f // Altitude threshold for the deployment of the main parachute (in meters)
 #define TOUCHDOWN_VELOCITY_THRESHOLD 2.0f // Vertical velocity threshold for touchdown detection (in m/s)
+#define LAUNCH_TO_BALLISTIC_THRESHOLD 4000 // Time threshold for transition from LAUNCH to BALLISTIC_FLIGHT if apogee is not detected
+#define LAUNCH_TO_APOGEE_THRESHOLD 6700 //24850 + 2150 = 27000, Time threshold for transition from LAUNCH to APOGEE if apogee is not detected but the rocket is no more rising
 
 /* ESP-NOW Telemetry Configuration */
 // MAC address of the peer receiver (ESP32 that will relay to LoRa)
@@ -82,12 +85,12 @@
 #define GPS_BIAS 3.0f
 
 // Barometer noise filtering
-// BAROMETER_FILTER_WINDOW: Size of median filter window for pressure/altitude smoothing
+// ALTITUDE_FILTER_WINDOW: Size of median filter window for pressure/altitude smoothing
 // Smaller = faster response but more noise (1 = no filtering)
 // Larger = smoother but more lag (recommended: 3-7)
 // At 10Hz sampling: window=5 adds 50ms lag
-#define BAROMETER_FILTER_WINDOW 9
-#define APOGEE_DETECTION_WINDOW_SIZE 15
+#define ALTITUDE_FILTER_WINDOW 11
+#define APOGEE_DETECTION_WINDOW_SIZE 65
 
 #define STATE_INDEX_ALTITUDE 0
 #define STATE_INDEX_VELOCITY 1
@@ -110,3 +113,11 @@
 
 // Telemetry configuration
 constexpr uint8_t RECEIVER_MAC_ADDRESS[] = { 0x34, 0xCD, 0xB0, 0x3D, 0x97, 0xFC };  // MAC dell'ESP32 ricevente: // 34:CD:B0:3D:97:FC
+
+
+enum class RecoveryMode
+{
+    MainOnly,
+    DrogueAndMain,
+};
+#define AURORA_RECOVERY_MODE RecoveryMode::MainOnly
