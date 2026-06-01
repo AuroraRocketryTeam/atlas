@@ -63,11 +63,11 @@ public:
     bool updateData() override;
     
     // Public getter for each sensor value
-    std::shared_ptr<BME680Data> getData();
+    BME680Data getData();
 
 private:
     Adafruit_BME680 bme;
     uint8_t addr;
 
-    std::shared_ptr<BME680Data> _data;
+    BME680Data _data;
 };

@@ -69,9 +69,9 @@ public:
     /**
      * @brief Getter for the sensor data
      * 
-     * @return a shared pointer to the TermoresistenzeData structure containing the latest readings
+    * @return the TermoresistenzeData structure containing the latest readings
      */
-    std::shared_ptr<TermoresistenzeData> getData();
+    TermoresistenzeData getData();
 
 private:
     int _thermistorPin;
@@ -80,7 +80,7 @@ private:
     double _nominalTemperature;
     double _bCoefficient;
 
-    std::shared_ptr<TermoresistenzeData> _data;
+    TermoresistenzeData _data;
 
     double calculateTemperature(int adcValue);
 };

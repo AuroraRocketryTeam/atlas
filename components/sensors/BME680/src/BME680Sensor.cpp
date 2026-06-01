@@ -41,17 +41,17 @@ bool BME680Sensor::updateData()
         return false;
     }
 
-    _data = std::make_shared<BME680Data>();
-    _data->temperature = bme.temperature;
-    _data->humidity = bme.humidity;
-    _data->pressure = bme.pressure;
-    _data->gasResistance = bme.gas_resistance;
-    _data->timestamp = Utils::millis();
+    _data = BME680Data();
+    _data.temperature = bme.temperature;
+    _data.humidity = bme.humidity;
+    _data.pressure = bme.pressure;
+    _data.gasResistance = bme.gas_resistance;
+    _data.timestamp = Utils::millis();
 
     return true;
 }
 
-std::shared_ptr<BME680Data> BME680Sensor::getData()
+BME680Data BME680Sensor::getData()
 {
     return _data;
 }

@@ -194,7 +194,7 @@ void MS561101BA03::calculatePressureAndTemperature(uint32_t D1, uint32_t D2, flo
     pressure = P; // Convert to hPa/mbar
 }
 
-std::shared_ptr<PressureSensorData> MS561101BA03::getData()
+PressureSensorData MS561101BA03::getData()
 {
     return _data;
 }

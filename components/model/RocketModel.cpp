@@ -50,8 +50,6 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _storage = mirrorStorage;
 
     _cmd = Command();
-
-    RocketModel::RocketModel() {
     _imuMutex = xSemaphoreCreateMutex();
     _baro1Mutex = xSemaphoreCreateMutex();
     _baro2Mutex = xSemaphoreCreateMutex();
@@ -181,7 +179,7 @@ bool RocketModel::updateBNO055() {
     bool result = _bno->updateData();
 
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _bnoData = _bno->getData();
+        *_bnoData = _bno->getData();
         xSemaphoreGive(_imuMutex);
     }    
 
@@ -194,7 +192,7 @@ bool RocketModel::updateLIS3DHTR() {
     bool result = _lis3dh->updateData();
 
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _lis3dhData = _lis3dh->getData();
+        *_lis3dhData = _lis3dh->getData();
         xSemaphoreGive(_imuMutex);
     }
 
@@ -207,7 +205,7 @@ bool RocketModel::updateMS561101BA03_1() {
     bool result = _ms56_1->updateData();
 
     if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _ms561101ba03Data_1 = _ms56_1->getData();
+        *_ms561101ba03Data_1 = _ms56_1->getData();
         xSemaphoreGive(_baro1Mutex);
     }
 
@@ -220,7 +218,7 @@ bool RocketModel::updateMS561101BA03_2() {
     bool result = _ms56_2->updateData();
 
     if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _ms561101ba03Data_2 = _ms56_2->getData();
+        *_ms561101ba03Data_2 = _ms56_2->getData();
         xSemaphoreGive(_baro2Mutex);
     }
 
@@ -233,7 +231,7 @@ bool RocketModel::updateGPS() {
     bool result = _gps->updateData();
 
     if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _gpsData = _gps->getData();
+        *_gpsData = _gps->getData();
         xSemaphoreGive(_gpsMutex);
     }
 
@@ -241,91 +239,76 @@ bool RocketModel::updateGPS() {
 }
 
 std::shared_ptr<IMUData> RocketModel::getBNO055Data() {
-    std::shared_ptr<IMUData> dataCopy = std::make_shared<IMUData>();
-    
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        *dataCopy = *_bno055Data;
         xSemaphoreGive(_imuMutex);
-        return dataCopy;
+        return _bnoData;
     }
-    return nullptr;
+    return _bnoData;
 }
 
 std::shared_ptr<AccelerometerSensorData> RocketModel::getLIS3DHTRData() {
-    std::shared_ptr<AccelerometerSensorData> dataCopy = std::make_shared<AccelerometerSensorData>();
-    
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        *dataCopy = *_lis3dhData;
         xSemaphoreGive(_imuMutex);
-        return dataCopy;
+        return _lis3dhData;
     }
-    return nullptr;
+    return _lis3dhData;
 }
 
 std::shared_ptr<PressureSensorData> RocketModel::getMS561101BA03Data_1() {
-    std::shared_ptr<PressureSensorData> dataCopy = std::make_shared<PressureSensorData>();
-    
     if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        *dataCopy = *_ms561101ba03Data_1;
         xSemaphoreGive(_baro1Mutex);
-        return dataCopy;
+        return _ms561101ba03Data_1;
     }
-    return nullptr;
+    return _ms561101ba03Data_1;
 }
 
 std::shared_ptr<PressureSensorData> RocketModel::getMS561101BA03Data_2() {
-    std::shared_ptr<PressureSensorData> dataCopy = std::make_shared<PressureSensorData>();
-    
     if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        *dataCopy = *_ms561101ba03Data_2;
         xSemaphoreGive(_baro2Mutex);
-        return dataCopy;
+        return _ms561101ba03Data_2;
     }
-    return nullptr;
+    return _ms561101ba03Data_2;
 }
 
 std::shared_ptr<GPSData> RocketModel::getGPSData() {
-    std::shared_ptr<GPSData> dataCopy = std::make_shared<GPSData>();
-    
     if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        *dataCopy = *_gpsData;
         xSemaphoreGive(_gpsMutex);
-        return dataCopy;
+        return _gpsData;
     }
-    return nullptr;
+    return _gpsData;
 }
 
 void RocketModel::setSimulatedBNO055Data(std::shared_ptr<IMUData> data) {
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _bnoData = data;
+        *_bnoData = data ? *data : IMUData("BNO055");
         xSemaphoreGive(_imuMutex);
     }
 }
 
 void RocketModel::setSimulatedLIS3DHTRData(std::shared_ptr<AccelerometerSensorData> data) {
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _lis3dhData = data;
+        *_lis3dhData = data ? *data : AccelerometerSensorData("LIS3DHTR");
         xSemaphoreGive(_imuMutex);
     }
 }
 
 void RocketModel::setSimulatedMS561101BA03Data_1(std::shared_ptr<PressureSensorData> data) {
     if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _ms561101ba03Data_1 = data;
+        *_ms561101ba03Data_1 = data ? *data : PressureSensorData("MS561101BA03");
         xSemaphoreGive(_baro1Mutex);
     }
 }
 
 void RocketModel::setSimulatedMS561101BA03Data_2(std::shared_ptr<PressureSensorData> data) {
     if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _ms561101ba03Data_2 = data;
+        *_ms561101ba03Data_2 = data ? *data : PressureSensorData("MS561101BA03");
         xSemaphoreGive(_baro2Mutex);
     }
 }
 
 void RocketModel::setSimulatedGPSData(std::shared_ptr<GPSData> data) {
     if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        _gpsData = data;
+        *_gpsData = data ? *data : GPSData("GPS");
         xSemaphoreGive(_gpsMutex);
     }
 }

@@ -29,19 +29,19 @@ bool MPRLSSensor::init()
 
 bool MPRLSSensor::updateData()
 {
-    _data = std::make_shared<PressureSensorData>("MPRLS");
+    _data = PressureSensorData("MPRLS");
 
-    _data->pressure = _mprls.readPressure();
+    _data.pressure = _mprls.readPressure();
 
-    _data->timestamp = Utils::millis();
+    _data.timestamp = Utils::millis();
 
-    if (isnan(_data->pressure)) {
+    if (isnan(_data.pressure)) {
         return false;
     }
 
     return true;
 }
 
-std::shared_ptr<PressureSensorData> MPRLSSensor::getData() {
+PressureSensorData MPRLSSensor::getData() {
     return _data;
 }

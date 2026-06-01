@@ -39,7 +39,7 @@ public:
      */
     bool updateData() override;
 
-    std::shared_ptr<PressureSensorData> getData();
+    PressureSensorData getData();
 
 private:
     spi_device_handle_t _dev_handle = nullptr;
@@ -54,7 +54,7 @@ private:
     uint32_t readRawTemperature();
     void calculatePressureAndTemperature(uint32_t D1, uint32_t D2, float& pressure, float& temperature);
 
-    std::shared_ptr<PressureSensorData> _data;
+    PressureSensorData _data{"MS561101BA03"};
     
     enum class BaroState { IDLE, WAIT_D1, WAIT_D2 };
     BaroState _state = BaroState::IDLE;

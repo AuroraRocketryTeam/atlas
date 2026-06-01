@@ -15,14 +15,14 @@ public:
 
     bool init() override;
     bool updateData() override;
-    std::shared_ptr<AccelerometerSensorData> getData();
+    AccelerometerSensorData getData();
 
 private:
     i2c_master_dev_handle_t _dev_handle;
     // The ST driver context
     stmdev_ctx_t _dev_ctx;
 
-    std::shared_ptr<AccelerometerSensorData> _data;
+    AccelerometerSensorData _data{"LIS3DHTR"};
 
     // Static wrappers required by ST driver
     static int32_t platform_write(void *handle, uint8_t reg, const uint8_t *bufp, uint16_t len);

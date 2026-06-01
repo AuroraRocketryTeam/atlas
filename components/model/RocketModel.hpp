@@ -4,6 +4,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <Arduino.h>
+#include <memory>
 #include <BNO055Sensor.hpp>
 #include <MPRLSSensor.hpp>
 #include <LIS3DHTRSensor.hpp>
@@ -342,11 +343,11 @@ private:
     std::shared_ptr<GPS> _gps;
 
     // Data related to the rocket state
-    std::shared_ptr<IMUData> _bnoData;
-    std::shared_ptr<AccelerometerSensorData> _lis3dhData;
-    std::shared_ptr<PressureSensorData> _ms561101ba03Data_1;
-    std::shared_ptr<PressureSensorData> _ms561101ba03Data_2;
-    std::shared_ptr<GPSData> _gpsData;
+    std::shared_ptr<IMUData> _bnoData{std::make_shared<IMUData>("BNO055")};
+    std::shared_ptr<AccelerometerSensorData> _lis3dhData{std::make_shared<AccelerometerSensorData>("LIS3DHTR")};
+    std::shared_ptr<PressureSensorData> _ms561101ba03Data_1{std::make_shared<PressureSensorData>("MS561101BA03")};
+    std::shared_ptr<PressureSensorData> _ms561101ba03Data_2{std::make_shared<PressureSensorData>("MS561101BA03")};
+    std::shared_ptr<GPSData> _gpsData{std::make_shared<GPSData>("GPS")};
 
     // Critical mutexes
     SemaphoreHandle_t _imuMutex;

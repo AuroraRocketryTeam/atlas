@@ -23,20 +23,20 @@ bool Termoresistenze::init()
 
 bool Termoresistenze::updateData()
 {
-    _data = std::make_shared<TermoresistenzeData>();
+    _data = TermoresistenzeData();
 
-    _data->adcValue = analogRead(_thermistorPin);
+    _data.adcValue = analogRead(_thermistorPin);
 
-    if (_data->adcValue == 0) {
+    if (_data.adcValue == 0) {
         return false;
     }
 
-    _data->temperature = calculateTemperature(_data->adcValue);
+    _data.temperature = calculateTemperature(_data.adcValue);
 
     return true;
 }
 
-std::shared_ptr<TermoresistenzeData> Termoresistenze::getData()
+TermoresistenzeData Termoresistenze::getData()
 {
     return _data;
 }

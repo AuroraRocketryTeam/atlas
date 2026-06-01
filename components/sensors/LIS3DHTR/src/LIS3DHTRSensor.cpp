@@ -97,21 +97,21 @@ bool LIS3DHTRSensor::updateData()
         // ST's API reads all 3 axes at once
         lis3dh_acceleration_raw_get(&_dev_ctx, data_raw_acceleration);
 
-        _data = std::make_shared<AccelerometerSensorData>("LIS3DHTR");
+        _data = AccelerometerSensorData("LIS3DHTR");
 
         // ST provides macro functions to convert raw integers to float mg based on the scale/resolution
-        _data->acceleration_x = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[0]) * 0.001f * GRAVITY;
-        _data->acceleration_y = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[1]) * 0.001f * GRAVITY;
-        _data->acceleration_z = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[2]) * 0.001f * GRAVITY;
+        _data.acceleration_x = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[0]) * 0.001f * GRAVITY;
+        _data.acceleration_y = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[1]) * 0.001f * GRAVITY;
+        _data.acceleration_z = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[2]) * 0.001f * GRAVITY;
 
-        _data->timestamp = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        _data.timestamp = (uint32_t)(esp_timer_get_time() / 1000ULL);
 
         return true;
     }
     return false;
 }
 
-std::shared_ptr<AccelerometerSensorData> LIS3DHTRSensor::getData()
+AccelerometerSensorData LIS3DHTRSensor::getData()
 {
     return _data;
 }
