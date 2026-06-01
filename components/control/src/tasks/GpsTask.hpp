@@ -20,11 +20,9 @@ public:
      * @brief Construct a new Gps Task object
      * 
      * @param rocketModel The shared pointer to the rocket model
-     * @param modelMutex The semaphore handle to protect access to the model
      * @param logger The shared pointer to the RocketLogger instance
      */
     GpsTask(std::shared_ptr<RocketModel> rocketModel,
-            SemaphoreHandle_t modelMutex,
             std::shared_ptr<RocketLogger> logger
         );
 
@@ -39,7 +37,6 @@ protected:
     void onTaskStop() override;
 private:
     std::shared_ptr<RocketModel> _rocketModel;
-    SemaphoreHandle_t _modelMutex;
 
     std::shared_ptr<RocketLogger> _logger;
 };

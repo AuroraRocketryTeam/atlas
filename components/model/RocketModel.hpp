@@ -348,6 +348,13 @@ private:
     std::shared_ptr<PressureSensorData> _ms561101ba03Data_2;
     std::shared_ptr<GPSData> _gpsData;
 
+    // Critical mutexes
+    SemaphoreHandle_t _imuMutex;
+    SemaphoreHandle_t _baro1Mutex;
+    SemaphoreHandle_t _baro2Mutex;
+    SemaphoreHandle_t _gpsMutex;
+    SemaphoreHandle_t _stateMutex;
+
     adc_oneshot_unit_handle_t _adc1_handle;
     int _batteryAdc;
     float _batteryVoltage, _batteryPercentage;

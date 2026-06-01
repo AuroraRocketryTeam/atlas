@@ -40,12 +40,10 @@ public:
      * @brief Construct a new Task Manager object
      * 
      * @param rocketModel The shared pointer to the rocket model
-     * @param modelMutex The semaphore handle to protect access to the model
      * @param sd The shared pointer to the SD card
      * @param logger The shared pointer to the RocketLogger instance
      */
     TaskManager(std::shared_ptr<RocketModel> rocketModel,
-            SemaphoreHandle_t modelMutex,
             std::shared_ptr<SD> sd,
             std::shared_ptr<RocketLogger> logger,
             IStateMachine* fsm = nullptr);
@@ -120,7 +118,6 @@ private:
     // Shared resources
     std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
-    SemaphoreHandle_t _modelMutex;
 
     std::shared_ptr<SD> _sd;
     // Telemetry

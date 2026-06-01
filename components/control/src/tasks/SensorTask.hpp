@@ -19,11 +19,9 @@ public:
      * @brief Construct a new Sensor Task object
      * 
      * @param rocketModel The shared pointer to the rocket model
-     * @param modelMutex The semaphore handle to protect access to the model
      * @param logger The shared pointer to the RocketLogger instance
      */
     SensorTask(std::shared_ptr<RocketModel> rocketModel,
-               SemaphoreHandle_t modelMutex,
                std::shared_ptr<RocketLogger> logger);
 
 protected:
@@ -34,7 +32,6 @@ protected:
 
 private:
     std::shared_ptr<RocketModel> rocketModel;
-    SemaphoreHandle_t modelMutex;
 
     std::shared_ptr<RocketLogger> logger;
 };

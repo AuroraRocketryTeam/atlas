@@ -42,12 +42,6 @@ RocketFSM::~RocketFSM()
         _stateMutex = nullptr;
     }
 
-    if (_modelMutex)
-    {
-        vSemaphoreDelete(_modelMutex);
-        _modelMutex = nullptr;
-    }
-
     LOG_INFO("RocketFSM", "Destructor completed");
 }
 
@@ -78,21 +72,11 @@ void RocketFSM::init()
         _eventQueue = nullptr;
         return;
     }
-    _modelMutex = xSemaphoreCreateMutex();
-    if (!_modelMutex)
-    {
-        LOG_ERROR("RocketFSM", "ERROR: Failed to create sensor data mutex");
-        vQueueDelete(_eventQueue);
-        _eventQueue = nullptr;
-        vSemaphoreDelete(_stateMutex);
-        _stateMutex = nullptr;
-        return;
-    }
+    
     // Initialize managers
     LOG_INFO("RocketFSM", "Initializing TaskManager...");
     _taskManager = std::make_unique<TaskManager>(
         _rocketModel,
-        _modelMutex,
         _sd,
         _logger,
         this
@@ -301,11 +285,7 @@ void RocketFSM::deployMain()
     gpio_set_level(_board->get_main_actuator_pin(), HIGH);
     _mainDeploymentCommanded = true;
 
-    if (_rocketModel && xSemaphoreTake(_modelMutex, portMAX_DELAY))
-    {
-        _rocketModel->setOpenMainCommand();
-        xSemaphoreGive(_modelMutex);        
-    }
+    _rocketModel->setOpenMainCommand();
     
 }
 
@@ -324,11 +304,7 @@ void RocketFSM::deployDrogue()
     gpio_set_level(_board->get_drogue_actuator_pin(), HIGH);
     _drogueDeploymentCommanded = true;
     
-    if (_rocketModel && xSemaphoreTake(_modelMutex, portMAX_DELAY))
-    {
-        _rocketModel->setOpenDrogueCommand();
-        xSemaphoreGive(_modelMutex);
-    }
+    _rocketModel->setOpenDrogueCommand();
 }
 
 

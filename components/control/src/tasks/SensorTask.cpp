@@ -2,11 +2,9 @@
 #include "esp_task_wdt.h"
 
 SensorTask::SensorTask(std::shared_ptr<RocketModel> rocketModel,
-                       SemaphoreHandle_t modelMutex,
                         std::shared_ptr<RocketLogger> logger)
     : BaseTask("SensorTask"), 
-      rocketModel(rocketModel), 
-      modelMutex(modelMutex),
+      rocketModel(rocketModel),
       logger(logger)
 {
     LOG_INFO("Sensor", "SensorTask constructor initialized");
@@ -37,20 +35,12 @@ void SensorTask::taskFunction()
         if (!running) break;
         
         // Update sensors through the model with mutex protection
-        if (rocketModel && xSemaphoreTake(modelMutex, pdMS_TO_TICKS(10)) == pdTRUE)
-        {
-            rocketModel->updateBNO055();
-            rocketModel->updateMS561101BA03_1();
-            rocketModel->updateMS561101BA03_2();
-            rocketModel->updateLIS3DHTR();
+        rocketModel->updateBNO055();
+        rocketModel->updateMS561101BA03_1();
+        rocketModel->updateMS561101BA03_2();
+        rocketModel->updateLIS3DHTR();
             
-            xSemaphoreGive(modelMutex);
-            LOG_DEBUG("Sensor", "Updated all sensors");
-        }
-        else
-        {
-            LOG_WARNING("Sensor", "Failed to take model mutex");
-        }
+        LOG_DEBUG("Sensor", "Updated all sensors");
         
         if (!running) break;
 

@@ -1,12 +1,10 @@
 #include "GpsTask.hpp"
 
 GpsTask::GpsTask(std::shared_ptr<RocketModel> rocketModel,
-            SemaphoreHandle_t modelMutex,
                         std::shared_ptr<RocketLogger> logger
         )
         : BaseTask("GpsTask"),
           _rocketModel(rocketModel),
-          _modelMutex(modelMutex),
                     _logger(logger)
     {
         LOG_INFO("GpsTask", "Initialized GPS task");
@@ -23,18 +21,8 @@ void GpsTask::taskFunction()
         _rocketModel->updateGPS();
         std::shared_ptr<GPSData> gpsData = nullptr;
         
-        if (_modelMutex && xSemaphoreTake(_modelMutex, mutexTimeout) == pdTRUE)
-        {
-            gpsData = _rocketModel->getGPSData();
-
-            LOG_INFO("GpsTask", "Got GPS data");
-            xSemaphoreGive(_modelMutex);
-        }
-        else
-        {
-            if ((loopCounter & 0x0F) == 0)
-                LOG_WARNING("GpsTask", "Failed to take data mutex");
-        }
+        gpsData = _rocketModel->getGPSData();
+        LOG_INFO("GpsTask", "Got GPS data");
         
         if (_logger) {
             // Only log GPS data every 10 loops (every ~2 seconds) to reduce memory pressure

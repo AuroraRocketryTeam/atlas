@@ -18,13 +18,11 @@ float relAltitude_tele(float pressure, float pressureRef = 101325.0f,
 
 
 TelemetryTask::TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                             SemaphoreHandle_t modelMutex,
                              std::shared_ptr<EspNowTransmitter> espNowTransmitter,
                              uint32_t intervalMs,
                              IStateMachine* fsm)
     : BaseTask("TelemetryTask"),
       _rocketModel(rocketModel),
-      _modelMutex(modelMutex),
       _transmitter(espNowTransmitter),
       _fsm(fsm),
       _transmitIntervalMs(intervalMs),
@@ -150,15 +148,8 @@ void TelemetryTask::taskFunction()
 
 bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
 {
-    if (!_rocketModel || !_modelMutex)
+    if (!_rocketModel)
     {
-        return false;
-    }
-
-    // Take mutex with timeout
-    if (xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(10)) != pdTRUE)
-    {
-        LOG_WARNING("Telemetry", "Failed to acquire data mutex");
         return false;
     }
 
@@ -218,11 +209,8 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
     catch (const std::exception &e)
     {
         LOG_ERROR("Telemetry", "Exception collecting data: %s", e.what());
-        xSemaphoreGive(_modelMutex);
         return false;
     }
-
-    xSemaphoreGive(_modelMutex);
 
     return true;
 }

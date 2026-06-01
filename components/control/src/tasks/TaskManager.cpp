@@ -6,13 +6,11 @@
 #include <board.h>
 
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
-                         SemaphoreHandle_t modelMutex,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
                          IStateMachine* fsm) :
                          _rocketModel(rocketModel),
                          _logger(logger),
-                         _modelMutex(modelMutex),
                          _sd(sd),
                          _fsm(fsm)
 {
@@ -65,13 +63,11 @@ void TaskManager::initializeTasks()
     
     _tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
         _rocketModel,
-        _modelMutex,
         _logger);
     if (_rocketModel->hasGPS())
     {
         _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
             _rocketModel,
-            _modelMutex,
             _logger);
     } else LOG_INFO("TaskManager", "GPS unavailable. Skipping GPS task");
     _tasks[TaskType::STORAGE] = std::make_unique<StorageLoggingTask>(
@@ -81,13 +77,11 @@ void TaskManager::initializeTasks()
 #if CONFIG_AURORA_HIL_SIMULATION
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
-        _modelMutex,
         _logger);
 #endif
         
     _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
         _rocketModel,
-        _modelMutex,
         _logger);
     
 
@@ -95,7 +89,6 @@ void TaskManager::initializeTasks()
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
     auto telemetryTask = std::make_unique<TelemetryTask>(
         _rocketModel,
-        _modelMutex,
         _espNowTransmitter,
         TELEMETRY_INTERVAL_MS,
         _fsm);
@@ -106,8 +99,7 @@ void TaskManager::initializeTasks()
     _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
 
     _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
-        _rocketModel,
-        _modelMutex);
+        _rocketModel,);
 
     LOG_INFO("TaskManager", "Created %d task instances", _tasks.size());
 }
