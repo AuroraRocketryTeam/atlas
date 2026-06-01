@@ -38,22 +38,41 @@ bool MS561101BA03::init()
 
 bool MS561101BA03::updateData()
 {
-    // Read raw pressure and temperature
-    uint32_t D1 = readRawPressure();
-    uint32_t D2 = readRawTemperature();
+    uint32_t now = Utils::millis();
 
-    if (D1 == 0 || D2 == 0) {
-        return false;
+    switch (_state) {
+        // Conversion started, but data not ready
+        case BaroState::IDLE:
+            writeCommand(MS5611_CMD_CONV_D1_2048);
+            _conv_start_time = now;
+            _state = BaroState::WAIT_D1;
+            return false; 
+
+        // Finished conversion of D1 and starting D2
+        case BaroState::WAIT_D1:
+            // Check if 10ms has passed without blocking the task
+            if (now - _conv_start_time >= CONV_TIME_NEEDED) {
+                _d1 = readADC();
+                writeCommand(MS5611_CMD_CONV_D2_4096);
+                _conv_start_time = now;
+                _state = BaroState::WAIT_D2;
+            }
+            return false; 
+
+        // Prepare final data
+        case BaroState::WAIT_D2:
+            if (now - _conv_start_time >= CONV_TIME_NEEDED) {
+                uint32_t D2 = readADC();
+                
+                calculatePressureAndTemperature(_d1, D2, _data.pressure, _data.temperature);
+                _data.timestamp = now;
+                
+                _state = BaroState::IDLE;
+                return true;
+            }
+            return false;
     }
-
-    _data = std::make_shared<PressureSensorData>("MS561101BA03");
-
-    // Calculate compensated pressure and temperature
-    calculatePressureAndTemperature(D1, D2, _data->pressure, _data->temperature);
-
-    _data->timestamp = Utils::millis();
-
-    return true;
+    return false;
 }
 
 void MS561101BA03::reset()

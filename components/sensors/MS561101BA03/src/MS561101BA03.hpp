@@ -28,6 +28,15 @@ public:
     ~MS561101BA03();
 
     bool init() override;
+
+    /**
+     * @brief Update the sensor data. 
+     * NOTE: as we need to wait for the conversion of D1 and D2, the task is 
+     * divided in three stages, the actual values are updated at the third
+     * 
+     * @return true 
+     * @return false 
+     */
     bool updateData() override;
 
     std::shared_ptr<PressureSensorData> getData();
@@ -46,4 +55,10 @@ private:
     void calculatePressureAndTemperature(uint32_t D1, uint32_t D2, float& pressure, float& temperature);
 
     std::shared_ptr<PressureSensorData> _data;
+    
+    enum class BaroState { IDLE, WAIT_D1, WAIT_D2 };
+    BaroState _state = BaroState::IDLE;
+    uint32_t _conv_start_time = 0;
+    uint32_t CONV_TIME_NEEDED = 10; // 10ms
+    uint32_t _d1 = 0;
 };
