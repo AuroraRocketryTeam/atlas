@@ -16,6 +16,22 @@ extern "C" {
  */
 class BNO055SensorInterface
 {
+    struct BNO055_BurstData {
+        float accel[3];
+        float mag[3];
+        float gyro[3]; 
+        float euler[3]; 
+        float quaternion[4];
+        float lin_accel[3];
+        float gravity[3];
+        float temp;
+        
+        // Calibration statuses
+        uint8_t calib_sys;
+        uint8_t calib_gyro;
+        uint8_t calib_accel;
+        uint8_t calib_mag;
+    };
 private:
     bno055_t bno;
     i2c_master_dev_handle_t _dev_handle;
@@ -283,4 +299,6 @@ public:
      * @return true if calibration profile set successfully, false otherwise
      */
     bool set_calibration_profile(const uint8_t* profile_buffer);
+
+    bool get_burst_data(BNO055_BurstData& out_data);
 };
