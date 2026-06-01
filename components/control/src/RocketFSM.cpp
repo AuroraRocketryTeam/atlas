@@ -1,6 +1,7 @@
 #include "RocketFSM.hpp"
 #include "esp_task_wdt.h"
 #include <utils.h>
+#include <algorithm>
 
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
@@ -601,8 +602,6 @@ void RocketFSM::setupTransitions()
 
 void RocketFSM::transitionTo(RocketState newState)
 {
-    //play buzzer
-    // tone(BUZZER_PIN, 2000, 100);
     if (_isTransitioning)
     {
         LOG_WARNING("RocketFSM", "Already transitioning, ignoring");
@@ -628,20 +627,41 @@ void RocketFSM::transitionTo(RocketState newState)
             _stateActions[_currentState]->onExit();
         }
 
-        // Stop current tasks
+        
+        // Fetch configurations for current (old) state and target (new) state
+        std::vector<TaskConfig> oldTaskConfigs;
+        if (_stateActions[_currentState])
+        {
+            oldTaskConfigs = _stateActions[_currentState]->getTaskConfigs();
+        }
+
+        std::vector<TaskConfig> newTaskConfigs;
+        if (_stateActions[newState])
+        {
+            newTaskConfigs = _stateActions[newState]->getTaskConfigs();
+        }
+
         if (_taskManager)
         {
-            try
+            // Stop tasks that are no longer needed in the new state
+            for (const auto& oldTask : oldTaskConfigs)
             {
-                _taskManager->stopAllTasks();
-            }
-            catch (const std::exception &e)
-            {
-                LOG_ERROR("RocketFSM", "[TRANSITION] ERROR: Exception while stopping tasks: %s", e.what());
+                auto it = std::find_if(newTaskConfigs.begin(), newTaskConfigs.end(),
+                                       [&](const TaskConfig& c) { return c.type == oldTask.type; });
+
+                if (it == newTaskConfigs.end())
+                {
+                    try {
+                        LOG_INFO("RocketFSM", "[TRANSITION] Task Diff: Stopping no longer needed task type %d", static_cast<int>(oldTask.type));
+                        _taskManager->stopTask(oldTask.type);
+                    } catch (const std::exception &e) {
+                        LOG_ERROR("RocketFSM", "[TRANSITION] ERROR: Exception stopping task: %s", e.what());
+                    }
+                }
             }
         }
 
-        // Update state
+        // Update internal FSM state tracking
         _previousState = _currentState;
         _currentState = newState;
         _stateStartTime = Utils::millis();
@@ -652,12 +672,23 @@ void RocketFSM::transitionTo(RocketState newState)
             _stateActions[_currentState]->onEntry();
         }
 
-        // Start new tasks
-        if (_stateActions[_currentState])
+        // Start tasks that are newly required in the new state
+        if (_taskManager)
         {
-            for (const auto &taskConfig : _stateActions[_currentState]->getTaskConfigs())
+            for (const auto& newTask : newTaskConfigs)
             {
-                _taskManager->startTask(taskConfig.type, taskConfig);
+                auto it = std::find_if(oldTaskConfigs.begin(), oldTaskConfigs.end(),
+                                       [&](const TaskConfig& c) { return c.type == newTask.type; });
+
+                if (it == oldTaskConfigs.end())
+                {
+                    try {
+                        LOG_INFO("RocketFSM", "[TRANSITION] Task Diff: Starting newly required task type %d", static_cast<int>(newTask.type));
+                        _taskManager->startTask(newTask.type, newTask);
+                    } catch (const std::exception &e) {
+                        LOG_ERROR("RocketFSM", "[TRANSITION] ERROR: Exception starting task: %s", e.what());
+                    }
+                }
             }
         }
 
@@ -669,6 +700,7 @@ void RocketFSM::transitionTo(RocketState newState)
     {
         LOG_ERROR("RocketFSM", "[TRANSITION] ERROR: Failed to acquire state mutex");
     }
+    
     _isTransitioning = false;
 }
 
