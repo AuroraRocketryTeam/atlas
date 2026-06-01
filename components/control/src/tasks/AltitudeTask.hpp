@@ -150,7 +150,6 @@ public:
  
 private:
     std::shared_ptr<RocketModel> _rocketModel;
-    SemaphoreHandle_t _modelMutex;
 
     float _max_altitude_read;
     

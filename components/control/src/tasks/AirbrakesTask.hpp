@@ -20,7 +20,6 @@ public:
 
 private:
     std::shared_ptr<RocketModel> _rocketModel;
-    SemaphoreHandle_t _modelMutex;
 
     std::shared_ptr<RocketLogger> _logger;
 };

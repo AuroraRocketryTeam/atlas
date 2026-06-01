@@ -107,11 +107,9 @@ static bool send_all(int _client_sock, const uint8_t *buf, size_t len, const vol
 
 HilSimulationTask::HilSimulationTask(
     std::shared_ptr<RocketModel> rocketModel,
-    SemaphoreHandle_t modelMutex,
     std::shared_ptr<RocketLogger> logger)
     : BaseTask("HilSimulationTask"),
       _rocketModel(rocketModel),
-      _modelMutex(modelMutex),
       _logger(logger)
 {
     // ctor
@@ -413,38 +411,29 @@ void HilSimulationTask::taskFunction() {
             
             /* ================= UPDATE MODEL ================= */
 
-            if (_rocketModel && xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(200))) {
-                _rocketModel->setSimulatedBNO055Data(bnoData);
-                _rocketModel->setSimulatedLIS3DHTRData(lis3dhData);
-                _rocketModel->setSimulatedMS561101BA03Data_1(ms1);
-                _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
-                _rocketModel->setSimulatedGPSData(gps);
-    
-                if (_logger) {
-                    _logger->logSensorData(bnoData);
-                    _logger->logSensorData(lis3dhData);
-                    _logger->logSensorData(ms1);
-                    _logger->logSensorData(ms2);
-                    _logger->logSensorData(gps);
-                }
+            _rocketModel->setSimulatedBNO055Data(bnoData);
+            _rocketModel->setSimulatedLIS3DHTRData(lis3dhData);
+            _rocketModel->setSimulatedMS561101BA03Data_1(ms1);
+            _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
+            _rocketModel->setSimulatedGPSData(gps);
 
-                xSemaphoreGive(_modelMutex);
+            if (_logger) {
+                _logger->logSensorData(bnoData);
+                _logger->logSensorData(lis3dhData);
+                _logger->logSensorData(ms1);
+                _logger->logSensorData(ms2);
+                _logger->logSensorData(gps);
             }
 
             Utils::setSimMillis(sim_time_ms);
 
             // yield in order to let the other task to set the command
-            taskYIELD();
+            vTaskDelay(pdMS_TO_TICKS(20));
             if(!running) break;
 
             /* ================= READ COMMAND FROM MODEL ================= */
             esp_task_wdt_reset();
-            Command cmd;
-
-            if (_rocketModel && xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(200))) {
-                cmd = _rocketModel->getCommand();
-                xSemaphoreGive(_modelMutex);
-            }
+            Command cmd =_rocketModel->getCommand();
 
             /* ================= PACK + SEND ================= */
 
@@ -481,7 +470,7 @@ void HilSimulationTask::taskFunction() {
             //     pkt.alt
             // );
 
-            vTaskDelay(pdMS_TO_TICKS(20)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
+            //vTaskDelay(pdMS_TO_TICKS(20)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
         }
 
         if (_client_sock >= 0) {
