@@ -230,21 +230,16 @@ void TaskManager::printTaskStatus() const
     LOG_INFO("TaskManager", "Free heap: %u bytes", ESP.getFreeHeap());
     LOG_INFO("TaskManager", "Task Status:");
 
-    const char *taskNames[] = {
-        "SENSOR", "EKF", "APOGEE_DETECTION", "RECOVERY",
-        "DATA_COLLECTION", "TELEMETRY", "GPS", "LOGGING"};
-
-    int index = 0;
     for (const auto &[type, task] : _tasks)
     {
         if (task)
         {
-            LOG_INFO("TaskManager", "  %s: %s (Stack HWM: %u)",
-                     taskNames[index],
+            LOG_INFO("TaskManager", "  [%s] %s: %s (Stack HWM: %u)",
+                     taskTypeToString(type),
+                     task->getName(),
                      task->isRunning() ? "RUNNING" : "STOPPED",
                      task->getStackHighWaterMark());
         }
-        index++;
     }
     LOG_INFO("TaskManager", "=================");
 }
