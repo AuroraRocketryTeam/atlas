@@ -15,9 +15,7 @@
 #include "SensorTask.hpp"
 #include "AirbrakesTask.hpp"
 #include "StorageLoggingTask.hpp"
-#include "EkfTask.hpp"
 #include "GpsTask.hpp"
-#include "SimulationTask.hpp"
 
 #if CONFIG_AURORA_HIL_SIMULATION
 #include "HilSimulationTask.hpp"

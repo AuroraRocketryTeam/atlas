@@ -63,7 +63,7 @@ bool GPS::updateData()
     
     // Safely read the fix type using the mutex
     if (xSemaphoreTake(_data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        isValid = (_data->fixType >= 2); 
+        isValid = (_data.fixType >= 2); 
         xSemaphoreGive(_data_mutex);
     }
 

@@ -12,7 +12,6 @@ class AirbrakesTask : public BaseTask
 {
 public:
     AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
-                  SemaphoreHandle_t modelMutex,
                   std::shared_ptr<RocketLogger> logger);
 
     void onTaskStart() override;

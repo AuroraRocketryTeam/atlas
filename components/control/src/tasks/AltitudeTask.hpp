@@ -134,10 +134,9 @@ private:
 class AltitudeTask : public BaseTask
 {
 public:
-    AltitudeTask(std::shared_ptr<RocketModel> rocketModel, SemaphoreHandle_t modelMutex)
+    AltitudeTask(std::shared_ptr<RocketModel> rocketModel)
         : BaseTask("AltitudeTask"),
           _rocketModel(rocketModel),
-          _modelMutex(modelMutex),
           _max_altitude_read(-1000.0f)
     {
     }

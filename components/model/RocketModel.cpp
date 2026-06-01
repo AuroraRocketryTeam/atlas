@@ -56,7 +56,6 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _gpsMutex = xSemaphoreCreateMutex();
     _stateMutex = xSemaphoreCreateMutex();
 }
-}
 
 RocketModel::~RocketModel() {
     if (_storageMutex) {

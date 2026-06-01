@@ -448,8 +448,8 @@ void GPSfix(std::shared_ptr<GPS> gps)
             {
                 LOG_INFO("GPS", "Getting GPS data...");
                 auto gpsData = gps->getData();
-                auto fixType = gpsData->fixType;
-                auto satellites = gpsData->satellites;
+                auto fixType = gpsData.fixType;
+                auto satellites = gpsData.satellites;
 
                 LOG_INFO("GPS", "Fix value: %d", fixType);
                 if (fixType >= GPS_MIN_FIX)
@@ -470,34 +470,6 @@ void GPSfix(std::shared_ptr<GPS> gps)
     LOG_INFO("Calibration", "Sensor calibration complete.");
     statusManager.setSystemCode(SYSTEM_OK);
 }
-
-// TODO: can we remove these 2?
-// Utility function to calculate mean sensor readings
-Eigen::Vector3f calculateMean(const std::vector<Eigen::Vector3f> &readings)
-{
-    Eigen::Vector3f mean = Eigen::Vector3f::Zero();
-    for (const auto &reading : readings)
-    {
-        mean += reading;
-    }
-    mean /= readings.size();
-    return mean;
-}
-
-// Utility function to calculate standard deviation of sensor readings
-Eigen::Vector3f calculateStandardDeviation(const std::vector<Eigen::Vector3f> &readings)
-{
-    Eigen::Vector3f mean = calculateMean(readings);
-    Eigen::Vector3f variance = Eigen::Vector3f::Zero();
-    for (const auto &reading : readings)
-    {
-        Eigen::Vector3f diff = reading - mean;
-        variance += diff.cwiseProduct(diff);
-    }
-    variance /= static_cast<float>(readings.size() - 1);
-    return variance.cwiseSqrt();
-}
-
 
 // The ESP-IDF entry point, which must be C-linkage
 extern "C" void app_main() {
