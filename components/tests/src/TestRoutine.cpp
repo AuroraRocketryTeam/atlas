@@ -141,6 +141,13 @@ bool TestRoutine::testSensors()
 {
     LOG_INFO("Test", "\n[STEP 2] Test sensori");
     bool imu_ok   = _model->updateBNO055();
+
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+    delay(20);
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+    delay(20);
     bool baro1_ok = _model->updateMS561101BA03_1();
     bool baro2_ok = _model->updateMS561101BA03_2();
     bool accl_ok  = _model->updateLIS3DHTR();
