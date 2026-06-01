@@ -74,21 +74,8 @@ void TaskManager::initializeTasks()
             _modelMutex,
             _logger);
     } else LOG_INFO("TaskManager", "GPS unavailable. Skipping GPS task");
-    // _tasks[TaskType::EKF] = std::make_unique<EkfTask>(
-    //     _rocketModel,
-    //     _modelMutex,
-    //     _kalmanFilter);
     _tasks[TaskType::STORAGE] = std::make_unique<StorageLoggingTask>(
         _rocketModel,
-        _logger);
-    _tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
-        // Using a different simulation file where at the end of each line there is a
-        // pipe symbol, this was needed as the readLine function had problem recognizing
-        // the \n character, so separating each line
-        "/simulated_sensors_full_piped.csv",
-        _sd,
-        _rocketModel,
-        _modelMutex,
         _logger);
 
 #if CONFIG_AURORA_HIL_SIMULATION
