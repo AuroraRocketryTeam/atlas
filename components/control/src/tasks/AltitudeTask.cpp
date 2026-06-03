@@ -24,7 +24,7 @@ void AltitudeTask::taskFunction()
         bool result = _rocketModel->getMS561101BA03Data_2(baroData);
 #endif
         // Reject identical simulated packets
-        if (baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
+        if (!result || baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
