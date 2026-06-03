@@ -97,6 +97,6 @@ inline const char* taskTypeToString(TaskType type) {
         case TaskType::ALTITUDE:        return "ALTITUDE";
         case TaskType::LOGGING:         return "LOGGING";
         case TaskType::AIRBRAKES:       return "AIRBRAKES";
-        default:                        return "UNKNOWN_TASK";
     }
+    return "UNKNOWN_TASK";
 }

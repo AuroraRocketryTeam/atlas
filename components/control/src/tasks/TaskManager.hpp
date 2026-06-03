@@ -26,8 +26,6 @@
 #include <EspNowTransmitter.hpp>
 #include <E220LoRaTransmitter.hpp>
 
-// #define SIMULATION_DATA // Uncomment this out to use CSV file readings simulation data
-
 /**
  * @brief Class to manage tasks in the system.
  * 
