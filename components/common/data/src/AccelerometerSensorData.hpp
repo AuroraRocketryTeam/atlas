@@ -9,8 +9,7 @@
 class AccelerometerSensorData : public SensorData
 {
 public:
-    AccelerometerSensorData(std::string sensorName) : SensorData(sensorName) {}
-
+    AccelerometerSensorData(const char* sensorName) : SensorData(sensorName) {}
     // Acceleration (m/s^2)
     float acceleration_x = 0.0f;
     float acceleration_y = 0.0f;
@@ -19,7 +18,7 @@ public:
     // Metadata
     uint32_t timestamp = 0;
 
-    json toJSON() const override {
+    json toJSON() const {
         json j;
         j["source"] = getSensorName();
 

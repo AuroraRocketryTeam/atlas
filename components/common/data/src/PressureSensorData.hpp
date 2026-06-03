@@ -9,8 +9,7 @@
 class PressureSensorData : public SensorData
 {
 public:
-    PressureSensorData(std::string sensorName) : SensorData(sensorName) {}
-
+    PressureSensorData(const char* sensorName) : SensorData(sensorName) {}
     // Pressure (hPa)
     float pressure = 0.0f;
 
@@ -20,7 +19,7 @@ public:
     // Metadata
     uint32_t timestamp = 0;
 
-    json toJSON() const override {
+    json toJSON() const {
         json j;
         j["source"] = getSensorName();
 

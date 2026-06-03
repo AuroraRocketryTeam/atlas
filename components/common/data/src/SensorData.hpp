@@ -2,17 +2,17 @@
 
 #include <string>
 #include <nlohmann/json.hpp>
-#include "ILoggable.hpp"
+
+using json = nlohmann::json;
 
 /**
  * @brief Class to store sensor data.
  *
  */
-class SensorData : public ILoggable
+class SensorData
 {
 protected:
-    // Name of the sensor
-    std::string sensorName;
+    char sensorName[16];
 
 public:
     /**
@@ -20,16 +20,17 @@ public:
      *
      * @param sensorName Name of the sensor.
      */
-    SensorData(std::string sensorName) : sensorName(sensorName) {}
-
+    SensorData(const char* name) {
+        strncpy(sensorName, name, sizeof(sensorName) - 1);
+        sensorName[sizeof(sensorName) - 1] = '\0'; // Ensure null-termination
+    }
     /**
      * @brief Get the Sensor Name object
      *
      * @return A string representing the name of the sensor.
      */
-    std::string getSensorName() const
-    {
-        return sensorName;
+    std::string getSensorName() const {
+        return std::string(sensorName);
     }
 
     /**
@@ -37,7 +38,7 @@ public:
      *
      * @return A json object.
      */
-    virtual json toJSON() const override;
+    virtual json toJSON() const = 0;
 };
 
 

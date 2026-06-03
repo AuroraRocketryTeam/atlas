@@ -3,26 +3,21 @@
 
 #include <string>
 #include <nlohmann/json.hpp>
-#include "LogData.hpp"
 #include <SensorData.hpp>
+#include <LogPayload.hpp>
 
 /**
  * @brief Interface for loggers.
  * 
  */
 class ILogger {
-protected:
-    // Vector to store logged sensor data
-    std::vector<LogData> logDataList;
 public:
     /**
      * @brief Get the number of logged entries.
      * 
      * @return int The number of logged entries.
      */
-    int getLogCount() const {
-        return logDataList.size();
-    }
+    virtual int getLogCount() const = 0;
 
     /**
      * @brief Log an informational message.
@@ -48,24 +43,22 @@ public:
     /**
      * @brief Log sensor data.
      * 
-     * @param sensorData The sensor data to log.
+     * @param payload The data to log, wrapped in a LogPayload variant.
      */
-    virtual void logSensorData(std::shared_ptr<SensorData> sensorData) = 0;
+    virtual void logSensorData(const LogPayload& payload) = 0;
 
     /**
      * @brief Get all logged sensor data as a JSON list.
      * 
      * @return A json object.
      */
-    virtual json getJSONAll() const = 0;
+    virtual json getJSONAll() = 0;
 
     /**
      * @brief Clear all logged sensor data.
      * 
      */
-    virtual void clearData() {
-        logDataList.clear();
-    }
+    virtual void clearData() = 0;
 
     /**
      * @brief Virtual destructor to ensure proper cleanup in derived classes.

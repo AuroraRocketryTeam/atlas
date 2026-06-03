@@ -9,7 +9,7 @@
 class IMUData : public SensorData
 {
 public:
-    IMUData(std::string sensorName) : SensorData(sensorName) {}
+    IMUData(const char* sensorName) : SensorData(sensorName) {}
 
     // Calibration status
     uint8_t calibration_sys = 0;
@@ -59,7 +59,7 @@ public:
     // Metadata
     uint32_t timestamp = 0;
     
-    json toJSON() const override {
+    json toJSON() const {
         json j;
         j["source"] = getSensorName();
 

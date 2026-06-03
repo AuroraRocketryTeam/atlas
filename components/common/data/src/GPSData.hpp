@@ -9,9 +9,7 @@
 class GPSData : public SensorData
 {
 public:
-    GPSData(std::string sensorName="GPS") : SensorData(sensorName) {}
-
-    // Number of satellites in view
+    GPSData(const char* sensorName = "GPS") : SensorData(sensorName) {}
     uint8_t satellites = 0;
     
     // Fix type (0=no fix, 1=dead reckoning, 2=2D fix, 3=3D fix, 4=GNSS+dead reckoning, 5=time-only fix) 
@@ -34,7 +32,7 @@ public:
     
     // Metadata
     uint32_t timestamp = 0;
-    json toJSON() const override {
+    json toJSON() const {
         json j;
         j["source"] = getSensorName();
 

@@ -3,7 +3,6 @@
 #include <string>
 #include <nlohmann/json.hpp>
 #include <SensorData.hpp>
-#include "ILoggable.hpp"
 
 using json = nlohmann::json;
 
@@ -11,10 +10,11 @@ using json = nlohmann::json;
  * @brief A class to represent a log message.
  * 
  */
-class LogMessage : public ILoggable {
+class LogMessage {
 private:
     // Message to be logged
-    std::string message;
+    char source[16];
+    char message[128];
 
 public:
     /**
@@ -23,9 +23,12 @@ public:
      * @param source The origin of the log.
      * @param message The message to be logged.
      */
-    LogMessage(std::string source, std::string message) {
-        this->source = source;
-        this->message = message;
+    LogMessage(const char* src, const char* msg) {
+        strncpy(source, src, sizeof(source) - 1);
+        source[sizeof(source) - 1] = '\0';
+        
+        strncpy(message, msg, sizeof(message) - 1);
+        message[sizeof(message) - 1] = '\0';
     }
 
     /**
@@ -42,7 +45,7 @@ public:
      * 
      * @return A json object.
      */
-    json toJSON() const override {
+json toJSON() const {
         json j;
         j["source"] = source;
         j["message"] = message;
