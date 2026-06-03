@@ -140,44 +140,55 @@ bool TestRoutine::testPowerAndLEDs()
 bool TestRoutine::testSensors()
 {
     LOG_INFO("Test", "\n[STEP 2] Test sensori");
-    bool imu_ok   = _model->updateBNO055();
-
-    _model->updateMS561101BA03_1();
-    _model->updateMS561101BA03_2();
-    delay(20);
-    _model->updateMS561101BA03_1();
-    _model->updateMS561101BA03_2();
-    delay(20);
-    bool baro1_ok = _model->updateMS561101BA03_1();
-    bool baro2_ok = _model->updateMS561101BA03_2();
-    bool accl_ok  = _model->updateLIS3DHTR();
 
     _board.init_sensor_test_pins();
-
+    
+    IMUData imuData("BNO055");
+    bool imu_ok = _model->getBNO055Data(imuData);
     if (!imu_ok) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
         LOG_ERROR("Test", "Errore: IMU non inizializzata.");
     } else {
-        auto bnoData = _model->getBNO055Data();
         LOG_INFO("Test", "IMU Accelerometer: x=%.2f, y=%.2f, z=%.2f m/s^2",
-                 (double)bnoData->acceleration_x,
-                 (double)bnoData->acceleration_y,
-                 (double)bnoData->acceleration_z);
+                 (double)imuData.acceleration_x,
+                 (double)imuData.acceleration_y,
+                 (double)imuData.acceleration_z);
     }
+
+
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+    delay(20);
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+    delay(20);
+    
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+
+    PressureSensorData baro1Data("Barometer 1");
+    bool baro1_ok = _model->getMS561101BA03Data_1(baro1Data);
     if (!baro1_ok) {
         _statusManager.playBlockingPattern(BARO1_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
     } else {
         LOG_INFO("Test", "Barometer 1 Pressure: %.2f Pa",
-                 (double)_model->getMS561101BA03Data_1()->pressure);
+                 (double)baro1Data.pressure);
     }
+
+
+    PressureSensorData baro2Data("Barometer 2");
+    bool baro2_ok = _model->getMS561101BA03Data_2(baro2Data);
     if (!baro2_ok) {
         _statusManager.playBlockingPattern(BARO2_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
     } else {
         LOG_INFO("Test", "Barometer 2 Pressure: %.2f Pa",
-                 (double)_model->getMS561101BA03Data_2()->pressure);
+                 (double)baro2Data.pressure);
     }
+
+    AccelerometerSensorData acclData("Accelerometer");
+    bool accl_ok  = _model->getLIS3DHTRData(acclData);
     if (!accl_ok) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
@@ -718,14 +729,20 @@ bool TestRoutine::calibrateAndSaveIMU()
     while (!calibrated)
     {
         _model->updateBNO055();
-        auto data = _model->getBNO055Data();
-        
-        LOG_INFO("Test", "Calib Status -> SYS: %d, GYRO: %d, ACCEL: %d, MAG: %d",
-                 data->calibration_sys, data->calibration_gyro, 
-                 data->calibration_accel, data->calibration_mag);
+        IMUData data("BNO055");
+        bool result = _model->getBNO055Data(data);
+        if (!result) {
+            LOG_WARNING("Test", "Failed to get BNO055 data");
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
 
-        if (data->calibration_sys == 3 && data->calibration_gyro == 3 && 
-            data->calibration_accel == 3 && data->calibration_mag == 3) 
+        LOG_INFO("Test", "Calib Status -> SYS: %d, GYRO: %d, ACCEL: %d, MAG: %d",
+                 data.calibration_sys, data.calibration_gyro, 
+                 data.calibration_accel, data.calibration_mag);
+
+        if (data.calibration_sys == 3 && data.calibration_gyro == 3 && 
+            data.calibration_accel == 3 && data.calibration_mag == 3) 
         {
             LOG_INFO("Test", "IMU is FULLY CALIBRATED!");
             calibrated = true;
