@@ -1,7 +1,6 @@
 #pragma once
 
 #include "BaseTask.hpp"
-#include "SharedData.hpp"
 #include "Logger.hpp"
 #include "RocketLogger.hpp"
 #include <ISensor.hpp>

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ITask.hpp"
-#include "SharedData.hpp"
 #include <memory>
 #include <map>
 #include <string>

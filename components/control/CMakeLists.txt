@@ -24,13 +24,10 @@ idf_component_register(
         core
         implementation
         SD
-        BME680
         BNO055
         GPS
         LIS3DHTR
-        MPRLS
         MS561101BA03
-        Termoresistenze
         filters_kalman
         status
         protocol

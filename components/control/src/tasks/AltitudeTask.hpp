@@ -3,7 +3,6 @@
 
 #include <MS561101BA03.hpp>
 #include <Logger.hpp>
-#include <SharedData.hpp>
 #include <RocketModel.hpp>
 #include <config.h>
 #include <array>
