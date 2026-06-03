@@ -139,14 +139,12 @@ uint32_t MS561101BA03::readADC()
 uint32_t MS561101BA03::readRawPressure()
 {
     writeCommand(MS5611_CMD_CONV_D1_2048);
-    vTaskDelay(pdMS_TO_TICKS(10)); // Wait for conversion
     return readADC();
 }
 
 uint32_t MS561101BA03::readRawTemperature()
 {
     writeCommand(MS5611_CMD_CONV_D2_4096);
-    vTaskDelay(pdMS_TO_TICKS(10)); // Wait for conversion
     return readADC();
 }
 

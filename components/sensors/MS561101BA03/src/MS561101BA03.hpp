@@ -59,6 +59,6 @@ private:
     enum class BaroState { IDLE, WAIT_D1, WAIT_D2 };
     BaroState _state = BaroState::IDLE;
     uint32_t _conv_start_time = 0;
-    uint32_t CONV_TIME_NEEDED = 10; // 10ms
+    static constexpr uint32_t CONV_TIME_NEEDED = 10; // 10ms
     uint32_t _d1 = 0;
 };
