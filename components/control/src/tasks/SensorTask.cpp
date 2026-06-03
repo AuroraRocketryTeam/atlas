@@ -32,7 +32,7 @@ void SensorTask::taskFunction()
         LOG_INFO("SensorTask", "READING SENSORS");
         
         // Check running flag early to exit quickly during shutdown
-        if (!running) break;
+        if (!running || !rocketModel) break;
         
         // Update sensors through the model with mutex protection
         rocketModel->updateBNO055();
@@ -65,22 +65,28 @@ void SensorTask::taskFunction()
             // Log sensor data through the model
             if (rocketModel)
             {
-                auto bnoData = rocketModel->getBNO055Data();
-                auto ms56Data1 = rocketModel->getMS561101BA03Data_1();
-                auto ms56Data2 = rocketModel->getMS561101BA03Data_2();
-                auto lis3dhData = rocketModel->getLIS3DHTRData();
-                
-                if (bnoData) {
-                    logger->logSensorData(bnoData);
+                IMUData outBnoData("BNO055");
+                bool result = rocketModel->getBNO055Data(outBnoData);
+                if (result) {
+                    logger->logSensorData(outBnoData);
                 }
-                if (ms56Data1) {
-                    logger->logSensorData(ms56Data1);
+
+                PressureSensorData outMs56Data1("MS561101BA03_1");
+                result = rocketModel->getMS561101BA03Data_1(outMs56Data1);
+                if (result) {
+                    logger->logSensorData(outMs56Data1);
                 }
-                if (ms56Data2) {
-                    logger->logSensorData(ms56Data2);
+
+                PressureSensorData outMs56Data2("MS561101BA03_2");
+                result = rocketModel->getMS561101BA03Data_2(outMs56Data2);
+                if (result) {
+                    logger->logSensorData(outMs56Data2);
                 }
-                if (lis3dhData) {
-                    logger->logSensorData(lis3dhData);
+
+                AccelerometerSensorData outLis3dhData("LIS3DHTR");
+                result = rocketModel->getLIS3DHTRData(outLis3dhData);
+                if (result) {
+                    logger->logSensorData(outLis3dhData);
                 }
             }
 

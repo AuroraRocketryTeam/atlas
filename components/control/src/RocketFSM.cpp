@@ -726,11 +726,13 @@ void RocketFSM::checkTransitions()
     auto accX = 0.0f;
     auto accY = 0.0f;
     auto accZ = 0.0f;
-    std::shared_ptr<IMUData> bno055Data = _rocketModel->getBNO055Data();
-    if(bno055Data) {
-        accX = bno055Data->acceleration_x;
-        accY = bno055Data->acceleration_y;
-        accZ = bno055Data->acceleration_z;
+    IMUData outBno055Data("BN055");
+    bool result = _rocketModel->getBNO055Data(outBno055Data);
+    
+    if(result) {
+        accX = outBno055Data.acceleration_x;
+        accY = outBno055Data.acceleration_y;
+        accZ = outBno055Data.acceleration_z;
     }
 
     // Fast state-based checks
@@ -744,14 +746,15 @@ void RocketFSM::checkTransitions()
     case RocketState::CALIBRATING:
     {
         // Gather Barometer samples for zeroing
-        auto baroData = _rocketModel->getMS561101BA03Data_1();
-        if (baroData && baroData->pressure > 0.0f) {
-            _rocketModel->addBarometerSample(baroData->pressure);
+        PressureSensorData outBaroData("MS561101BA03_1");
+        bool result = _rocketModel->getMS561101BA03Data_1(outBaroData);
+        if (result && outBaroData.pressure > 0.0f) {
+            _rocketModel->addBarometerSample(outBaroData.pressure);
         }
 
         // Gather Temperature samples
-        if (baroData) {
-            auto kelvinTemp = baroData->temperature + 273.15f;
+        if (result) {
+            auto kelvinTemp = outBaroData.temperature + 273.15f;
             _rocketModel->addTemperatureSample(kelvinTemp);
         }
 
@@ -855,9 +858,9 @@ void RocketFSM::checkTransitions()
         LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight);
         
         if (currentHeight < MAIN_ALTITUDE_THRESHOLD)
-            {
+        {
             LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", currentHeight, Utils::millis() - _stateStartTime);
-                sendEvent(FSMEvent::STABILIZATION_COMPLETE);
+            sendEvent(FSMEvent::STABILIZATION_COMPLETE);
         }
     
         break;

@@ -59,15 +59,7 @@ bool GPS::init()
 
 bool GPS::updateData()
 {
-    bool isValid = false;
-    
-    // Safely read the fix type using the mutex
-    if (xSemaphoreTake(_data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        isValid = (_data.fixType >= 2); 
-        xSemaphoreGive(_data_mutex);
-    }
-
-    return isValid;
+    return _data.fixType >= 2;
 }
 
 GPSData GPS::getData()

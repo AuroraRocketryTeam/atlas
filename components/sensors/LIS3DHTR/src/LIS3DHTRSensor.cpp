@@ -84,7 +84,9 @@ bool LIS3DHTRSensor::init()
 
 bool LIS3DHTRSensor::updateData()
 {
-    if (!isInitialized()) return false;
+    if (!isInitialized()) {
+        return false;
+    } 
 
     lis3dh_reg_t reg;
     lis3dh_xl_data_ready_get(&_dev_ctx, &reg.byte);

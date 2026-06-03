@@ -6,7 +6,6 @@
 #include <Arduino.h>
 #include <memory>
 #include <BNO055Sensor.hpp>
-#include <MPRLSSensor.hpp>
 #include <LIS3DHTRSensor.hpp>
 #include <MS561101BA03.hpp>
 #include <GPS.hpp>
@@ -15,7 +14,6 @@
 #include <PressureSensorData.hpp>
 #include <GPSData.hpp>
 #include <Command.hpp>
-#include <Termoresistenze.hpp>
 #include <SD-master.hpp>
 #include <Flash.hpp>
 #include <IStorage.hpp>
@@ -98,37 +96,42 @@ public:
     /**
      * @brief Get the BNO055 sensor data
      *
-     * @return A shared pointer to the BNO055Data
+     * @param data Reference to the IMUData object to be filled
+     * @return true if the data is available, false otherwise
      */
-    std::shared_ptr<IMUData> getBNO055Data();
+    bool getBNO055Data(IMUData& data);
 
     /**
      * @brief Get the LIS3DHTR sensor data
      *
-     * @return A shared pointer to the accelerometer data
+     * @param data Reference to the AccelerometerSensorData object to be filled
+     * @return true if the data is available, false otherwise
      */
-    std::shared_ptr<AccelerometerSensorData> getLIS3DHTRData();
+    bool getLIS3DHTRData(AccelerometerSensorData& data);
 
     /**
      * @brief Get the first MS561101BA03 sensor data
      *
-     * @return A shared pointer to the pressure data of the first MS561101BA03 sensor
+     * @param data Reference to the PressureSensorData object to be filled
+     * @return true if the data is available, false otherwise
      */
-    std::shared_ptr<PressureSensorData> getMS561101BA03Data_1();
+    bool getMS561101BA03Data_1(PressureSensorData& data);
 
     /**
      * @brief Get the second MS561101BA03 sensor data
      *
-     * @return A shared pointer to the pressure data of the second MS561101BA03 sensor
+     * @param data Reference to the PressureSensorData object to be filled
+     * @return true if the data is available, false otherwise
      */
-    std::shared_ptr<PressureSensorData> getMS561101BA03Data_2();
+    bool getMS561101BA03Data_2(PressureSensorData& data);
 
     /**
      * @brief Get the GPS sensor data
      *
-     * @return A shared pointer to the GPSData
+     * @param data Reference to the GPSData object to be filled
+     * @return true if the data is available, false otherwise
      */
-    std::shared_ptr<GPSData> getGPSData();
+    bool getGPSData(GPSData& data);
 
     /**
      * @brief Check GPS availability
@@ -190,37 +193,42 @@ public:
     /**
      * @brief Set the simulated BNO055 sensor data
      *
-     * @param data A shared pointer to the IMU data
+     * @param data The IMU data to simulate
+     * @return true if the data was set successfully, false otherwise
      */
-    void setSimulatedBNO055Data(std::shared_ptr<IMUData> data);
+    bool setSimulatedBNO055Data(IMUData data);
 
     /**
      * @brief Set the simulated LIS3DHTR sensor data
      *
-     * @param data A shared pointer to the AccelerometerSensorData
+     * @param data The Accelerometer sensor data to simulate
+     * @return true if the data was set successfully, false otherwise
      */
-    void setSimulatedLIS3DHTRData(std::shared_ptr<AccelerometerSensorData> data);
+    bool setSimulatedLIS3DHTRData(AccelerometerSensorData data);
 
     /**
      * @brief Set the simulated MS561101BA03 sensor data
      *
-     * @param data A shared pointer to the pressure data of the first MS561101BA03 sensor
+     * @param data The pressure data of the first MS561101BA03 sensor to simulate
+     * @return true if the data was set successfully, false otherwise
      */
-    void setSimulatedMS561101BA03Data_1(std::shared_ptr<PressureSensorData> data);
+    bool setSimulatedMS561101BA03Data_1(PressureSensorData data);
 
     /**
      * @brief Set the simulated MS561101BA03 sensor data
      *
-     * @param data A shared pointer to the pressure data of the second MS561101BA03 sensor
+     * @param data The pressure data of the second MS561101BA03 sensor to simulate
+     * @return true if the data was set successfully, false otherwise
      */
-    void setSimulatedMS561101BA03Data_2(std::shared_ptr<PressureSensorData> data);
+    bool setSimulatedMS561101BA03Data_2(PressureSensorData data);
 
     /**
      * @brief Set the simulated GPS sensor data
      *
-     * @param data A shared pointer to the GPSData
+     * @param data The GPS data to simulate
+     * @return true if the data was set successfully, false otherwise
      */
-    void setSimulatedGPSData(std::shared_ptr<GPSData> data);
+    bool setSimulatedGPSData(GPSData data);
 
     /**
      * @brief Get the flight state variables
@@ -356,13 +364,6 @@ private:
     std::shared_ptr<MS561101BA03> _ms56_2;
     std::shared_ptr<GPS> _gps;
 
-    // Data related to the rocket state
-    std::shared_ptr<IMUData> _bnoData{std::make_shared<IMUData>("BNO055")};
-    std::shared_ptr<AccelerometerSensorData> _lis3dhData{std::make_shared<AccelerometerSensorData>("LIS3DHTR")};
-    std::shared_ptr<PressureSensorData> _ms561101ba03Data_1{std::make_shared<PressureSensorData>("MS561101BA03")};
-    std::shared_ptr<PressureSensorData> _ms561101ba03Data_2{std::make_shared<PressureSensorData>("MS561101BA03")};
-    std::shared_ptr<GPSData> _gpsData{std::make_shared<GPSData>("GPS")};
-
     // Critical mutexes
     SemaphoreHandle_t _imuMutex;
     SemaphoreHandle_t _baro1Mutex;
@@ -378,6 +379,12 @@ private:
     bool _isRising;
     float _heightGainSpeed;
     float _currentHeight;
+
+    IMUData _bnoData{"BNO055"};
+    AccelerometerSensorData _lis3dhData{"LIS3DHTR"};
+    PressureSensorData _ms561101ba03Data_1{"MS561101BA03_1"};
+    PressureSensorData _ms561101ba03Data_2{"MS561101BA03_2"};
+    GPSData _gpsData{"GPS"};
 
 #if CONFIG_AURORA_HIL_SIMULATION
     bool _reset_simulation;

@@ -377,33 +377,33 @@ void HilSimulationTask::taskFunction() {
 
             /* ================= FILL SENSOR DATA ================= */
 
-            auto bnoData = std::make_shared<IMUData>("Sim_IMU");
-            auto lis3dhData = std::make_shared<AccelerometerSensorData>("Sim_LIS3DH");
-            auto ms1 = std::make_shared<PressureSensorData>("Sim_MS5611_1");
-            auto ms2 = std::make_shared<PressureSensorData>("Sim_MS5611_2");
-            auto gps = std::make_shared<GPSData>("Sim_GPS");
+            auto bnoData = IMUData("Sim_IMU");
+            auto lis3dhData = AccelerometerSensorData("Sim_LIS3DH");
+            auto ms1 = PressureSensorData("Sim_MS5611_1");
+            auto ms2 = PressureSensorData("Sim_MS5611_2");
+            auto gps = GPSData("Sim_GPS");
             
             const uint32_t sim_time_ms = static_cast<uint32_t>(pkt.sim_time * 1000.0f);
 
-            bnoData->timestamp = sim_time_ms;
-            bnoData->acceleration_x = pkt.ax;
-            bnoData->acceleration_y = pkt.ay;
-            bnoData->acceleration_z = pkt.az;
+            bnoData.timestamp = sim_time_ms;
+            bnoData.acceleration_x = pkt.ax;
+            bnoData.acceleration_y = pkt.ay;
+            bnoData.acceleration_z = pkt.az;
 
-            lis3dhData->timestamp = sim_time_ms;
-            lis3dhData->acceleration_x = pkt.ax;
-            lis3dhData->acceleration_y = pkt.ay;
-            lis3dhData->acceleration_z = pkt.az;
+            lis3dhData.timestamp = sim_time_ms;
+            lis3dhData.acceleration_x = pkt.ax;
+            lis3dhData.acceleration_y = pkt.ay;
+            lis3dhData.acceleration_z = pkt.az;
 
-            ms1->timestamp = sim_time_ms;
-            ms1->pressure = pkt.p;
-            ms2->timestamp = sim_time_ms;
-            ms2->pressure = pkt.p;
+            ms1.timestamp = sim_time_ms;
+            ms1.pressure = pkt.p;
+            ms2.timestamp = sim_time_ms;
+            ms2.pressure = pkt.p;
 
-            gps->timestamp = sim_time_ms;
-            gps->latitude  = pkt.lat;
-            gps->longitude = pkt.lon;
-            gps->altitude  = pkt.alt;
+            gps.timestamp = sim_time_ms;
+            gps.latitude  = pkt.lat;
+            gps.longitude = pkt.lon;
+            gps.altitude  = pkt.alt;
 
             ESP_LOGI(TAG, "Received sim packet: time=%d ax=%.2f ay=%.2f az=%.2f p=%.2f lat=%.6f lon=%.6f alt=%.2f",
                 sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.lat, pkt.lon, pkt.alt

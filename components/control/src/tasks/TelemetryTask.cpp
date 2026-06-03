@@ -165,40 +165,44 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         packet.last_ack_command_id = _lastAckCommandId;
         _lastAckCommandId = 0;
 
-        auto bno055Data = _rocketModel->getBNO055Data();
-        if (bno055Data) {
-            packet.imu.accel_x = bno055Data->acceleration_x;
-            packet.imu.accel_y = bno055Data->acceleration_y;
-            packet.imu.accel_z = bno055Data->acceleration_z;
+        IMUData outBnoData("BNO055");
+        bool result = _rocketModel->getBNO055Data(outBnoData);
+        if (result) {
+            packet.imu.accel_x = outBnoData.acceleration_x;
+            packet.imu.accel_y = outBnoData.acceleration_y;
+            packet.imu.accel_z = outBnoData.acceleration_z;
             LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
-            packet.imu.gyro_x = bno055Data->orientation_x;
-            packet.imu.gyro_y = bno055Data->orientation_y;
-            packet.imu.gyro_z = bno055Data->orientation_z;
+            packet.imu.gyro_x = outBnoData.orientation_x;
+            packet.imu.gyro_y = outBnoData.orientation_y;
+            packet.imu.gyro_z = outBnoData.orientation_z;
         } else {
             LOG_WARNING("Telemetry", "BNO055 data not available");
         }
 
-        auto baro1Data = _rocketModel->getMS561101BA03Data_1();
-        if (baro1Data) {
-            packet.baro1.pressure = baro1Data->pressure;
-            packet.baro1.temperature = baro1Data->temperature;
+        PressureSensorData outMs56Data1("MS561101BA03_1");
+        result = _rocketModel->getMS561101BA03Data_1(outMs56Data1);
+        if (result) {
+            packet.baro1.pressure = outMs56Data1.pressure;
+            packet.baro1.temperature = outMs56Data1.temperature;
         } else {
             LOG_WARNING("Telemetry", "Barometer 1 data not available");
         }
 
-        auto baro2Data = _rocketModel->getMS561101BA03Data_2();
-        if (baro2Data) {
-            packet.baro2.pressure = baro2Data->pressure;
-            packet.baro2.temperature = baro2Data->temperature;
+        PressureSensorData outMs56Data2("MS561101BA03_2");
+        result = _rocketModel->getMS561101BA03Data_2(outMs56Data2);
+        if (result) {
+            packet.baro2.pressure = outMs56Data2.pressure;
+            packet.baro2.temperature = outMs56Data2.temperature;
         } else {
             LOG_WARNING("Telemetry", "Barometer 2 data not available");
         }
 
-        auto gpsData = _rocketModel->getGPSData();
-        if (gpsData) {
-            packet.gps.latitude = gpsData->latitude;
-            packet.gps.longitude = gpsData->longitude;
-            packet.gps.altitude = gpsData->altitude;
+        GPSData gpsData("GPS");
+        result = _rocketModel->getGPSData(gpsData);
+        if (result) {
+            packet.gps.latitude = gpsData.latitude;
+            packet.gps.longitude = gpsData.longitude;
+            packet.gps.altitude = gpsData.altitude;
             LOG_DEBUG("Telemetry", "GPS ALT: %.2f LAT: %.6f LON: %.6f",
                       packet.gps.altitude, packet.gps.latitude, packet.gps.longitude);
         } else {

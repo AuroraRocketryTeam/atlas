@@ -17,26 +17,20 @@ void AltitudeTask::taskFunction()
         esp_task_wdt_reset();
         if(!running) break;
 
+        PressureSensorData baroData("Barometer");
 #ifdef BARO_1
-        auto baroData = _rocketModel->getMS561101BA03Data_1();
+        bool result = _rocketModel->getMS561101BA03Data_1(baroData);
 #else
-        auto baroData = _rocketModel->getMS561101BA03Data_2();
+        bool result = _rocketModel->getMS561101BA03Data_2(baroData);
 #endif
-
-        if (!baroData) {
-            LOG_ERROR("AltitudeTask", "Barometer data not available");
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
-        }
-
         // Reject identical simulated packets
         if (baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
         
-        lastTimestamp = baroData->timestamp;
-        float rawPressure = baroData->pressure;
+        lastTimestamp = baroData.timestamp;
+        float rawPressure = baroData.pressure;
 
         // Physics Lock, if the pressure change is too extreme, clamp it 
         // to a maximum plausible change based on physical limits of the 
@@ -103,6 +97,6 @@ float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
 
 void AltitudeTask::updateRisingTrend(float currentAltitude)
 {
-    apogeeDetector.update(currentAltitude);
+    apogeeDetector.update(currentAltitude);   
     _rocketModel->setIsRising(apogeeDetector.isRising());
 }

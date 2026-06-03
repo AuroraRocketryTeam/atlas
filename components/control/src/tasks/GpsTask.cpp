@@ -12,16 +12,19 @@ GpsTask::GpsTask(std::shared_ptr<RocketModel> rocketModel,
 
 void GpsTask::taskFunction()
 {
-    const TickType_t mutexTimeout = pdMS_TO_TICKS(10);
     unsigned long loopCounter = 0;
     while (running)
     {
         esp_task_wdt_reset();
 
         _rocketModel->updateGPS();
-        std::shared_ptr<GPSData> gpsData = nullptr;
+        GPSData gpsData("GPS");
+        bool result = _rocketModel->getGPSData(gpsData);
+        if (!result) {
+            LOG_WARNING("GpsTask", "Failed to get GPS data");
+            continue;
+        }
         
-        gpsData = _rocketModel->getGPSData();
         LOG_INFO("GpsTask", "Got GPS data");
         
         if (_logger) {
