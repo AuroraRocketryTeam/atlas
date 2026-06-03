@@ -820,12 +820,11 @@ void RocketFSM::checkTransitions()
     case RocketState::BALLISTIC_FLIGHT:
     {
         auto elapsed = Utils::millis() - _launchDetectionTime;
-        auto isRising = _rocketModel->getIsRising();
         
         // Ignore all sensor apogee logic until the initial chaotic burn phase ends
         if (elapsed > APOGEE_LOCKOUT_MS) 
         {
-            if ((isRising && !*isRising) || (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD)) 
+            if (!_rocketModel->getIsRising() || (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD))
             {
                 LOG_INFO("RocketFSM", "Apogee detected! Elapsed: %lu ms", elapsed);
                 sendEvent(FSMEvent::APOGEE_REACHED);
@@ -852,15 +851,13 @@ void RocketFSM::checkTransitions()
     case RocketState::STABILIZATION:
     {
         auto currentHeight = _rocketModel->getCurrentHeight();
-        if (currentHeight) {
-            LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", *currentHeight);
-            if (*currentHeight < MAIN_ALTITUDE_THRESHOLD)
+        
+        LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight);
+        
+        if (currentHeight < MAIN_ALTITUDE_THRESHOLD)
             {
-                LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", *currentHeight, Utils::millis() - _stateStartTime);
+            LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", currentHeight, Utils::millis() - _stateStartTime);
                 sendEvent(FSMEvent::STABILIZATION_COMPLETE);
-            }
-        } else {
-            LOG_INFO("RocketFSM", "STABILIZATION: currentHeight is null");
         }
     
         break;
@@ -871,8 +868,7 @@ void RocketFSM::checkTransitions()
         // In DECELERATION state, vertical velocity in heightGainSpeed will still be tracked, but it should be negative (falling)
         // !!! choose if chenge the control to be with negative values or to invert the value here
 
-        auto currentHeight = _rocketModel->getCurrentHeight();
-        if (currentHeight && *currentHeight < TOUCHDOWN_ALTITUDE_THRESHOLD)
+        if (_rocketModel->getCurrentHeight() < TOUCHDOWN_ALTITUDE_THRESHOLD)
         {
             sendEvent(FSMEvent::DECELERATION_COMPLETE);
         }

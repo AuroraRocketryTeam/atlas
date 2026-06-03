@@ -18,9 +18,9 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _ms56_1(ms56_1),
     _ms56_2(ms56_2),
     _gps(gps),
-    _isRising(std::make_shared<bool>(false)),
-    _heightGainSpeed(std::make_shared<float>(0.0f)),
-    _currentHeight(std::make_shared<float>(0.0f))
+    _isRising(false),
+    _heightGainSpeed(0.0f),
+    _currentHeight(0.0f)
 #if CONFIG_AURORA_HIL_SIMULATION
     , _reset_simulation(false)
 #endif
@@ -68,15 +68,15 @@ void RocketModel::reset() {
     _cmd.reset();
 
     if (_isRising) {
-        *_isRising = false;
+        _isRising = false;
     }
 
     if (_heightGainSpeed) {
-        *_heightGainSpeed = 0.0f;
+        _heightGainSpeed = 0.0f;
     }
 
     if (_currentHeight) {
-        *_currentHeight = 0.0f;
+        _currentHeight = 0.0f;
     }
 
 #if CONFIG_AURORA_HIL_SIMULATION
@@ -312,16 +312,24 @@ void RocketModel::setSimulatedGPSData(std::shared_ptr<GPSData> data) {
     }
 }
 
-std::shared_ptr<bool> RocketModel::getIsRising() {
+bool RocketModel::getIsRising() {
     return _isRising;
 }
 
-std::shared_ptr<float> RocketModel::getHeightGainSpeed() {
+void RocketModel::setIsRising(bool isRising) {
+    _isRising = isRising;
+}
+
+float RocketModel::getHeightGainSpeed() {
     return _heightGainSpeed;
 }
 
-std::shared_ptr<float> RocketModel::getCurrentHeight() {
+float RocketModel::getCurrentHeight() {
     return _currentHeight;
+}
+
+void RocketModel::setCurrentHeight(float height) {
+    _currentHeight = height;
 }
 
 bool RocketModel::isStorageInitialized(uint32_t timeoutMs) const {

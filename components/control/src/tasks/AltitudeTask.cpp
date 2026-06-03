@@ -30,7 +30,7 @@ void AltitudeTask::taskFunction()
         }
 
         // Reject identical simulated packets
-        if (baroData->pressure <= 0.0f || baroData->timestamp == lastTimestamp) {
+        if (baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
@@ -78,9 +78,7 @@ void AltitudeTask::taskFunction()
         }
 
         // Update Model
-        if (auto heightPtr = _rocketModel->getCurrentHeight()) {
-            *heightPtr = currentAltitude;
-        }
+        _rocketModel->setCurrentHeight(currentAltitude);
         
         float currentVelocity = apogeeDetector.getVelocity();
 
@@ -105,10 +103,6 @@ float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
 
 void AltitudeTask::updateRisingTrend(float currentAltitude)
 {
-    auto isRisingPtr = _rocketModel->getIsRising();
-    if (!isRisingPtr) return;
-
     apogeeDetector.update(currentAltitude);
-    
-    *isRisingPtr = apogeeDetector.isRising();
+    _rocketModel->setIsRising(apogeeDetector.isRising());
 }

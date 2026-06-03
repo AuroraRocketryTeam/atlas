@@ -225,23 +225,37 @@ public:
     /**
      * @brief Get the flight state variables
      *
-     * @return A shared pointer to the flight state variables which is true if the rocket is rising, false otherwise
+     * @return True if the rocket is rising, false otherwise
      */
-    std::shared_ptr<bool> getIsRising();
+    bool getIsRising();
+
+    /**
+     * @brief Set the flight state variable indicating if the rocket is rising
+     *
+     * @param isRising True if the rocket is rising, false otherwise
+     */
+    void setIsRising(bool isRising);
 
     /**
      * @brief Get the estimated Height Gain Speed
      *
-     * @return std::shared_ptr<float> representing the height gain speed
+     * @return height gain speed
      */
-    std::shared_ptr<float> getHeightGainSpeed();
+    float getHeightGainSpeed();
 
     /**
      * @brief Get the Current Estimated Height
      *
-     * @return std::shared_ptr<float> representing the current estimated height
+     * @return current estimated height
      */
-    std::shared_ptr<float> getCurrentHeight();
+    float getCurrentHeight();
+
+    /**
+     * @brief Set the current estimated height
+     *
+     * @param height The current estimated height
+     */
+    void setCurrentHeight(float height);
 
     /**
      * @brief Set the command to open the main parachute.
@@ -361,9 +375,9 @@ private:
     float _batteryVoltage, _batteryPercentage;
 
     // Flight state variables
-    std::shared_ptr<bool> _isRising;
-    std::shared_ptr<float> _heightGainSpeed;
-    std::shared_ptr<float> _currentHeight;
+    bool _isRising;
+    float _heightGainSpeed;
+    float _currentHeight;
 
 #if CONFIG_AURORA_HIL_SIMULATION
     bool _reset_simulation;

@@ -102,12 +102,7 @@ void AirbrakesTask::taskFunction()
         float currentLevel = 0.0f;
 
         /* ===== READ MODEL ===== */
-        auto alt_ptr = _rocketModel->getCurrentHeight();
-
-        if (alt_ptr)
-        {
-            altitude = *alt_ptr;
-        }
+        altitude = _rocketModel->getCurrentHeight();
 
         currentLevel = _rocketModel->getCommand().getAirbrakes();
 
