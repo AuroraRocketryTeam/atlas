@@ -1,4 +1,4 @@
-#include "Logger.hpp"
+#include "SerialLogger.hpp"
 #include "esp_heap_caps.h"
 // TODO: replace ESP calls
 #include <Arduino.h>
@@ -8,7 +8,7 @@
 // Serial mutex for thread-safe printing
 static SemaphoreHandle_t serialMutex = nullptr;
 
-namespace Logger
+namespace SerialLogger
 {
 
     void init()
@@ -77,27 +77,10 @@ namespace Logger
 
     void debugMemory(const char *location)
     {
-        if (serialMutex == nullptr)
-        {
-            init();
-        }
-
-        if (xSemaphoreTake(serialMutex, pdMS_TO_TICKS(50)) == pdTRUE)
-        {
-            size_t freeHeap = ESP.getFreeHeap();
-            size_t maxAlloc = ESP.getMaxAllocHeap();
-            size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-
-            float fragmentation = 100.0f * (1.0f - (float)largestBlock / freeHeap);
-
-            printf("\n=== MEMORY DEBUG [%s] ===\n", location);
-            printf("Free heap:       %zu bytes\n", freeHeap);
-            printf("Largest block:   %zu bytes\n", largestBlock);
-            printf("Fragmentation:   %.2f%%\n", fragmentation);
-            printf("=========================\n\n");
-
-            xSemaphoreGive(serialMutex);
-        }
+        size_t maxAlloc = ESP.getMaxAllocHeap();
+        
+        // Log the memory stat so the variable isn't wasted
+        log(LogLevel::INFO, location, "Max Allocatable Block: %zu bytes", maxAlloc);
     }
 
     SemaphoreHandle_t getSerialMutex()

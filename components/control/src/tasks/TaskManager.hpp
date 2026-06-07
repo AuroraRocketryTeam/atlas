@@ -5,7 +5,7 @@
 #include <map>
 #include <string>
 #include "TaskConfig.hpp"
-#include "Logger.hpp"
+#include "SerialLogger.hpp"
 #include "SD-master.hpp"
 #include "IStorage.hpp"
 #include "RocketModel.hpp"

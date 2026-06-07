@@ -417,7 +417,7 @@ void HilSimulationTask::taskFunction() {
             _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
             _rocketModel->setSimulatedGPSData(gps);
 
-            if (false) {
+            if (_rocketModel) {
                 _logger->logSensorData(bnoData);
                 _logger->logSensorData(lis3dhData);
                 _logger->logSensorData(ms1);

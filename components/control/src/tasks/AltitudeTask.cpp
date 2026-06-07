@@ -1,7 +1,7 @@
 #include "AltitudeTask.hpp"
 #include <cmath>
 #include <config.h>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 
 void AltitudeTask::taskFunction()
 {

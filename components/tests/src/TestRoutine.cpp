@@ -14,7 +14,7 @@
 #include <config.h>
 #include <board.h>
 #include <utils.h>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 #include <E220LoRaTransmitter.hpp>
 #include <I2CBus.hpp>
 
@@ -230,7 +230,9 @@ bool TestRoutine::testSDCard()
 
     if (_sdCard->openFile(TEST_FILE)) {
         std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms\n";
-        if (_sdCard->writeFile(TEST_FILE, content.c_str())) {
+        const uint8_t* data = reinterpret_cast<const uint8_t*>(content.c_str());
+        size_t length = content.length();
+        if (_sdCard->writeFile(TEST_FILE, data, length)) {
             LOG_INFO("Test", "SD card write test successful");
             std::string readContent = _sdCard->readFile(TEST_FILE);
             if (!readContent.empty())
@@ -316,7 +318,10 @@ bool TestRoutine::testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: write '%s'", testFile.c_str());
-    if (!_flash->writeFile(testFile.c_str(), "Hello, ESP32 Flash Storage!\n"))
+    const char* writeMsg = "Hello, ESP32 Flash Storage!\n";
+    if (!_flash->writeFile(testFile.c_str(), 
+                       reinterpret_cast<const uint8_t*>(writeMsg), 
+                       strlen(writeMsg)))
     {
         LOG_ERROR("Test", "Flash write failed.");
     }
@@ -337,7 +342,10 @@ bool TestRoutine::testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: append to '%s'", testFile.c_str());
-    if (!_flash->appendFile(testFile.c_str(), "Appended line.\n"))
+    const char* appendMsg = "Appended line.\n";
+    if (!_flash->appendFile(testFile.c_str(), 
+                        reinterpret_cast<const uint8_t*>(appendMsg), 
+                        strlen(appendMsg)))
     {
         LOG_ERROR("Test", "Flash append failed.");
     }

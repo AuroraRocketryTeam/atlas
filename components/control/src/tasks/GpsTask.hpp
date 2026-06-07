@@ -6,7 +6,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <GPS.hpp>
-#include "Logger.hpp"
+#include "SerialLogger.hpp"
 #include <RocketLogger.hpp>
 
 /**

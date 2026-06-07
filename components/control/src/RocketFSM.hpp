@@ -4,7 +4,7 @@
 #include "tasks/TaskManager.hpp"
 #include "states/StateAction.hpp"
 #include "states/TransitionManager.hpp"
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 #include "RocketLogger.hpp"
 #include "config.h"
 #include <SD-master.hpp>

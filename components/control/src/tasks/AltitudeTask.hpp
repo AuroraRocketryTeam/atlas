@@ -2,7 +2,7 @@
 #include "BaseTask.hpp"
 
 #include <MS561101BA03.hpp>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 #include <RocketModel.hpp>
 #include <config.h>
 #include <array>

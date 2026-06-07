@@ -1,10 +1,9 @@
 #pragma once
-
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-namespace Logger
-{
+namespace SerialLogger
+{   
     // Log levels for structured logging
     enum class LogLevel
     {
@@ -34,8 +33,15 @@ namespace Logger
     SemaphoreHandle_t getSerialMutex();
 }
 
-#define LOG_ERROR(tag, format, ...) Logger::log(Logger::LogLevel::ERROR, tag, format, ##__VA_ARGS__)
-#define LOG_WARNING(tag, format, ...) Logger::log(Logger::LogLevel::WARNING, tag, format, ##__VA_ARGS__)
-#define LOG_INFO(tag, format, ...) Logger::log(Logger::LogLevel::INFO, tag, format, ##__VA_ARGS__)
-#define LOG_DEBUG(tag, format, ...) Logger::log(Logger::LogLevel::DEBUG, tag, format, ##__VA_ARGS__)
-#define LOG_TRACE(tag, format, ...) Logger::log(Logger::LogLevel::TRACE, tag, format, ##__VA_ARGS__)
+// TODO 
+// #define LOG_ERROR(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::ERROR, tag, format, ##__VA_ARGS__)
+// #define LOG_WARNING(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::WARNING, tag, format, ##__VA_ARGS__)
+// #define LOG_INFO(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::INFO, tag, format, ##__VA_ARGS__)
+// #define LOG_DEBUG(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::DEBUG, tag, format, ##__VA_ARGS__)
+// #define LOG_TRACE(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::TRACE, tag, format, ##__VA_ARGS__)
+
+#define LOG_ERROR(tag, format, ...)
+#define LOG_WARNING(tag, format, ...)
+#define LOG_INFO(tag, format, ...)
+#define LOG_DEBUG(tag, format, ...)
+#define LOG_TRACE(tag, format, ...)

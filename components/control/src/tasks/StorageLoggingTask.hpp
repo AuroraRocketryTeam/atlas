@@ -7,7 +7,7 @@
 #include "RocketModel.hpp"
 #include "RocketLogger.hpp"
 #include <config.h>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 
 /**
  * @brief Class to implement a generic storage logging task using JSONL architecture.

@@ -6,7 +6,7 @@
 #include "sdmmc_cmd.h"
 #include "driver/sdspi_host.h"
 #include "driver/spi_common.h"
-#include "Logger.hpp"
+#include "SerialLogger.hpp"
 #include "pins.h"
 #include <SPIBus.hpp>
 #include "IStorage.hpp"
@@ -38,13 +38,12 @@ public:
     /**
      * @brief Write a string of data to a file.
      */
-    bool writeFile(const char* filename, const char* content) override;
-
+    bool writeFile(const char* filename, const uint8_t* data, size_t length) override;
+    
     /**
      * @brief Append a string of data to a file.
      */
-    bool appendFile(const char* filename, const char* content) override;
-
+    bool appendFile(const char* filename, const uint8_t* data, size_t length) override;
     /**
      * @brief Read the whole content of a file.
      * @return A std::string with the contents of the file, or empty string if there was an error.

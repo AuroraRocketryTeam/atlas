@@ -2,7 +2,7 @@
 
 #include <nlohmann/json.hpp>
 #include <LoRa_E220.h>
-#include "ILogger.hpp"
+#include "RocketLogger.hpp"
 #include <FS.h> // Include the appropriate header for the File class
 
 /**

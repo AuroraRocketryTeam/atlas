@@ -4,7 +4,7 @@
 #include <RocketModel.hpp>
 #include "EspNowTransmitter.hpp"
 #include "E220LoRaTransmitter.hpp"
-#include "Logger.hpp"
+#include "SerialLogger.hpp"
 #include <Packet.hpp>
 #include <PacketManager.hpp>
 #include "IStateMachine.hpp"
