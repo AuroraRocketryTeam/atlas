@@ -9,7 +9,7 @@
 class IMUData : public SensorData
 {
 public:
-    IMUData(const char* sensorName) : SensorData(sensorName) {}
+    IMUData() = default;
 
     // Calibration status
     uint8_t calibration_sys = 0;

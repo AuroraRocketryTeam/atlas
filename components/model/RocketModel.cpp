@@ -82,11 +82,16 @@ void RocketModel::reset() {
 #if CONFIG_AURORA_HIL_SIMULATION
     _reset_simulation = false;
 
-    setSimulatedBNO055Data(IMUData("BNO055"));
-    setSimulatedLIS3DHTRData(AccelerometerSensorData("LIS3DHTR"));
-    setSimulatedMS561101BA03Data_1(PressureSensorData("MS561101BA03_1"));
-    setSimulatedMS561101BA03Data_2(PressureSensorData("MS561101BA03_2"));
-    setSimulatedGPSData(GPSData("GPS"));
+    IMUData bnoData;
+    AccelerometerSensorData lis3dhData;
+    PressureSensorData ms561101ba03Data_1;
+    PressureSensorData ms561101ba03Data_2;
+    GPSData gpsData;
+    setSimulatedBNO055Data(bnoData);
+    setSimulatedLIS3DHTRData(lis3dhData);
+    setSimulatedMS561101BA03Data_1(ms561101ba03Data_1);
+    setSimulatedMS561101BA03Data_2(ms561101ba03Data_2);
+    setSimulatedGPSData(gpsDataP);
 
     LOG_INFO("Main", "Set simulated data to nullptr");
 #endif

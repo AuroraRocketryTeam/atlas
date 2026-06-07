@@ -377,11 +377,11 @@ void HilSimulationTask::taskFunction() {
 
             /* ================= FILL SENSOR DATA ================= */
 
-            auto bnoData = IMUData("Sim_IMU");
-            auto lis3dhData = AccelerometerSensorData("Sim_LIS3DH");
-            auto ms1 = PressureSensorData("Sim_MS5611_1");
-            auto ms2 = PressureSensorData("Sim_MS5611_2");
-            auto gps = GPSData("Sim_GPS");
+            IMUData bnoData;
+            AccelerometerSensorData lis3dhData;
+            PressureSensorData ms1;
+            PressureSensorData ms2;
+            GPSData gps;
             
             const uint32_t sim_time_ms = static_cast<uint32_t>(pkt.sim_time * 1000.0f);
 
@@ -417,7 +417,7 @@ void HilSimulationTask::taskFunction() {
             _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
             _rocketModel->setSimulatedGPSData(gps);
 
-            if (_logger) {
+            if (false) {
                 _logger->logSensorData(bnoData);
                 _logger->logSensorData(lis3dhData);
                 _logger->logSensorData(ms1);

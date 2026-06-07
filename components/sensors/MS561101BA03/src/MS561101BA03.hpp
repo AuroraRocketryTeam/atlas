@@ -24,7 +24,7 @@
 class MS561101BA03 : public ISensor
 {
 public:
-    MS561101BA03(SPIBus* bus, gpio_num_t cs_pin);
+    MS561101BA03(const char* sensorName, SPIBus* bus, gpio_num_t cs_pin);
     ~MS561101BA03();
 
     bool init() override;
@@ -54,7 +54,7 @@ private:
     uint32_t readRawTemperature();
     void calculatePressureAndTemperature(uint32_t D1, uint32_t D2, float& pressure, float& temperature);
 
-    PressureSensorData _data{"MS561101BA03"};
+    PressureSensorData _data;
     
     enum class BaroState { IDLE, WAIT_D1, WAIT_D2 };
     BaroState _state = BaroState::IDLE;

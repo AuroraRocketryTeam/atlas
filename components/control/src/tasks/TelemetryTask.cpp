@@ -165,7 +165,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         packet.last_ack_command_id = _lastAckCommandId;
         _lastAckCommandId = 0;
 
-        IMUData outBnoData("BNO055");
+        IMUData outBnoData;
         bool result = _rocketModel->getBNO055Data(outBnoData);
         if (result) {
             packet.imu.accel_x = outBnoData.acceleration_x;
@@ -179,7 +179,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             LOG_WARNING("Telemetry", "BNO055 data not available");
         }
 
-        PressureSensorData outMs56Data1("MS561101BA03_1");
+        PressureSensorData outMs56Data1;
         result = _rocketModel->getMS561101BA03Data_1(outMs56Data1);
         if (result) {
             packet.baro1.pressure = outMs56Data1.pressure;
@@ -188,7 +188,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             LOG_WARNING("Telemetry", "Barometer 1 data not available");
         }
 
-        PressureSensorData outMs56Data2("MS561101BA03_2");
+        PressureSensorData outMs56Data2;
         result = _rocketModel->getMS561101BA03Data_2(outMs56Data2);
         if (result) {
             packet.baro2.pressure = outMs56Data2.pressure;
@@ -197,7 +197,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             LOG_WARNING("Telemetry", "Barometer 2 data not available");
         }
 
-        GPSData gpsData("GPS");
+        GPSData gpsData;
         result = _rocketModel->getGPSData(gpsData);
         if (result) {
             packet.gps.latitude = gpsData.latitude;

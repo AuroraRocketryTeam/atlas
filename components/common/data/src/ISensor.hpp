@@ -11,6 +11,17 @@ class ISensor
 {
 public:
     /**
+     * @brief Construct a new ISensor object with a specific identity.
+     * * @param name Name of the sensor.
+     */
+    ISensor(const char* name) {
+        strncpy(sensorName, name, sizeof(sensorName) - 1);
+        sensorName[sizeof(sensorName) - 1] = '\0';
+    }
+
+    virtual ~ISensor() = default;
+
+    /**
      * @brief Initialize the sensor.
      *
      * @return true if the sensor was initialized successfully
@@ -35,11 +46,22 @@ public:
     {
         return initialized;
     }
+
+    /**
+     * @brief Get the identity of the sensor.
+     * @return const char* */
+    const char* getSensorName() const 
+    {
+        return sensorName;
+    }
+
 protected:
     void setInitialized(bool initialized)
     {
         this->initialized = initialized;
     }
+    
+    char sensorName[16] = {0};
 
 private:
     bool initialized = false;

@@ -9,7 +9,7 @@
 class AccelerometerSensorData : public SensorData
 {
 public:
-    AccelerometerSensorData(const char* sensorName) : SensorData(sensorName) {}
+    AccelerometerSensorData() = default;
     // Acceleration (m/s^2)
     float acceleration_x = 0.0f;
     float acceleration_y = 0.0f;

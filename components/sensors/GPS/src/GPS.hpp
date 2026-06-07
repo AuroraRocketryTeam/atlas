@@ -22,10 +22,11 @@ class GPS : public ISensor
 public:
     /**
      * @brief Construct a new GPS sensor object.
+     * @param sensorName Name of the sensor.
      * @param tx_pin ESP32 pin connected to the GPS module's RX pin.
      * @param rx_pin ESP32 pin connected to the GPS module's TX pin.
      */
-    GPS(int tx_pin, int rx_pin);
+    GPS(const char *sensorName, int tx_pin, int rx_pin);
 
     ~GPS();
 

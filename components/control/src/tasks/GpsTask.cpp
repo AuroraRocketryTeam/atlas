@@ -18,7 +18,7 @@ void GpsTask::taskFunction()
         esp_task_wdt_reset();
 
         _rocketModel->updateGPS();
-        GPSData gpsData("GPS");
+        GPSData gpsData;
         bool result = _rocketModel->getGPSData(gpsData);
         if (!result) {
             LOG_WARNING("GpsTask", "Failed to get GPS data");

@@ -17,7 +17,7 @@ void AltitudeTask::taskFunction()
         esp_task_wdt_reset();
         if(!running) break;
 
-        PressureSensorData baroData("Barometer");
+        PressureSensorData baroData;
 #ifdef BARO_1
         bool result = _rocketModel->getMS561101BA03Data_1(baroData);
 #else

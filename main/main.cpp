@@ -26,7 +26,6 @@
 
 // Interfaces
 #include <ISensor.hpp>
-#include <ILogger.hpp>
 #include <ITransmitter.hpp>
 
 // System model
@@ -39,10 +38,11 @@
 #include <GPS.hpp>
 
 // Storage and logging
+#include <PayloadSerializer.hpp>
 #include <SD-master.hpp>
 #include <Flash.hpp>
 #include <RocketLogger.hpp>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 
 // Controllers and filters
 #include <LEDController.hpp>
@@ -135,6 +135,7 @@ void setup()
     // Initialize logger
     LOG_INFO("Init", "Initializing rocket logger...");
     logger = std::make_shared<RocketLogger>();
+    logger->setSerializer(PayloadSerializers::toJson);
     LOG_INFO("Init", "Rocket logger initialized");
 
     // Create Nemesis instance (storage backends are optional)
@@ -310,7 +311,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     LOG_INFO("Init", "Initializing sensors...");
 
     // Initialize BNO055 (IMU)
-    bno055 = std::make_shared<BNO055Sensor>(board.get_i2c_bus(IBoardHardware::Sensor::IMU), board.get_bno055_i2c_address());
+    bno055 = std::make_shared<BNO055Sensor>("BNO055", board.get_i2c_bus(IBoardHardware::Sensor::IMU), board.get_bno055_i2c_address());
     if (bno055 && bno055->init())
     {
         LOG_INFO("Init", "BNO055 (IMU) initialized");
@@ -321,7 +322,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize barometers
-    baro1 = std::make_shared<MS561101BA03>(board.get_spi_bus(), MANNY_BAROMETER_CS_PIN);
+    baro1 = std::make_shared<MS561101BA03>("MS561101BA03_1", board.get_spi_bus(), MANNY_BAROMETER_CS_PIN);
     if (baro1 && baro1->init())
     {
         LOG_INFO("Init", "Barometer 1 initialized");
@@ -331,7 +332,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
-    baro2 = std::make_shared<MS561101BA03>(board.get_spi_bus(), board.get_barometer2_cs_pin());
+    baro2 = std::make_shared<MS561101BA03>("MS561101BA03_2", board.get_spi_bus(), board.get_barometer2_cs_pin());
     if (baro2 && baro2->init())
     {
         LOG_INFO("Init", "Barometer 2 initialized");
@@ -342,7 +343,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize accelerometer
-    accl = std::make_shared<LIS3DHTRSensor>(board.get_i2c_bus(IBoardHardware::Sensor::ACC));
+    accl = std::make_shared<LIS3DHTRSensor>("LIS3DHTR", board.get_i2c_bus(IBoardHardware::Sensor::ACC));
     if (accl && accl->init())
     {
         LOG_INFO("Init", "LIS3DHTR (Accelerometer) initialized");
@@ -359,7 +360,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
     else
     {
-        gps = std::make_shared<GPS>(board.get_gps_tx_pin(), board.get_gps_rx_pin());
+        gps = std::make_shared<GPS>("GPS", board.get_gps_tx_pin(), board.get_gps_rx_pin());
         if (gps->init())
         {
             LOG_INFO("Init", "GPS initialized");

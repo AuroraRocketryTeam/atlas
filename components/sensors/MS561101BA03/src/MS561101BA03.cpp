@@ -3,17 +3,19 @@
 #include "freertos/task.h"
 #include <utils.h>
 
-MS561101BA03::MS561101BA03(SPIBus* bus, gpio_num_t cs_pin)
+MS561101BA03::MS561101BA03(const char *sensorName, SPIBus *bus, gpio_num_t cs_pin) : ISensor(sensorName)
 {
     memset(_calibrationData, 0, sizeof(_calibrationData));
 
-    spi_device_interface_config_t dev_cfg = {
-        .mode           = 0,           // SPI mode 0 (CPOL=0, CPHA=0)
-        .clock_speed_hz = 20'000'000,    // 20 MHz (MS5611 max)
-        .spics_io_num   = cs_pin,
-        .queue_size     = 1,
-    };
+    spi_device_interface_config_t dev_cfg = {};
+    dev_cfg.mode = 0;                    // SPI mode 0 (CPOL=0, CPHA=0)
+    dev_cfg.clock_speed_hz = 1000000;    // 20 MHz (MS5611 max)
+    dev_cfg.spics_io_num = cs_pin;
+    dev_cfg.queue_size = 7;
+    
     spi_bus_add_device(bus->get_host(), &dev_cfg, &_dev_handle);
+
+    _data.setSensorName(this->getSensorName());
 }
 
 MS561101BA03::~MS561101BA03()

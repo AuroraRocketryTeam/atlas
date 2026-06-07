@@ -1,9 +1,10 @@
 #include <BNO055Sensor.hpp>
 #include <utils.h>
 
-BNO055Sensor::BNO055Sensor(I2CBus* bus, uint8_t address)
-    : _bno_interface(bus, address)
+BNO055Sensor::BNO055Sensor(const char *sensorName, I2CBus* bus, uint8_t address)
+    : ISensor(sensorName), _bno_interface(bus, address)
 {
+    _data.setSensorName(this->getSensorName());
 }
 
 bool BNO055Sensor::init()

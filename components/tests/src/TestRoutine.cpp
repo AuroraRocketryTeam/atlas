@@ -143,7 +143,7 @@ bool TestRoutine::testSensors()
 
     _board.init_sensor_test_pins();
     
-    IMUData imuData("BNO055");
+    IMUData imuData;
     bool imu_ok = _model->getBNO055Data(imuData);
     if (!imu_ok) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
@@ -166,7 +166,7 @@ bool TestRoutine::testSensors()
     _model->updateMS561101BA03_1();
     _model->updateMS561101BA03_2();
 
-    PressureSensorData baro1Data("Barometer 1");
+    PressureSensorData baro1Data;
     bool baro1_ok = _model->getMS561101BA03Data_1(baro1Data);
     if (!baro1_ok) {
         _statusManager.playBlockingPattern(BARO1_FAIL, 2000);
@@ -177,7 +177,7 @@ bool TestRoutine::testSensors()
     }
 
 
-    PressureSensorData baro2Data("Barometer 2");
+    PressureSensorData baro2Data;
     bool baro2_ok = _model->getMS561101BA03Data_2(baro2Data);
     if (!baro2_ok) {
         _statusManager.playBlockingPattern(BARO2_FAIL, 2000);
@@ -187,7 +187,7 @@ bool TestRoutine::testSensors()
                  (double)baro2Data.pressure);
     }
 
-    AccelerometerSensorData acclData("Accelerometer");
+    AccelerometerSensorData acclData;
     bool accl_ok  = _model->getLIS3DHTRData(acclData);
     if (!accl_ok) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
@@ -729,7 +729,7 @@ bool TestRoutine::calibrateAndSaveIMU()
     while (!calibrated)
     {
         _model->updateBNO055();
-        IMUData data("BNO055");
+        IMUData data;
         bool result = _model->getBNO055Data(data);
         if (!result) {
             LOG_WARNING("Test", "Failed to get BNO055 data");

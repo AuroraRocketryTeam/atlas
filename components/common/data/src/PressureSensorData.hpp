@@ -9,7 +9,7 @@
 class PressureSensorData : public SensorData
 {
 public:
-    PressureSensorData(const char* sensorName) : SensorData(sensorName) {}
+    PressureSensorData() = default;
     // Pressure (hPa)
     float pressure = 0.0f;
 

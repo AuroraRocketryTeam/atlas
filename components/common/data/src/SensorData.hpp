@@ -12,9 +12,11 @@ using json = nlohmann::json;
 class SensorData
 {
 protected:
-    char sensorName[16];
+    char sensorName[16] = {0};
 
 public:
+    SensorData() = default;
+
     /**
      * @brief Construct a new Sensor Data object.
      *
@@ -22,8 +24,18 @@ public:
      */
     SensorData(const char* name) {
         strncpy(sensorName, name, sizeof(sensorName) - 1);
-        sensorName[sizeof(sensorName) - 1] = '\0'; // Ensure null-termination
+        sensorName[sizeof(sensorName) - 1] = '\0';
     }
+
+    /**
+     * @brief Stames the data packet with the name of the source sensor.
+     * * @param name Name of the sensor.
+     */
+    void setSensorName(const char* name) {
+        strncpy(sensorName, name, sizeof(sensorName) - 1);
+        sensorName[sizeof(sensorName) - 1] = '\0';
+    }
+
     /**
      * @brief Get the Sensor Name object
      *

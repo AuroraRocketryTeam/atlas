@@ -9,7 +9,7 @@
 class GPSData : public SensorData
 {
 public:
-    GPSData(const char* sensorName = "GPS") : SensorData(sensorName) {}
+    GPSData() = default;
     uint8_t satellites = 0;
     
     // Fix type (0=no fix, 1=dead reckoning, 2=2D fix, 3=3D fix, 4=GNSS+dead reckoning, 5=time-only fix) 

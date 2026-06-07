@@ -6,50 +6,20 @@
 
 static const char* TAG = "LIS3DHTRSensor";
 
-int32_t LIS3DHTRSensor::platform_write(void *handle, uint8_t reg, const uint8_t *bufp, uint16_t len)
+LIS3DHTRSensor::LIS3DHTRSensor(const char *sensorName, I2CBus* bus, uint8_t address)
+    : ISensor(sensorName), _dev_handle(nullptr)
 {
-    i2c_master_dev_handle_t dev = *(i2c_master_dev_handle_t *)handle;
-
-    // LIS3DH requires the MSB of the register address to be set to 1 for multiple byte writes
-    if (len > 1) reg |= 0x80;
-
-    // ESP-IDF standard write: construct a buffer with the register address followed by the data
-    uint8_t* write_buf = (uint8_t*)malloc(len + 1);
-    write_buf[0] = reg;
-    memcpy(&write_buf[1], bufp, len);
-
-    esp_err_t err = i2c_master_transmit(dev, write_buf, len + 1, 100);
-    free(write_buf);
-
-    return (err == ESP_OK) ? 0 : -1;
-}
-
-int32_t LIS3DHTRSensor::platform_read(void *handle, uint8_t reg, uint8_t *bufp, uint16_t len)
-{
-    i2c_master_dev_handle_t dev = *(i2c_master_dev_handle_t *)handle;
-
-    // LIS3DH requires the MSB of the register address to be set to 1 for multiple byte reads
-    if (len > 1) reg |= 0x80;
-
-    esp_err_t err = i2c_master_transmit_receive(dev, &reg, 1, bufp, len, 100);
-
-    return (err == ESP_OK) ? 0 : -1;
-}
-
-LIS3DHTRSensor::LIS3DHTRSensor(I2CBus* bus, uint8_t address)
-    : _dev_handle(nullptr)
-{
-    i2c_device_config_t dev_cfg = {
-        // from the LIS3DH datasheet, 7 bit address
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address  = address,
-        .scl_speed_hz    = 400000,
-    };
+    i2c_device_config_t dev_cfg = {};
+    dev_cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+    dev_cfg.device_address = address;
+    dev_cfg.scl_speed_hz = 400000;
     i2c_master_bus_add_device(*bus->get_handle(), &dev_cfg, &_dev_handle);
 
     _dev_ctx.write_reg = platform_write;
     _dev_ctx.read_reg = platform_read;
     _dev_ctx.handle = (void *)&_dev_handle;
+
+    _data.setSensorName(this->getSensorName());
 }
 
 LIS3DHTRSensor::~LIS3DHTRSensor()
@@ -99,8 +69,6 @@ bool LIS3DHTRSensor::updateData()
         // ST's API reads all 3 axes at once
         lis3dh_acceleration_raw_get(&_dev_ctx, data_raw_acceleration);
 
-        _data = AccelerometerSensorData("LIS3DHTR");
-
         // ST provides macro functions to convert raw integers to float mg based on the scale/resolution
         _data.acceleration_x = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[0]) * 0.001f * GRAVITY;
         _data.acceleration_y = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[1]) * 0.001f * GRAVITY;
@@ -116,4 +84,34 @@ bool LIS3DHTRSensor::updateData()
 AccelerometerSensorData LIS3DHTRSensor::getData()
 {
     return _data;
+}
+
+int32_t LIS3DHTRSensor::platform_write(void *handle, uint8_t reg, const uint8_t *bufp, uint16_t len)
+{
+    i2c_master_dev_handle_t dev = *(i2c_master_dev_handle_t *)handle;
+
+    // LIS3DH requires the MSB of the register address to be set to 1 for multiple byte writes
+    if (len > 1) reg |= 0x80;
+
+    // ESP-IDF standard write: construct a buffer with the register address followed by the data
+    uint8_t* write_buf = (uint8_t*)malloc(len + 1);
+    write_buf[0] = reg;
+    memcpy(&write_buf[1], bufp, len);
+
+    esp_err_t err = i2c_master_transmit(dev, write_buf, len + 1, 100);
+    free(write_buf);
+
+    return (err == ESP_OK) ? 0 : -1;
+}
+
+int32_t LIS3DHTRSensor::platform_read(void *handle, uint8_t reg, uint8_t *bufp, uint16_t len)
+{
+    i2c_master_dev_handle_t dev = *(i2c_master_dev_handle_t *)handle;
+
+    // LIS3DH requires the MSB of the register address to be set to 1 for multiple byte reads
+    if (len > 1) reg |= 0x80;
+
+    esp_err_t err = i2c_master_transmit_receive(dev, &reg, 1, bufp, len, 100);
+
+    return (err == ESP_OK) ? 0 : -1;
 }

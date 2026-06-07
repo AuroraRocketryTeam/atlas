@@ -380,11 +380,11 @@ private:
     float _heightGainSpeed;
     float _currentHeight;
 
-    IMUData _bnoData{"BNO055"};
-    AccelerometerSensorData _lis3dhData{"LIS3DHTR"};
-    PressureSensorData _ms561101ba03Data_1{"MS561101BA03_1"};
-    PressureSensorData _ms561101ba03Data_2{"MS561101BA03_2"};
-    GPSData _gpsData{"GPS"};
+    IMUData _bnoData;
+    AccelerometerSensorData _lis3dhData;
+    PressureSensorData _ms561101ba03Data_1;
+    PressureSensorData _ms561101ba03Data_2;
+    GPSData _gpsData;
 
 #if CONFIG_AURORA_HIL_SIMULATION
     bool _reset_simulation;

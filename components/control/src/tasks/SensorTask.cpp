@@ -39,7 +39,7 @@ void SensorTask::taskFunction()
         rocketModel->updateMS561101BA03_1();
         rocketModel->updateMS561101BA03_2();
         rocketModel->updateLIS3DHTR();
-            
+
         LOG_DEBUG("Sensor", "Updated all sensors");
         
         if (!running) break;
@@ -60,30 +60,30 @@ void SensorTask::taskFunction()
 
 #ifndef CONFIG_AURORA_HIL_SIMULATION
         // Log sensor data every 3 loops if logger is available
-        if (logger && loopCount % 3 == 0)
+        if (logger)
         {
             // Log sensor data through the model
             if (rocketModel)
             {
-                IMUData outBnoData("BNO055");
+                IMUData outBnoData;
                 bool result = rocketModel->getBNO055Data(outBnoData);
                 if (result) {
                     logger->logSensorData(outBnoData);
                 }
 
-                PressureSensorData outMs56Data1("MS561101BA03_1");
+                PressureSensorData outMs56Data1;
                 result = rocketModel->getMS561101BA03Data_1(outMs56Data1);
                 if (result) {
                     logger->logSensorData(outMs56Data1);
                 }
 
-                PressureSensorData outMs56Data2("MS561101BA03_2");
+                PressureSensorData outMs56Data2;
                 result = rocketModel->getMS561101BA03Data_2(outMs56Data2);
                 if (result) {
                     logger->logSensorData(outMs56Data2);
                 }
 
-                AccelerometerSensorData outLis3dhData("LIS3DHTR");
+                AccelerometerSensorData outLis3dhData;
                 result = rocketModel->getLIS3DHTRData(outLis3dhData);
                 if (result) {
                     logger->logSensorData(outLis3dhData);

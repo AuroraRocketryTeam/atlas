@@ -4,10 +4,11 @@
 
 static const char *TAG = "GPS_SENSOR";
 
-GPS::GPS(int tx_pin, int rx_pin) : _tx_pin(tx_pin), _rx_pin(rx_pin), _nmea_hdl(nullptr)
+GPS::GPS(const char *sensorName, int tx_pin, int rx_pin) : ISensor(sensorName),  _tx_pin(tx_pin), _rx_pin(rx_pin), _nmea_hdl(nullptr)
 {
     // Initialize the data object and the FreeRTOS mutex
     _data_mutex = xSemaphoreCreateMutex();
+    _data.setSensorName(this->getSensorName());
 }
 
 GPS::~GPS()
