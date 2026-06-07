@@ -6,7 +6,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <nlohmann/json.hpp>
-#include <LogMessage.hpp>
 #include <SensorData.hpp>
 #include "SerialLogger.hpp"
 #include "LogPayload.hpp"
