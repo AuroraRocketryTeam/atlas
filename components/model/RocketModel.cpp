@@ -91,7 +91,7 @@ void RocketModel::reset() {
     setSimulatedLIS3DHTRData(lis3dhData);
     setSimulatedMS561101BA03Data_1(ms561101ba03Data_1);
     setSimulatedMS561101BA03Data_2(ms561101ba03Data_2);
-    setSimulatedGPSData(gpsDataP);
+    setSimulatedGPSData(gpsData);
 
     LOG_INFO("Main", "Set simulated data to nullptr");
 #endif
