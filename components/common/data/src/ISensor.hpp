@@ -1,7 +1,6 @@
 #pragma once
 
 #include <SensorData.hpp>
-#include <optional>
 
 /**
  * @brief Interface for sensors.

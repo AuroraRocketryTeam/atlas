@@ -1,6 +1,5 @@
 #pragma once
 #include <SensorData.hpp>
-#include <string.h>
 
 /**
  * @brief Data structure for a general accelerometer sensor readings
@@ -18,9 +17,9 @@ public:
     // Metadata
     uint32_t timestamp = 0;
 
-    size_t serializeJson(char* buffer, size_t maxLength) const override {
+    size_t serializeJson(char* buffer, size_t maxLength) const {
         return snprintf(buffer, maxLength, 
             "{\"source\":\"%s\",\"sensorData\":{\"acceleration_x\":%f,\"acceleration_y\":%f,\"acceleration_z\":%f,\"timestamp\":%lu}}\n",
-            getSensorName().c_str(), acceleration_x, acceleration_y, acceleration_z, (unsigned long)timestamp);
+            getSensorName(), acceleration_x, acceleration_y, acceleration_z, (unsigned long)timestamp);
     }
 };

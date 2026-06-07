@@ -1,6 +1,5 @@
 #pragma once
 #include <SensorData.hpp>
-#include <string.h>
 
 /**
  * @brief Data structure for a general IMU sensor
@@ -59,7 +58,7 @@ public:
     // Metadata
     uint32_t timestamp = 0;
     
-    size_t serializeJson(char* buffer, size_t maxLength) const override {
+    size_t serializeJson(char* buffer, size_t maxLength) const {
         return snprintf(buffer, maxLength,
             "{\"source\":\"%s\",\"sensorData\":{"
             "\"csys\":%u,\"cgyro\":%u,\"caccel\":%u,\"cmag\":%u,"
@@ -71,7 +70,7 @@ public:
             "\"mx\":%f,\"my\":%f,\"mz\":%f,"
             "\"qw\":%f,\"qx\":%f,\"qy\":%f,\"qz\":%f,"
             "\"te\":%f,\"t\":%lu}}\n",
-            getSensorName().c_str(),
+            getSensorName(),
             calibration_sys, calibration_gyro, calibration_accel, calibration_mag,
             orientation_x, orientation_y, orientation_z,
             angular_velocity_x, angular_velocity_y, angular_velocity_z,

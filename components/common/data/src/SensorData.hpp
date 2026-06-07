@@ -1,9 +1,6 @@
 #pragma once
-
-#include <string>
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
+#include <string.h>
+#include <cstdio>
 
 /**
  * @brief Class to store sensor data.
@@ -39,18 +36,9 @@ public:
     /**
      * @brief Get the Sensor Name object
      *
-     * @return A string representing the name of the sensor.
+     * @return const char* Name of the sensor.
      */
-    std::string getSensorName() const {
-        return std::string(sensorName);
+    const char* getSensorName() const {
+        return sensorName;
     }
-
-    /**
-     * @brief Get the JSON representation of the object.
-     *
-     * @return A json object.
-     */
-    virtual size_t serializeJson(char* buffer, size_t maxLength) const = 0;
 };
-
-

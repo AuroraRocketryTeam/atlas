@@ -1,6 +1,5 @@
 #pragma once
 #include <SensorData.hpp>
-#include <string.h>
 
 /**
  * @brief Data structure for GPS sensor readings
@@ -33,9 +32,9 @@ public:
     // Metadata
     uint32_t timestamp = 0;
     
-    size_t serializeJson(char* buffer, size_t maxLength) const override {
+    size_t serializeJson(char* buffer, size_t maxLength) const {
         return snprintf(buffer, maxLength, 
             "{\"source\":\"%s\",\"sensorData\":{\"satellites\":%u,\"fixType\":%u,\"latitude\":%f,\"longitude\":%f,\"altitude\":%f,\"ground_speed\":%f,\"hdop\":%f,\"timestamp\":%lu}}\n",
-            getSensorName().c_str(), satellites, fixType, latitude, longitude, altitude, ground_speed, hdop, (unsigned long)timestamp);
+            getSensorName(), satellites, fixType, latitude, longitude, altitude, ground_speed, hdop, (unsigned long)timestamp);
     }
 };

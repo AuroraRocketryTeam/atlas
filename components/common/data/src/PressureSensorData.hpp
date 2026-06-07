@@ -1,6 +1,5 @@
 #pragma once
 #include <SensorData.hpp>
-#include <string.h>
 
 /**
  * @brief Data structure for Pressure sensor readings
@@ -19,9 +18,9 @@ public:
     // Metadata
     uint32_t timestamp = 0;
 
-    size_t serializeJson(char* buffer, size_t maxLength) const override {
+    size_t serializeJson(char* buffer, size_t maxLength) const {
         return snprintf(buffer, maxLength, 
             "{\"source\":\"%s\",\"sensorData\":{\"pressure\":%f,\"temperature\":%f,\"timestamp\":%lu}}\n",
-            getSensorName().c_str(), pressure, temperature, (unsigned long)timestamp);
+            getSensorName(), pressure, temperature, (unsigned long)timestamp);
     }
 };
