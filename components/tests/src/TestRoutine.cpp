@@ -412,7 +412,7 @@ bool TestRoutine::clearFlashMemory()
 
     printf("WARNING: This operation will format the entire Flash memory.\n");
     printf("All data will be lost!\n");
-    printf("Are you sure you want to continue? (Y/n): ");
+    printf("Are you sure you want to continue? (Y/n): \n");
     
     char buffer[16] = {0};
     Utils::readLine(buffer, sizeof(buffer));
