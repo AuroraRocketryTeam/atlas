@@ -11,8 +11,8 @@ public:
 
     virtual bool openFile(const char* filename) = 0;
     virtual bool closeFile() = 0;
-    virtual bool writeFile(const char* filename, const char* content) = 0;
-    virtual bool appendFile(const char* filename, const char* content) = 0;
+    virtual bool writeFile(const char* filename, const uint8_t* data, size_t length) = 0;
+    virtual bool appendFile(const char* filename, const uint8_t* data, size_t length) = 0;
     
     virtual std::string readFile(const char* filename) = 0;
     virtual std::string readLine() = 0;

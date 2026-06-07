@@ -414,30 +414,26 @@ std::string RocketModel::storageReadLine(uint32_t timeoutMs) {
     return "";
 }
 
-bool RocketModel::storageWriteFile(const char* filename, const char* content, uint32_t timeoutMs) {
-    if (filename == nullptr || content == nullptr) {
-        return false;
-    }
+bool RocketModel::storageWriteFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs) {
+    if (filename == nullptr || data == nullptr || length == 0) return false;
 
     if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const bool ready = _storage && _storage->isInitialized();
-        const bool ok = ready && _storage->openFile(filename) && _storage->writeFile(filename, content) && _storage->closeFile();
+        const bool ok = ready && _storage->openFile(filename) && 
+                        _storage->writeFile(filename, data, length) && 
+                        _storage->closeFile();
         xSemaphoreGive(_storageMutex);
         return ok;
     }
     return false;
 }
 
-bool RocketModel::storageAppendFile(const char* filename, const char* content, uint32_t timeoutMs) {
-    if (filename == nullptr || content == nullptr) {
-        return false;
-    }
+bool RocketModel::storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs) {
+    if (filename == nullptr || data == nullptr || length == 0) return false;
 
     if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const bool ready = _storage && _storage->isInitialized();
-        
-        const bool ok = ready && _storage->appendFile(filename, content);
-        
+        const bool ok = ready && _storage->appendFile(filename, data, length);
         xSemaphoreGive(_storageMutex);
         return ok;
     }

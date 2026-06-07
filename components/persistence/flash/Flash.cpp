@@ -192,26 +192,26 @@ bool Flash::closeFile() {
     return true;
 }
 
-bool Flash::writeFile(const char* filename, const char* content) {
-    if (filename == nullptr || content == nullptr) return false;
+bool Flash::writeFile(const char* filename, const uint8_t* data, size_t length) {
+    if (filename == nullptr || data == nullptr || length == 0) return false;
     if (!_initialized && !init()) return false;
 
     FILE* f = fopen(getFullPath(filename).c_str(), "w");
     if (!f) return false;
 
-    fputs(content, f);
+    fwrite(data, 1, length, f);
     fclose(f);
     return true;
 }
 
-bool Flash::appendFile(const char* filename, const char* content) {
-    if (filename == nullptr || content == nullptr) return false;
+bool Flash::appendFile(const char* filename, const uint8_t* data, size_t length) {
+    if (filename == nullptr || data == nullptr || length == 0) return false;
     if (!_initialized && !init()) return false;
 
     FILE* f = fopen(getFullPath(filename).c_str(), "a");
     if (!f) return false;
 
-    fputs(content, f);
+    fwrite(data, 1, length, f);
     fclose(f);
     return true;
 }

@@ -98,22 +98,15 @@ bool SD::closeFile()
  * @param content  the content to write
  * @return true if the file is written, false otherwise
  */
-bool SD::writeFile(const char* filename, const char* content)
+bool SD::writeFile(const char* filename, const uint8_t* data, size_t length)
 {
-    if (filename == nullptr || content == nullptr) {
-        return false;
-    }
-
+    if (filename == nullptr || data == nullptr || length == 0) return false;
     std::string full_path = mount_point + "/" + filename;
-
-    // overwrite mode
     FILE* temp_file = fopen(full_path.c_str(), "w");
-    if (temp_file == nullptr)
-    {
-        return false;
-    }
+    if (temp_file == nullptr) return false;
     
-    fputs(content, temp_file);
+    // Use fwrite instead of fputs
+    fwrite(data, 1, length, temp_file);
     fclose(temp_file);
     return true;
 }
@@ -125,23 +118,17 @@ bool SD::writeFile(const char* filename, const char* content)
  * @param content  the content to append
  * @return true if the content is appended, false otherwise
  */
-bool SD::appendFile(const char* filename, const char* content)
+bool SD::appendFile(const char* filename, const uint8_t* data, size_t length)
 {
-    if (filename == nullptr || content == nullptr) {
-        return false;
-    }
-
-    if (this->file == nullptr)
-    {
-        if(!this->openFile(filename))
-        {
-            return false;
-        }
+    if (filename == nullptr || data == nullptr || length == 0) return false;
+    if (this->file == nullptr) {
+        if(!this->openFile(filename)) return false;
     }
     
     fseek(this->file, 0, SEEK_END);
     
-    fputs(content, this->file);
+    // Use fwrite instead of fputs
+    fwrite(data, 1, length, this->file);
     fflush(this->file);
     return true;
 }

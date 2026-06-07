@@ -18,7 +18,6 @@
 #include <Flash.hpp>
 #include <IStorage.hpp>
 #include <config.h>
-
 /**
  * @brief Class representing the Nemesis rocket model and sensor/state storage.
  *
@@ -137,6 +136,8 @@ public:
      * @brief Check GPS availability
      */
     bool hasGPS() { return _gps != nullptr; }
+
+    
     
     /**
      * @brief Thread-safe helper to check storage availability.
@@ -166,12 +167,12 @@ public:
     /**
      * @brief Thread-safe helper to write content to a file in storage.
      */
-    bool storageWriteFile(const char* filename, const char* content, uint32_t timeoutMs = 200);
-
+    bool storageWriteFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs = 200);
+    
     /**
      * @brief Thread-safe helper to append content to a file in storage.
      */
-    bool storageAppendFile(const char* filename, const char* content, uint32_t timeoutMs = 200);
+    bool storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs = 200);
 
 #if CONFIG_AURORA_HIL_SIMULATION
     // Simulation
@@ -355,7 +356,7 @@ public:
      * @brief Get the calculated launchpad baseline temperature
      */
     float getLaunchpadBaseTemperature() const;
-
+    
 private:
     // Sensor instances
     std::shared_ptr<BNO055Sensor> _bno;

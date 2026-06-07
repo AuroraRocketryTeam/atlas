@@ -36,6 +36,12 @@ private:
     // Single append-only file for all flight telemetry
     const char* TELEMETRY_FILENAME = "flight_telemetry.jsonl";
     
-    // Buffer to hold data if a write fails
-    char* pendingDataToWrite = nullptr; 
+    // Fixed-size memory block allocated once when the task is created
+    static constexpr size_t WRITE_BUFFER_SIZE = 4096; 
+    uint8_t writeBuffer[WRITE_BUFFER_SIZE];
+    
+    // Tracks how many bytes in the buffer are currently waiting to be written
+    size_t pendingBytesToWrite = 0; 
+    
+    const uint32_t FLUSH_TIMEOUT_MS = 1000;
 };
