@@ -1,6 +1,7 @@
 #pragma once
 #include <variant>
-#include <nlohmann/json.hpp>
+#include <cstring>
+#include <cstdio>
 #include "AccelerometerSensorData.hpp"
 #include "GPSData.hpp"
 #include "IMUData.hpp"

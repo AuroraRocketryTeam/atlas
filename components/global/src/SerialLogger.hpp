@@ -33,15 +33,14 @@ namespace SerialLogger
     SemaphoreHandle_t getSerialMutex();
 }
 
-// TODO 
-// #define LOG_ERROR(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::ERROR, tag, format, ##__VA_ARGS__)
-// #define LOG_WARNING(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::WARNING, tag, format, ##__VA_ARGS__)
-// #define LOG_INFO(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::INFO, tag, format, ##__VA_ARGS__)
-// #define LOG_DEBUG(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::DEBUG, tag, format, ##__VA_ARGS__)
-// #define LOG_TRACE(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::TRACE, tag, format, ##__VA_ARGS__)
+#define LOG_ERROR(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::ERROR, tag, format, ##__VA_ARGS__)
+#define LOG_WARNING(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::WARNING, tag, format, ##__VA_ARGS__)
+#define LOG_INFO(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::INFO, tag, format, ##__VA_ARGS__)
+#define LOG_DEBUG(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::DEBUG, tag, format, ##__VA_ARGS__)
+#define LOG_TRACE(tag, format, ...) SerialLogger::log(SerialLogger::LogLevel::TRACE, tag, format, ##__VA_ARGS__)
 
-#define LOG_ERROR(tag, format, ...)
-#define LOG_WARNING(tag, format, ...)
-#define LOG_INFO(tag, format, ...)
-#define LOG_DEBUG(tag, format, ...)
-#define LOG_TRACE(tag, format, ...)
+// #define LOG_ERROR(tag, format, ...)
+// #define LOG_WARNING(tag, format, ...)
+// #define LOG_INFO(tag, format, ...)
+// #define LOG_DEBUG(tag, format, ...)
+// #define LOG_TRACE(tag, format, ...)

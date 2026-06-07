@@ -10,7 +10,7 @@ BNO055Sensor::BNO055Sensor(const char *sensorName, I2CBus* bus, uint8_t address)
 bool BNO055Sensor::init()
 {
     int attempts = 0;
-    uint start = Utils::millis();
+    uint32_t start = Utils::millis();
     bool initialized = false;
     
     while (attempts++ < SENSOR_LOOKUP_MAX_ATTEMPTS) {
@@ -28,7 +28,7 @@ bool BNO055Sensor::init()
             return false;
         }
         
-        uint end = Utils::millis();
+        uint32_t end = Utils::millis();
         while (end - start < SENSOR_LOOKUP_TIMEOUT) {
             end = Utils::millis();
         }

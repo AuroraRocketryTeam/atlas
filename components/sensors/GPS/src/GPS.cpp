@@ -60,7 +60,15 @@ bool GPS::init()
 
 bool GPS::updateData()
 {
-    return _data.fixType >= 2;
+    uint8_t fixType = 0;
+    if (xSemaphoreTake(_data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        fixType = _data.fixType;
+        xSemaphoreGive(_data_mutex);
+    } else {
+        ESP_LOGW(TAG, "Failed to acquire GPS data mutex");
+    }
+
+    return fixType >= 2;
 }
 
 GPSData GPS::getData()
