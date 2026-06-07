@@ -169,6 +169,20 @@ bool E220LoRaTransmitter::receive(CommandPacket* packet)
 
 ResponseStatusContainer E220LoRaTransmitter::configure(Configuration configuration)
 {
+    // Use temporary 9600 baud for the configuration step, then let
+    // the caller (init) restart at 115200
+    if (_serial && _rxPin != GPIO_NUM_NC && _txPin != GPIO_NUM_NC)
+    {
+        LoRa_E220 configurator(_rxPin, _txPin, _serial,
+                               _auxPin, _m0Pin, _m1Pin,
+                               UART_BPS_RATE_9600, SERIAL_8N1);
+        configurator.begin();
+        auto response = configurator.setConfiguration(configuration, WRITE_CFG_PWR_DWN_SAVE);
+        _serial->end(); // release the port before the caller reinits it at 115200
+        return ResponseStatusContainer(response.code, response.getResponseDescription());
+    }
+
+    // Fallback for objects constructed without explicit pins (bpsRate stays whatever it is).
     auto response = transmitter.setConfiguration(configuration, WRITE_CFG_PWR_DWN_SAVE);
     return ResponseStatusContainer(response.code, response.getResponseDescription());
 }

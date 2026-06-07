@@ -109,7 +109,8 @@ void TelemetryTask::taskFunction()
                     {
                         LOG_WARNING("Telemetry", "LoRa transmit failed: %s", result.getDescription().c_str());
                     }
-                }
+                } else
+                    LOG_WARNING("Telemetry", "LoRa transmitter not available, skipping LoRa transmission");
 
 #ifdef CONFIG_TELEMETRY_USB_MIRROR
                 if (message.size() <= 255)
@@ -179,10 +180,12 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.imu.accel_x = bno055Data->acceleration_x;
             packet.imu.accel_y = bno055Data->acceleration_y;
             packet.imu.accel_z = bno055Data->acceleration_z;
-            LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
-            packet.imu.gyro_x = bno055Data->orientation_x;
-            packet.imu.gyro_y = bno055Data->orientation_y;
-            packet.imu.gyro_z = bno055Data->orientation_z;
+            packet.imu.gyro_x  = bno055Data->angular_velocity_x;
+            packet.imu.gyro_y  = bno055Data->angular_velocity_y;
+            packet.imu.gyro_z  = bno055Data->angular_velocity_z;
+            LOG_DEBUG("Telemetry", "ACC: %.2f %.2f %.2f  GYRO: %.3f %.3f %.3f",
+                      packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z,
+                      packet.imu.gyro_x,  packet.imu.gyro_y,  packet.imu.gyro_z);
         } else {
             LOG_WARNING("Telemetry", "BNO055 data not available");
         }
@@ -203,6 +206,9 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             LOG_WARNING("Telemetry", "Barometer 2 data not available");
         }
 
+        auto currentHeight = _rocketModel->getCurrentHeight();
+        packet.baro_altitude = currentHeight ? *currentHeight : 0.0f;
+
         auto gpsData = _rocketModel->getGPSData();
         if (gpsData) {
             packet.gps.latitude = gpsData->latitude;
@@ -214,6 +220,9 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             LOG_WARNING("Telemetry", "GPS data not available");
         }
 
+        auto heightGainSpeed = _rocketModel->getHeightGainSpeed();
+        packet.velocity = heightGainSpeed ? *heightGainSpeed : 0.0f;
+        LOG_INFO("Telemetry", "Done collecting sensor data!");
     }
     catch (const std::exception &e)
     {
