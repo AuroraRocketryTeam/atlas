@@ -18,18 +18,9 @@ public:
     // Metadata
     uint32_t timestamp = 0;
 
-    json toJSON() const {
-        json j;
-        j["source"] = getSensorName();
-
-        json sensorDataJson;
-        sensorDataJson["acceleration_x"] = acceleration_x;
-        sensorDataJson["acceleration_y"] = acceleration_y;
-        sensorDataJson["acceleration_z"] = acceleration_z;
-        sensorDataJson["timestamp"] = timestamp;
-
-        j["sensorData"] = sensorDataJson;
-
-        return j;
+    size_t serializeJson(char* buffer, size_t maxLength) const override {
+        return snprintf(buffer, maxLength, 
+            "{\"source\":\"%s\",\"sensorData\":{\"acceleration_x\":%f,\"acceleration_y\":%f,\"acceleration_z\":%f,\"timestamp\":%lu}}\n",
+            getSensorName().c_str(), acceleration_x, acceleration_y, acceleration_z, (unsigned long)timestamp);
     }
 };

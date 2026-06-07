@@ -38,7 +38,7 @@ public:
      *
      * @return A json object.
      */
-    virtual json toJSON() const = 0;
+    virtual size_t serializeJson(char* buffer, size_t maxLength) const = 0;
 };
 
 

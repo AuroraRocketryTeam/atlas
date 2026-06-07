@@ -19,17 +19,9 @@ public:
     // Metadata
     uint32_t timestamp = 0;
 
-    json toJSON() const {
-        json j;
-        j["source"] = getSensorName();
-
-        json sensorDataJson;
-        sensorDataJson["pressure"] = pressure;
-        sensorDataJson["temperature"] = temperature;
-        sensorDataJson["timestamp"] = timestamp;
-
-        j["sensorData"] = sensorDataJson;
-
-        return j;
+    size_t serializeJson(char* buffer, size_t maxLength) const override {
+        return snprintf(buffer, maxLength, 
+            "{\"source\":\"%s\",\"sensorData\":{\"pressure\":%f,\"temperature\":%f,\"timestamp\":%lu}}\n",
+            getSensorName().c_str(), pressure, temperature, (unsigned long)timestamp);
     }
 };

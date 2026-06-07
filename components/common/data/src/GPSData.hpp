@@ -32,22 +32,10 @@ public:
     
     // Metadata
     uint32_t timestamp = 0;
-    json toJSON() const {
-        json j;
-        j["source"] = getSensorName();
-
-        json sensorDataJson;
-        sensorDataJson["satellites"] = satellites;
-        sensorDataJson["fixType"] = fixType;
-        sensorDataJson["latitude"] = latitude;
-        sensorDataJson["longitude"] = longitude;
-        sensorDataJson["altitude"] = altitude;
-        sensorDataJson["ground_speed"] = ground_speed;
-        sensorDataJson["hdop"] = hdop;
-        sensorDataJson["timestamp"] = timestamp;
-
-        j["sensorData"] = sensorDataJson;
-
-        return j;
+    
+    size_t serializeJson(char* buffer, size_t maxLength) const override {
+        return snprintf(buffer, maxLength, 
+            "{\"source\":\"%s\",\"sensorData\":{\"satellites\":%u,\"fixType\":%u,\"latitude\":%f,\"longitude\":%f,\"altitude\":%f,\"ground_speed\":%f,\"hdop\":%f,\"timestamp\":%lu}}\n",
+            getSensorName().c_str(), satellites, fixType, latitude, longitude, altitude, ground_speed, hdop, (unsigned long)timestamp);
     }
 };

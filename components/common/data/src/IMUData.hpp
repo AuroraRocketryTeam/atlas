@@ -59,42 +59,27 @@ public:
     // Metadata
     uint32_t timestamp = 0;
     
-    json toJSON() const {
-        json j;
-        j["source"] = getSensorName();
-
-        json sensorDataJson;
-        sensorDataJson["calibration_sys"] = calibration_sys;
-        sensorDataJson["calibration_gyro"] = calibration_gyro;
-        sensorDataJson["calibration_accel"] = calibration_accel;
-        sensorDataJson["calibration_mag"] = calibration_mag;
-        sensorDataJson["orientation_x"] = orientation_x;
-        sensorDataJson["orientation_y"] = orientation_y;
-        sensorDataJson["orientation_z"] = orientation_z;
-        sensorDataJson["angular_velocity_x"] = angular_velocity_x;
-        sensorDataJson["angular_velocity_y"] = angular_velocity_y;
-        sensorDataJson["angular_velocity_z"] = angular_velocity_z;
-        sensorDataJson["linear_acceleration_x"] = linear_acceleration_x;
-        sensorDataJson["linear_acceleration_y"] = linear_acceleration_y;
-        sensorDataJson["linear_acceleration_z"] = linear_acceleration_z;
-        sensorDataJson["acceleration_x"] = acceleration_x;
-        sensorDataJson["acceleration_y"] = acceleration_y;
-        sensorDataJson["acceleration_z"] = acceleration_z;
-        sensorDataJson["gravity_x"] = gravity_x;
-        sensorDataJson["gravity_y"] = gravity_y;
-        sensorDataJson["gravity_z"] = gravity_z;
-        sensorDataJson["magnetometer_x"] = magnetometer_x;
-        sensorDataJson["magnetometer_y"] = magnetometer_y;
-        sensorDataJson["magnetometer_z"] = magnetometer_z;
-        sensorDataJson["quaternion_w"] = quaternion_w;
-        sensorDataJson["quaternion_x"] = quaternion_x;
-        sensorDataJson["quaternion_y"] = quaternion_y;
-        sensorDataJson["quaternion_z"] = quaternion_z;
-        sensorDataJson["temperature"] = temperature;
-        sensorDataJson["timestamp"] = timestamp;
-
-        j["sensorData"] = sensorDataJson;
-
-        return j;
+    size_t serializeJson(char* buffer, size_t maxLength) const override {
+        return snprintf(buffer, maxLength,
+            "{\"source\":\"%s\",\"sensorData\":{"
+            "\"csys\":%u,\"cgyro\":%u,\"caccel\":%u,\"cmag\":%u,"
+            "\"ox\":%f,\"oy\":%f,\"oz\":%f,"
+            "\"avx\":%f,\"avy\":%f,\"avz\":%f,"
+            "\"lax\":%f,\"lay\":%f,\"laz\":%f,"
+            "\"ax\":%f,\"ay\":%f,\"az\":%f,"
+            "\"gx\":%f,\"gy\":%f,\"gz\":%f,"
+            "\"mx\":%f,\"my\":%f,\"mz\":%f,"
+            "\"qw\":%f,\"qx\":%f,\"qy\":%f,\"qz\":%f,"
+            "\"te\":%f,\"t\":%lu}}\n",
+            getSensorName().c_str(),
+            calibration_sys, calibration_gyro, calibration_accel, calibration_mag,
+            orientation_x, orientation_y, orientation_z,
+            angular_velocity_x, angular_velocity_y, angular_velocity_z,
+            linear_acceleration_x, linear_acceleration_y, linear_acceleration_z,
+            acceleration_x, acceleration_y, acceleration_z,
+            gravity_x, gravity_y, gravity_z,
+            magnetometer_x, magnetometer_y, magnetometer_z,
+            quaternion_w, quaternion_x, quaternion_y, quaternion_z,
+            temperature, (unsigned long)timestamp);
     }
 };
