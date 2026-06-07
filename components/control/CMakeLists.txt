@@ -21,14 +21,12 @@ idf_component_register(
         global
         data
         model
-        core
-        implementation
+        rocket_logger
         SD
         BNO055
         GPS
         LIS3DHTR
         MS561101BA03
-        filters_kalman
         status
         protocol
         radio_espnow

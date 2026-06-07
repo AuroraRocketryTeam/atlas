@@ -29,7 +29,6 @@
 
 // Interfaces
 #include <ISensor.hpp>
-#include <ILogger.hpp>
 #include <ITransmitter.hpp>
 
 // System model
@@ -45,7 +44,8 @@
 #include <SD-master.hpp>
 #include <Flash.hpp>
 #include <RocketLogger.hpp>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
+#include <PayloadSerializer.hpp>
 
 // Controllers and filters
 #include <LEDController.hpp>

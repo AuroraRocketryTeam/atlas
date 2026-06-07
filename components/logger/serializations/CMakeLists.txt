@@ -1,8 +1,8 @@
-# Component: implementation (lib/logger/implementation)
+# Component: serializations (lib/logger/serializations)
 file(GLOB SRCS "src/*.cpp" "src/*.c")
 
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "src"
-    REQUIRES global data core SD
+    REQUIRES global data SD
 )

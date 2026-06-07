@@ -758,39 +758,6 @@ void RocketFSM::checkTransitions()
             _rocketModel->addTemperatureSample(kelvinTemp);
         }
 
-        // Calculate biases for IMU
-        Welford w_ax, w_ay, w_az;
-        Welford w_gx, w_gy, w_gz;
-        Welford w_pr;
-
-        prev_time = Utils::millis();
-        for (int i = 0; i < CALIB_SAMPLES; i++) {
-            IMUData imuData = _rocketModel->getBNO055Data();
-            PressureSensorData baroData = _rocketModel->getMS561101BA03Data_1();
-            
-            float t = Utils::millis(), p=baroData.pressure;
-            
-            float ax=imuData.acceleration_x, ay=imuData.acceleration_y, az=imuData.acceleration_z;
-            float gx=imuData.gyro_x, gy=imuData.gyro_y, gz=imuData.gyro_z;
-
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-
-        float std_ax = w_ax.std(), std_ay = w_ay.std(), std_az = w_az.std();
-        float std_gx = w_gx.std(), std_gy = w_gy.std(), std_gz = w_gz.std();
-        float std_pr = w_pr.std();
-        
-        float mean_ax = w_ax.mean(), mean_ay = w_ay.mean(), mean_az = w_az.mean();
-        float mean_gx = w_gx.mean(), mean_gy = w_gy.mean(), mean_gz = w_gz.mean();
-        float mean_pr = w_pr.mean();
-
-        bool isKalmanOk = _rocketModel->kalmanInit(mean_ax, mean_ay, mean_az, mean_gx, mean_gy, mean_gz, mean_pr);
-
-        ESP_LOG_INFO("RocketFSM", "Calibration stats: std_ax=%.3f, std_ay=%.3f, std_az=%.3f, std_gx=%.3f, std_gy=%.3f, std_gz=%.3f, std_pr=%.3f",
-                 std_ax, std_ay, std_az, std_gx, std_gy, std_gz, std_pr);
-        ESP_LOG_INFO("RocketFSM", "Calibration stats: mean_ax=%.3f, mean_ay=%.3f, mean_az=%.3f, mean_gx=%.3f, mean_gy=%.3f, mean_gz=%.3f, mean_pr=%.3f",
-                 mean_ax, mean_ay, mean_az, mean_gx, mean_gy, mean_gz, mean_pr);
-
         // Check if both systems are ready
         bool isBaroReady = _rocketModel->isBarometerZeroed();
         bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();

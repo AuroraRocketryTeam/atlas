@@ -12,8 +12,8 @@
 class LoRaConfigurationDeserializer
 {
 public:
-    LoRaConfigurationDeserializer(Configuration configuration, ILogger *logger) : configuration(configuration), logger(logger) {};
-    LoRaConfigurationDeserializer(ILogger *logger) : logger(logger)
+    LoRaConfigurationDeserializer(Configuration configuration, RocketLogger *logger) : configuration(configuration), logger(logger) {};
+    LoRaConfigurationDeserializer(RocketLogger *logger) : logger(logger)
     {
         // Set default configuration
         configuration.ADDL = 0x02;
@@ -143,6 +143,6 @@ public:
 
 private:
     Configuration configuration;
-    ILogger *logger;
+    RocketLogger *logger;
 };
 

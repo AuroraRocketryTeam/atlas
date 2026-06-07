@@ -17,8 +17,8 @@ idf_component_register(
         data
         control
         model
-        core
-        implementation
+        rocket_logger
+        serializations
         status
         SD
         flash
@@ -28,7 +28,6 @@ idf_component_register(
         MS561101BA03
         I2C
         SPI
-        filters_kalman
         protocol
         radio_espnow
         radio_lora

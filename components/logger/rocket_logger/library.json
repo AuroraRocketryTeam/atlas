@@ -1,5 +1,5 @@
 {
-  "name": "aurora_rocketry_logger_implementation",
+  "name": "aurora_rocketry_rocket_logger",
   "version": "0.1.0",
   "frameworks": ["arduino"],
   "platforms": ["espressif32"]

@@ -1,5 +1,5 @@
 # Component: model (lib/model)
-file(GLOB SRCS "RocketModel.cpp" "*.cpp" "*.c")
+file(GLOB SRCS "*.cpp" "*.c")
 
 if(CONFIG_COMPILE_BOARD_MANNY)
     list(APPEND SRCS "boards_hardware/manny/board.cpp")
@@ -12,5 +12,5 @@ endif()
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "." "boards_hardware" ${BOARD_INCLUDE_DIRS}
-    REQUIRES global data I2C SPI SD flash BNO055 LIS3DHTR MS561101BA03 GPS core implementation
+    REQUIRES global data I2C SPI SD flash BNO055 LIS3DHTR MS561101BA03 GPS rocket_logger
 )
