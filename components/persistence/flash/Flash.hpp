@@ -9,6 +9,7 @@
 #include "esp_partition.h"
 #include "SPIBus.hpp"
 #include "IStorage.hpp"
+#include "SerialLogger.hpp"
 
 class Flash : public IStorage
 {

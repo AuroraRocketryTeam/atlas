@@ -10,6 +10,7 @@
 #include "pins.h"
 #include <SPIBus.hpp>
 #include "IStorage.hpp"
+#include "SerialLogger.hpp"
 
 /**
  * @brief Class to handle SD card operations.
@@ -17,13 +18,21 @@
 class SD : public IStorage
 {
 private:
-    sdmmc_card_t *card = nullptr;
-    FILE *file = nullptr;
-    bool fileInitialized = false;
-    const std::string mount_point = "/sdcard";
+    sdmmc_card_t *_card = nullptr;
+    FILE *_file = nullptr;
+    bool _fileInitialized = false;
+    const std::string _mount_point = "/sdcard";
 
 public:
     bool init(SPIBus* bus, gpio_num_t cs_pin);
+
+    /**
+     * @brief Get the full path for a given filename on the SD card.
+     * @param filename The name of the file (can be relative or absolute).
+     * @return The full path to the file on the SD card.
+     */
+    std::string getFullPath(const std::string& filename) const;
+
 
     /**
      * @brief Initialize the SD card.
@@ -66,10 +75,10 @@ public:
      */
     std::string readLine() override;
 
-    bool isInitialized() const override { return fileInitialized; }
+    bool isInitialized() const override { return _fileInitialized; }
 
     /**
      * @brief Get a pointer to the currently open file.
      */
-    FILE* getFile() { return file; }
+    FILE* getFile() { return _file; }
 };

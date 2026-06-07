@@ -58,7 +58,9 @@ public:
     {
         if (!isJsonValid(json))
         {
-            logger->logError("[E220 Module] Failed to deserialize configuration from JSON object. JSON object is empty or invalid.");
+            if (logger) {
+                logger->logError("[E220 Module] Failed to deserialize configuration from JSON object. JSON object is empty or invalid.");
+            }
             return false;
         }
 
@@ -107,7 +109,9 @@ public:
         if (size == 0)
         {
             String error = "[E220 Module] JSON file is empty: " + String(file.name());
-            logger->logError(error.c_str());
+            if (logger) {
+                logger->logError(error.c_str());
+            }
             return false;
         }
 
@@ -124,7 +128,9 @@ public:
         catch (nlohmann::json::parse_error &e)
         {
             String error = "[E220 Module] Failed to parse JSON file: " + String(file.name()) + ". Error: " + e.what();
-            logger->logError(error.c_str());
+            if (logger) {
+                logger->logError(error.c_str());
+            }
             return false;
         }
         file.close();

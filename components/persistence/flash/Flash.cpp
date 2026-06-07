@@ -193,26 +193,82 @@ bool Flash::closeFile() {
 }
 
 bool Flash::writeFile(const char* filename, const uint8_t* data, size_t length) {
-    if (filename == nullptr || data == nullptr || length == 0) return false;
-    if (!_initialized && !init()) return false;
+    // Check parameters
+    if (filename == nullptr || data == nullptr || length == 0) {
+        LOG_ERROR("Flash", "Invalid arguments (null pointers or zero length).");
+        return false;
+    }
 
-    FILE* f = fopen(getFullPath(filename).c_str(), "w");
-    if (!f) return false;
+    if (!_initialized && !init()) {
+        LOG_ERROR("Flash", "Failed to initialize Flash subsystem.");
+        return false;
+    }
 
-    fwrite(data, 1, length, f);
-    fclose(f);
+    std::string fullPath = getFullPath(filename);
+    FILE* f = fopen(fullPath.c_str(), "w");
+    
+    // Check if file opened successfully
+    if (!f) {
+        LOG_ERROR("Flash", "Could not open '%s' - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
+    // Write and check the result
+    size_t written = fwrite(data, 1, length, f);
+    if (written != length) {
+        LOG_ERROR("Flash", "Write incomplete on '%s'. Tried to write %zu bytes, but only wrote %zu. Reason: %s", 
+                  fullPath.c_str(), length, written, strerror(errno));
+        
+        fclose(f);
+        return false;
+    }
+
+    // Check fclose
+    if (fclose(f) != 0) {
+        LOG_ERROR("Flash", "Failed to close/flush file '%s' - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
     return true;
 }
 
 bool Flash::appendFile(const char* filename, const uint8_t* data, size_t length) {
-    if (filename == nullptr || data == nullptr || length == 0) return false;
-    if (!_initialized && !init()) return false;
+    // Validate inputs
+    if (filename == nullptr || data == nullptr || length == 0) {
+        LOG_ERROR("Flash", "Invalid arguments (null pointers or zero length).");
+        return false;
+    }
 
-    FILE* f = fopen(getFullPath(filename).c_str(), "a");
-    if (!f) return false;
+    if (!_initialized && !init()) {
+        LOG_ERROR("Flash", "Failed to initialize Flash subsystem.");
+        return false;
+    }
 
-    fwrite(data, 1, length, f);
-    fclose(f);
+    std::string fullPath = getFullPath(filename);
+    FILE* f = fopen(fullPath.c_str(), "a");
+    
+    // Check if file opened successfully
+    if (!f) {
+        LOG_ERROR("Flash", "Could not open '%s' for appending - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
+    // Perform the write and check the result
+    size_t written = fwrite(data, 1, length, f);
+    if (written != length) {
+        LOG_ERROR("Flash", "Append incomplete on '%s'. Tried to append %zu bytes, but only wrote %zu. Reason: %s", 
+                  fullPath.c_str(), length, written, strerror(errno));
+        
+        fclose(f);
+        return false;
+    }
+
+    // Check fclose as well (crucial for ensuring appended data is flushed)
+    if (fclose(f) != 0) {
+        LOG_ERROR("Flash", "Failed to close/flush file '%s' after appending - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
     return true;
 }
 

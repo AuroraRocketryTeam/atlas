@@ -22,6 +22,7 @@ void GpsTask::taskFunction()
         bool result = _rocketModel->getGPSData(gpsData);
         if (!result) {
             LOG_WARNING("GpsTask", "Failed to get GPS data");
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
         
