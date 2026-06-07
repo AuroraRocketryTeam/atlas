@@ -1,5 +1,5 @@
 #pragma once
-#include <string.h>
+#include <cstring>
 #include <cstdio>
 
 /**
@@ -20,16 +20,16 @@ public:
      * @param sensorName Name of the sensor.
      */
     SensorData(const char* name) {
-        strncpy(sensorName, name, sizeof(sensorName) - 1);
+        std::strncpy(sensorName, name, sizeof(sensorName) - 1);
         sensorName[sizeof(sensorName) - 1] = '\0';
     }
 
     /**
-     * @brief Stames the data packet with the name of the source sensor.
-     * * @param name Name of the sensor.
+     * @brief Sets the name of the sensor.
+     * @param name Name of the sensor.
      */
     void setSensorName(const char* name) {
-        strncpy(sensorName, name, sizeof(sensorName) - 1);
+        std::strncpy(sensorName, name, sizeof(sensorName) - 1);
         sensorName[sizeof(sensorName) - 1] = '\0';
     }
 

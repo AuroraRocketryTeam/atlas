@@ -395,11 +395,11 @@ void wifi_softap_init(void)
     wifi_config.ap.channel = HIL_WIFI_CHANNEL;
     wifi_config.ap.max_connection = HIL_MAX_STA_CONN;
 
-    strncpy(reinterpret_cast<char *>(wifi_config.ap.ssid),
+    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.ssid),
             HIL_WIFI_SSID,
             sizeof(wifi_config.ap.ssid) - 1);
 
-    strncpy(reinterpret_cast<char *>(wifi_config.ap.password),
+    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.password),
             HIL_WIFI_PASSWORD,
             sizeof(wifi_config.ap.password) - 1);
 
