@@ -727,9 +727,9 @@ void RocketFSM::checkTransitions()
     auto accY = 0.0f;
     auto accZ = 0.0f;
     IMUData outBno055Data;
-    bool result = _rocketModel->getBNO055Data(outBno055Data);
+    SensorReadStatus imuStatus = _rocketModel->getBNO055Data(outBno055Data);
     
-    if(result) {
+    if(imuStatus == SensorReadStatus::OK) {
         accX = outBno055Data.acceleration_x;
         accY = outBno055Data.acceleration_y;
         accZ = outBno055Data.acceleration_z;
@@ -747,13 +747,13 @@ void RocketFSM::checkTransitions()
     {
         // Gather Barometer samples for zeroing
         PressureSensorData outBaroData;
-        bool result = _rocketModel->getMS561101BA03Data_1(outBaroData);
-        if (result && outBaroData.pressure > 0.0f) {
+        SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outBaroData);
+        if ((baro1Status == SensorReadStatus::OK) && outBaroData.pressure > 0.0f) {
             _rocketModel->addBarometerSample(outBaroData.pressure);
         }
 
         // Gather Temperature samples
-        if (result) {
+        if (baro1Status == SensorReadStatus::OK) {
             auto kelvinTemp = outBaroData.temperature + 273.15f;
             _rocketModel->addTemperatureSample(kelvinTemp);
         }

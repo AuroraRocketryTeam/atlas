@@ -19,8 +19,8 @@ void GpsTask::taskFunction()
 
         _rocketModel->updateGPS();
         GPSData gpsData;
-        bool result = _rocketModel->getGPSData(gpsData);
-        if (!result) {
+        SensorReadStatus gpsStatus = _rocketModel->getGPSData(gpsData);
+        if (gpsStatus != SensorReadStatus::OK) {
             LOG_WARNING("GpsTask", "Failed to get GPS data");
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;

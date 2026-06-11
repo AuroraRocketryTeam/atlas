@@ -19,12 +19,12 @@ void AltitudeTask::taskFunction()
 
         PressureSensorData baroData;
 #ifdef BARO_1
-        bool result = _rocketModel->getMS561101BA03Data_1(baroData);
+        SensorReadStatus baro_status = _rocketModel->getMS561101BA03Data_1(baroData);
 #else
-        bool result = _rocketModel->getMS561101BA03Data_2(baroData);
+        SensorReadStatus baro_status = _rocketModel->getMS561101BA03Data_2(baroData);
 #endif
         // Reject identical simulated packets
-        if (!result || baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
+        if ((baro_status != SensorReadStatus::OK) || baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }

@@ -18,6 +18,14 @@
 #include <Flash.hpp>
 #include <IStorage.hpp>
 #include <config.h>
+
+enum class SensorReadStatus {
+    OK,
+    MUTEX_TIMEOUT,
+    SENSOR_ERROR,   // Sensor is present but the last update() failed
+    NOT_PRESENT     // Sensor pointer is null (and we aren't injecting HIL data)
+};
+
 /**
  * @brief Class representing the Nemesis rocket model and sensor/state storage.
  *
@@ -96,41 +104,41 @@ public:
      * @brief Get the BNO055 sensor data
      *
      * @param data Reference to the IMUData object to be filled
-     * @return true if the data is available, false otherwise
+     * @return a SensorReadStatus containing the status result
      */
-    bool getBNO055Data(IMUData& data);
+    SensorReadStatus getBNO055Data(IMUData& data);
 
     /**
      * @brief Get the LIS3DHTR sensor data
      *
      * @param data Reference to the AccelerometerSensorData object to be filled
-     * @return true if the data is available, false otherwise
+     * @return a SensorReadStatus containing the status result
      */
-    bool getLIS3DHTRData(AccelerometerSensorData& data);
+    SensorReadStatus getLIS3DHTRData(AccelerometerSensorData& data);
 
     /**
      * @brief Get the first MS561101BA03 sensor data
      *
      * @param data Reference to the PressureSensorData object to be filled
-     * @return true if the data is available, false otherwise
+     * @return a SensorReadStatus containing the status result
      */
-    bool getMS561101BA03Data_1(PressureSensorData& data);
+    SensorReadStatus getMS561101BA03Data_1(PressureSensorData& data);
 
     /**
      * @brief Get the second MS561101BA03 sensor data
      *
      * @param data Reference to the PressureSensorData object to be filled
-     * @return true if the data is available, false otherwise
+     * @return a SensorReadStatus containing the status result
      */
-    bool getMS561101BA03Data_2(PressureSensorData& data);
+    SensorReadStatus getMS561101BA03Data_2(PressureSensorData& data);
 
     /**
      * @brief Get the GPS sensor data
      *
      * @param data Reference to the GPSData object to be filled
-     * @return true if the data is available, false otherwise
+     * @return a SensorReadStatus containing the status result
      */
-    bool getGPSData(GPSData& data);
+    SensorReadStatus getGPSData(GPSData& data);
 
     /**
      * @brief Check GPS availability
@@ -386,6 +394,13 @@ private:
     PressureSensorData _ms561101ba03Data_1;
     PressureSensorData _ms561101ba03Data_2;
     GPSData _gpsData;
+
+    // Payload health tracking
+    bool _bnoDataValid = false;
+    bool _lis3dhDataValid = false;
+    bool _ms561101ba03Data_1_Valid = false;
+    bool _ms561101ba03Data_2_Valid = false;
+    bool _gpsDataValid = false;
 
 #if CONFIG_AURORA_HIL_SIMULATION
     bool _reset_simulation;

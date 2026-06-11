@@ -66,26 +66,26 @@ void SensorTask::taskFunction()
             if (rocketModel)
             {
                 IMUData outBnoData;
-                bool result = rocketModel->getBNO055Data(outBnoData);
-                if (result) {
+                SensorReadStatus bnoStatus = rocketModel->getBNO055Data(outBnoData);
+                if (bnoStatus == SensorReadStatus::OK) {
                     logger->logSensorData(outBnoData);
                 }
 
                 PressureSensorData outMs56Data1;
-                result = rocketModel->getMS561101BA03Data_1(outMs56Data1);
-                if (result) {
+                SensorReadStatus baro1Status = rocketModel->getMS561101BA03Data_1(outMs56Data1);
+                if (baro1Status == SensorReadStatus::OK) {
                     logger->logSensorData(outMs56Data1);
                 }
 
                 PressureSensorData outMs56Data2;
-                result = rocketModel->getMS561101BA03Data_2(outMs56Data2);
-                if (result) {
+                SensorReadStatus baro2Status = rocketModel->getMS561101BA03Data_2(outMs56Data2);
+                if (baro2Status == SensorReadStatus::OK) {
                     logger->logSensorData(outMs56Data2);
                 }
 
                 AccelerometerSensorData outLis3dhData;
-                result = rocketModel->getLIS3DHTRData(outLis3dhData);
-                if (result) {
+                SensorReadStatus accelStatus = rocketModel->getLIS3DHTRData(outLis3dhData);
+                if (accelStatus == SensorReadStatus::OK) {
                     logger->logSensorData(outLis3dhData);
                 }
             }

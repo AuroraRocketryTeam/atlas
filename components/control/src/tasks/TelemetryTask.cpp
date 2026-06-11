@@ -166,8 +166,8 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         _lastAckCommandId = 0;
 
         IMUData outBnoData;
-        bool result = _rocketModel->getBNO055Data(outBnoData);
-        if (result) {
+        SensorReadStatus bnoStatus = _rocketModel->getBNO055Data(outBnoData);
+        if (bnoStatus == SensorReadStatus::OK) {
             packet.imu.accel_x = outBnoData.acceleration_x;
             packet.imu.accel_y = outBnoData.acceleration_y;
             packet.imu.accel_z = outBnoData.acceleration_z;
@@ -180,8 +180,8 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         }
 
         PressureSensorData outMs56Data1;
-        result = _rocketModel->getMS561101BA03Data_1(outMs56Data1);
-        if (result) {
+        SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outMs56Data1);
+        if (baro1Status == SensorReadStatus::OK) {
             packet.baro1.pressure = outMs56Data1.pressure;
             packet.baro1.temperature = outMs56Data1.temperature;
         } else {
@@ -189,8 +189,8 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         }
 
         PressureSensorData outMs56Data2;
-        result = _rocketModel->getMS561101BA03Data_2(outMs56Data2);
-        if (result) {
+        SensorReadStatus baro2Status = _rocketModel->getMS561101BA03Data_2(outMs56Data2);
+        if (baro2Status == SensorReadStatus::OK) {
             packet.baro2.pressure = outMs56Data2.pressure;
             packet.baro2.temperature = outMs56Data2.temperature;
         } else {
@@ -198,8 +198,8 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         }
 
         GPSData gpsData;
-        result = _rocketModel->getGPSData(gpsData);
-        if (result) {
+        SensorReadStatus gpsStatus = _rocketModel->getGPSData(gpsData);
+        if (gpsStatus == SensorReadStatus::OK) {
             packet.gps.latitude = gpsData.latitude;
             packet.gps.longitude = gpsData.longitude;
             packet.gps.altitude = gpsData.altitude;

@@ -144,8 +144,8 @@ bool TestRoutine::testSensors()
     _board.init_sensor_test_pins();
     
     IMUData imuData;
-    bool imu_ok = _model->getBNO055Data(imuData);
-    if (!imu_ok) {
+    SensorReadStatus imuStatus = _model->getBNO055Data(imuData);
+    if (imuStatus != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
         LOG_ERROR("Test", "Errore: IMU non inizializzata.");
     } else {
@@ -167,8 +167,8 @@ bool TestRoutine::testSensors()
     _model->updateMS561101BA03_2();
 
     PressureSensorData baro1Data;
-    bool baro1_ok = _model->getMS561101BA03Data_1(baro1Data);
-    if (!baro1_ok) {
+    SensorReadStatus baro1Status = _model->getMS561101BA03Data_1(baro1Data);
+    if (baro1Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO1_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
     } else {
@@ -178,8 +178,8 @@ bool TestRoutine::testSensors()
 
 
     PressureSensorData baro2Data;
-    bool baro2_ok = _model->getMS561101BA03Data_2(baro2Data);
-    if (!baro2_ok) {
+    SensorReadStatus baro2Status = _model->getMS561101BA03Data_2(baro2Data);
+    if (baro2Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO2_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
     } else {
@@ -188,8 +188,8 @@ bool TestRoutine::testSensors()
     }
 
     AccelerometerSensorData acclData;
-    bool accl_ok  = _model->getLIS3DHTRData(acclData);
-    if (!accl_ok) {
+    SensorReadStatus acclStatus  = _model->getLIS3DHTRData(acclData);
+    if (acclStatus != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
     } else {
@@ -738,8 +738,8 @@ bool TestRoutine::calibrateAndSaveIMU()
     {
         _model->updateBNO055();
         IMUData data;
-        bool result = _model->getBNO055Data(data);
-        if (!result) {
+        SensorReadStatus bnoStatus = _model->getBNO055Data(data);
+        if (bnoStatus != SensorReadStatus::OK) {
             LOG_WARNING("Test", "Failed to get BNO055 data");
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
