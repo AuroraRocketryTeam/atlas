@@ -18,7 +18,7 @@ bool BNO055Sensor::init()
             // Auto-load calibration from NVS
             loadCalibrationFromNVS();
 
-            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_AMG)) {
+            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_NDOF)) {
                 initialized = true;
                 break;
             } else {

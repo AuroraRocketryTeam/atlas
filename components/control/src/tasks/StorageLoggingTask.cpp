@@ -29,9 +29,7 @@ void StorageLoggingTask::taskFunction() {
         storageInitialized = rocketModel && rocketModel->isStorageInitialized();
 
         // Handle Storage Disconnection
-        if (!storageInitialized) {
-            //if (logger) logger->clearData(); why??
-            
+        if (!storageInitialized) {            
             // Drop pending old data
             pendingBytesToWrite = 0;
             
@@ -39,8 +37,7 @@ void StorageLoggingTask::taskFunction() {
             continue;
         }
 
-        // Write conditions
-        // 2. Evaluate if we need to trigger a write cycle
+        // Evaluate if we need to trigger a write cycle
         int currentLogCount = logger ? logger->getLogCount() : 0;
         TickType_t currentTicks = xTaskGetTickCount();
         bool timeoutReached = (currentTicks - lastWriteTicks) * portTICK_PERIOD_MS >= FLUSH_TIMEOUT_MS;
@@ -50,11 +47,7 @@ void StorageLoggingTask::taskFunction() {
                         (timeoutReached && currentLogCount > 0) ||
                         (currentLogCount >= 10);
 
-        // Print conditions for debugging
-        LOG_DEBUG("StorageLoggingTask", "Evaluating write conditions: pendingBytesToWrite=%zu, timeoutReached=%s, currentLogCount=%d, shouldWrite=%s\n",
-            pendingBytesToWrite, timeoutReached ? "true" : "false", currentLogCount, shouldWrite ? "true" : "false");
-
-        // 3. Execute Write
+        // Execute Write
         if (shouldWrite && running) {
             LOG_DEBUG("StorageLoggingTask", "Initiating write cycle. pendingBytesToWrite=%zu, currentLogCount=%d\n", pendingBytesToWrite, currentLogCount);
             if (pendingBytesToWrite == 0 && logger) {
@@ -67,7 +60,6 @@ void StorageLoggingTask::taskFunction() {
                     pendingBytesToWrite = 0;
                     lastWriteTicks = xTaskGetTickCount();
                 } else {
-                    // Write failed (e.g., SD card busy), keep pendingBytesToWrite > 0 to retry next loop
                     LOG_DEBUG("StorageLoggingTask", "Write failed. Retrying next loop.");
                 }
             }

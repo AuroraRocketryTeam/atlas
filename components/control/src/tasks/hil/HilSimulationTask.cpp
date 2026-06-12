@@ -389,21 +389,26 @@ void HilSimulationTask::taskFunction() {
             bnoData.acceleration_x = pkt.ax;
             bnoData.acceleration_y = pkt.ay;
             bnoData.acceleration_z = pkt.az;
+            bnoData.setSensorName("BNO055_SIM");
 
             lis3dhData.timestamp = sim_time_ms;
             lis3dhData.acceleration_x = pkt.ax;
             lis3dhData.acceleration_y = pkt.ay;
             lis3dhData.acceleration_z = pkt.az;
+            lis3dhData.setSensorName("LIS3DH_SIM");
 
             ms1.timestamp = sim_time_ms;
             ms1.pressure = pkt.p;
+            ms1.setSensorName("MS56_1_SIM");
             ms2.timestamp = sim_time_ms;
             ms2.pressure = pkt.p;
+            ms2.setSensorName("MS56_2_SIM");
 
             gps.timestamp = sim_time_ms;
             gps.latitude  = pkt.lat;
             gps.longitude = pkt.lon;
             gps.altitude  = pkt.alt;
+            gps.setSensorName("GPS_SIM");
 
             ESP_LOGI(TAG, "Received sim packet: time=%d ax=%.2f ay=%.2f az=%.2f p=%.2f lat=%.6f lon=%.6f alt=%.2f",
                 sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.lat, pkt.lon, pkt.alt

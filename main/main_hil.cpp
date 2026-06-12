@@ -153,6 +153,7 @@ void setup()
     // Initialize logger
     LOG_INFO("Init", "Initializing rocket logger...");
     logger = std::make_shared<RocketLogger>();
+    logger->setSerializer(PayloadSerializers::toJson);
     LOG_INFO("Init", "Rocket logger initialized");
 
     LOG_INFO("Init", "Initializing external flash for mirrored logging...");
