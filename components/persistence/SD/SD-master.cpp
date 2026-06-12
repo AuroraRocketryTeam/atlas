@@ -30,7 +30,7 @@ bool SD::init(SPIBus* bus, gpio_num_t cs_pin)
     slot_config.host_id = bus->get_host();
 
     LOG_INFO("SD-Task", "Mounting filesystem");
-    ret = esp_vfs_fat_sdspi_mount(mount_point.c_str(), &host, &slot_config, &mount_config, &card);
+    ret = esp_vfs_fat_sdspi_mount(this->_mount_point.c_str(), &host, &slot_config, &mount_config, &_card);
 
     if (ret != ESP_OK) {
         if (ret == ESP_FAIL) {
@@ -41,8 +41,16 @@ bool SD::init(SPIBus* bus, gpio_num_t cs_pin)
         return false;
     }
 
-    this->fileInitialized = true;
+    this->_fileInitialized = true;
     return true;
+}
+
+std::string SD::getFullPath(const std::string& filename) const {
+    // Ensure filename starts with a slash
+    if (filename.empty() || filename[0] != '/') {
+        return this->_mount_point + "/" + filename;
+    }
+    return this->_mount_point + filename;
 }
 
 /**
@@ -57,20 +65,20 @@ bool SD::openFile(const char* filename)
         return false;
     }
 
-    std::string full_path = mount_point + "/" + filename;
+    std::string full_path = getFullPath(filename);
     
-    if (this->file != nullptr) {
-        fclose(this->file);
-        this->file = nullptr;
+    if (this->_file != nullptr) {
+        fclose(this->_file);
+        this->_file = nullptr;
     }
 
-    this->file = fopen(full_path.c_str(), "a+");
-    if (this->file == nullptr) {
+    this->_file = fopen(full_path.c_str(), "a+");
+    if (this->_file == nullptr) {
         LOG_ERROR("SD-Task", "Failed to open file for appending/reading");
         return false;
     }
 
-    fseek(this->file, 0, SEEK_SET);
+    fseek(this->_file, 0, SEEK_SET);
 
     return true;
 }
@@ -82,39 +90,53 @@ bool SD::openFile(const char* filename)
  */
 bool SD::closeFile()
 {
-    if (this->file == nullptr)
+    if (this->_file == nullptr)
     {
         return false;
     }
-    fclose(this->file);
-    this->file = nullptr;
+    fclose(this->_file);
+    this->_file = nullptr;
     return true;
 }
 
-/**
- * @brief Writes content to a file
- *
- * @param filename the file to write to
- * @param content  the content to write
- * @return true if the file is written, false otherwise
- */
-bool SD::writeFile(const char* filename, const char* content)
-{
-    if (filename == nullptr || content == nullptr) {
+bool SD::writeFile(const char* filename, const uint8_t* data, size_t length) {
+    // Check parameters
+    if (filename == nullptr || data == nullptr || length == 0) {
+        LOG_ERROR("SD-Task", "Invalid arguments (null pointers or zero length).");
         return false;
     }
 
-    std::string full_path = mount_point + "/" + filename;
-
-    // overwrite mode
-    FILE* temp_file = fopen(full_path.c_str(), "w");
-    if (temp_file == nullptr)
-    {
+    if (!_card) {
+        LOG_ERROR("SD-Task", "Failed to initialize SD card.");
         return false;
     }
+
+    std::string fullPath = getFullPath(filename);
+
+    FILE* f = fopen(fullPath.c_str(), "w");
     
-    fputs(content, temp_file);
-    fclose(temp_file);
+    // Check if file opened successfully
+    if (!f) {
+        LOG_ERROR("SD-Task", "Could not open '%s' - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
+    // Write and check the result
+    size_t written = fwrite(data, 1, length, f);
+    if (written != length) {
+        LOG_ERROR("SD-Task", "Write incomplete on '%s'. Tried to write %zu bytes, but only wrote %zu. Reason: %s", 
+                  fullPath.c_str(), length, written, strerror(errno));
+        
+        fclose(f);
+        return false;
+    }
+
+    // Check fclose
+    if (fclose(f) != 0) {
+        LOG_ERROR("SD-Task", "Failed to close/flush file '%s' - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
     return true;
 }
 
@@ -125,26 +147,46 @@ bool SD::writeFile(const char* filename, const char* content)
  * @param content  the content to append
  * @return true if the content is appended, false otherwise
  */
-bool SD::appendFile(const char* filename, const char* content)
-{
-    if (filename == nullptr || content == nullptr) {
+bool SD::appendFile(const char* filename, const uint8_t* data, size_t length) {
+    // Validate inputs
+    if (filename == nullptr || data == nullptr || length == 0) {
+        LOG_ERROR("SD-Task", "Invalid arguments (null pointers or zero length).");
         return false;
     }
 
-    if (this->file == nullptr)
-    {
-        if(!this->openFile(filename))
-        {
-            return false;
-        }
+    if (!_card) {
+        LOG_ERROR("SD-Task", "Failed to initialize SD card.");
+        return false;
     }
+
+    std::string fullPath = getFullPath(filename);
+    FILE* f = fopen(fullPath.c_str(), "a");
     
-    fseek(this->file, 0, SEEK_END);
-    
-    fputs(content, this->file);
-    fflush(this->file);
+    // Check if file opened successfully
+    if (!f) {
+        LOG_ERROR("SD-Task", "Could not open '%s' for appending - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
+    // Perform the write and check the result
+    size_t written = fwrite(data, 1, length, f);
+    if (written != length) {
+        LOG_ERROR("SD-Task", "Append incomplete on '%s'. Tried to append %zu bytes, but only wrote %zu. Reason: %s", 
+                  fullPath.c_str(), length, written, strerror(errno));
+        
+        fclose(f);
+        return false;
+    }
+
+    // Check fclose as well (crucial for ensuring appended data is flushed)
+    if (fclose(f) != 0) {
+        LOG_ERROR("SD-Task", "Failed to close/flush file '%s' after appending - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
     return true;
 }
+
 
 /**
  * @brief Reads the content of a file from start to end.
@@ -158,7 +200,7 @@ std::string SD::readFile(const char* filename)
         return "";
     }
 
-    if (this->file == nullptr)
+    if (this->_file == nullptr)
     {
         if(!this->openFile(filename))
         {
@@ -166,9 +208,9 @@ std::string SD::readFile(const char* filename)
         }
     }
 
-    fseek(this->file, 0, SEEK_END);
-    long fileSize = ftell(this->file);
-    fseek(this->file, 0, SEEK_SET);
+    fseek(this->_file, 0, SEEK_END);
+    long fileSize = ftell(this->_file);
+    fseek(this->_file, 0, SEEK_SET);
 
     if (fileSize <= 0) {
         return "";
@@ -177,7 +219,7 @@ std::string SD::readFile(const char* filename)
     std::string content;
     content.resize(fileSize);
 
-    size_t result = fread(&content[0], 1, fileSize, this->file);
+    size_t result = fread(&content[0], 1, fileSize, this->_file);
     if (result != fileSize) {
         content.resize(result);
     }
@@ -192,7 +234,7 @@ std::string SD::readFile(const char* filename)
  */
 bool SD::clearMemory()
 {
-    DIR *dir = opendir(mount_point.c_str());
+    DIR *dir = opendir(this->_mount_point.c_str());
     if (!dir) {
         return false;
     }
@@ -200,7 +242,7 @@ bool SD::clearMemory()
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type == DT_REG) {
-            std::string file_path = mount_point + "/" + entry->d_name;
+            std::string file_path = getFullPath(entry->d_name);
             unlink(file_path.c_str());
         }
     }
@@ -220,7 +262,7 @@ bool SD::fileExists(const char* filename)
         return false;
     }
 
-    std::string full_path = mount_point + "/" + filename;
+    std::string full_path = getFullPath(filename);
     struct stat st;
     if (stat(full_path.c_str(), &st) == 0) {
         return true;
@@ -234,7 +276,7 @@ bool SD::fileExists(const char* filename)
  * @return String containing the next line, or empty String if EOF or error
  */
 std::string SD::readLine() {
-    if (this->file == nullptr) {
+    if (this->_file == nullptr) {
         LOG_INFO("SD-Task", "File not open");
         return "";
     }
@@ -242,7 +284,7 @@ std::string SD::readLine() {
     std::string str = "";
     char ch;
     
-    while (fread(&ch, 1, 1, this->file) == 1) {
+    while (fread(&ch, 1, 1, this->_file) == 1) {
         if (ch == '|') {
             break;
         }

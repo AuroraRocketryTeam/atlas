@@ -18,51 +18,53 @@ StorageLoggingTask::StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
 
 StorageLoggingTask::~StorageLoggingTask() {
     stop();
-    if (pendingDataToWrite != nullptr) {
-        free(pendingDataToWrite);
-        pendingDataToWrite = nullptr;
-    }
 }
 
 void StorageLoggingTask::taskFunction() {
+    TickType_t lastWriteTicks = xTaskGetTickCount();
+
     while (running) {
         esp_task_wdt_reset();
 
-        if (!running) break;
-
         storageInitialized = rocketModel && rocketModel->isStorageInitialized();
+
+        // Handle Storage Disconnection
+        if (!storageInitialized) {            
+            // Drop pending old data
+            pendingBytesToWrite = 0;
+            
+            vTaskDelay(pdMS_TO_TICKS(100)); 
+            continue;
+        }
+
+        // Evaluate if we need to trigger a write cycle
         int currentLogCount = logger ? logger->getLogCount() : 0;
+        TickType_t currentTicks = xTaskGetTickCount();
+        bool timeoutReached = (currentTicks - lastWriteTicks) * portTICK_PERIOD_MS >= FLUSH_TIMEOUT_MS;
 
-        // Trigger write if we hit batch size OR if we have leftover data from a failed write
-        if (currentLogCount >= BATCH_SIZE || pendingDataToWrite != nullptr) {
-            if (storageInitialized && running) {
-                
-                if (pendingDataToWrite == nullptr) {
-                    if (!logger || !logger->consumeAllAsJsonChar(&pendingDataToWrite, BATCH_SIZE)) {
-                        continue;
-                    }
-                }
+        // We write if we have leftover data, OR if data is getting stale, OR if we have "enough" logs waiting
+        bool shouldWrite = (pendingBytesToWrite > 0) || 
+                        (timeoutReached && currentLogCount > 0) ||
+                        (currentLogCount >= 10);
 
-                if (!running) break;
+        // Execute Write
+        if (shouldWrite && running) {
+            LOG_DEBUG("StorageLoggingTask", "Initiating write cycle. pendingBytesToWrite=%zu, currentLogCount=%d\n", pendingBytesToWrite, currentLogCount);
+            if (pendingBytesToWrite == 0 && logger) {
+                // Just hand over the entire available buffer space!
+                pendingBytesToWrite = logger->consumeBatch(writeBuffer, WRITE_BUFFER_SIZE);
+            }
 
-                // We use storageAppendFile to append the data block to the end of the JSONL file
-                if (!rocketModel->storageAppendFile(TELEMETRY_FILENAME, pendingDataToWrite)) {
-                    LOG_ERROR("StorageLoggingTask", "Failed to append batch to JSONL. Retaining data in memory for retry.");
+            if (pendingBytesToWrite > 0) {
+                if (rocketModel->storageAppendFile(TELEMETRY_FILENAME, writeBuffer, pendingBytesToWrite)) {
+                    pendingBytesToWrite = 0;
+                    lastWriteTicks = xTaskGetTickCount();
                 } else {
-                    free(pendingDataToWrite);
-                    pendingDataToWrite = nullptr;
-                }
-            } else if (!storageInitialized) {
-                if (logger) {
-                    logger->clearData();
-                }
-                // Flush memory if storage completely disconnects to prevent memory leaks
-                if (pendingDataToWrite != nullptr) {
-                    free(pendingDataToWrite);
-                    pendingDataToWrite = nullptr;
+                    LOG_DEBUG("StorageLoggingTask", "Write failed. Retrying next loop.");
                 }
             }
         }
+
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }

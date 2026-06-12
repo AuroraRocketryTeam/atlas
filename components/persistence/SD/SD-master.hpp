@@ -6,10 +6,11 @@
 #include "sdmmc_cmd.h"
 #include "driver/sdspi_host.h"
 #include "driver/spi_common.h"
-#include "Logger.hpp"
+#include "SerialLogger.hpp"
 #include "pins.h"
 #include <SPIBus.hpp>
 #include "IStorage.hpp"
+#include "SerialLogger.hpp"
 
 /**
  * @brief Class to handle SD card operations.
@@ -17,13 +18,21 @@
 class SD : public IStorage
 {
 private:
-    sdmmc_card_t *card = nullptr;
-    FILE *file = nullptr;
-    bool fileInitialized = false;
-    const std::string mount_point = "/sdcard";
+    sdmmc_card_t *_card = nullptr;
+    FILE *_file = nullptr;
+    bool _fileInitialized = false;
+    const std::string _mount_point = "/sdcard";
 
 public:
     bool init(SPIBus* bus, gpio_num_t cs_pin);
+
+    /**
+     * @brief Get the full path for a given filename on the SD card.
+     * @param filename The name of the file (can be relative or absolute).
+     * @return The full path to the file on the SD card.
+     */
+    std::string getFullPath(const std::string& filename) const;
+
 
     /**
      * @brief Initialize the SD card.
@@ -38,13 +47,12 @@ public:
     /**
      * @brief Write a string of data to a file.
      */
-    bool writeFile(const char* filename, const char* content) override;
-
+    bool writeFile(const char* filename, const uint8_t* data, size_t length) override;
+    
     /**
      * @brief Append a string of data to a file.
      */
-    bool appendFile(const char* filename, const char* content) override;
-
+    bool appendFile(const char* filename, const uint8_t* data, size_t length) override;
     /**
      * @brief Read the whole content of a file.
      * @return A std::string with the contents of the file, or empty string if there was an error.
@@ -67,10 +75,10 @@ public:
      */
     std::string readLine() override;
 
-    bool isInitialized() const override { return fileInitialized; }
+    bool isInitialized() const override { return _fileInitialized; }
 
     /**
      * @brief Get a pointer to the currently open file.
      */
-    FILE* getFile() { return file; }
+    FILE* getFile() { return _file; }
 };

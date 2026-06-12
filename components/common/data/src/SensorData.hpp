@@ -1,43 +1,44 @@
 #pragma once
-
-#include <string>
-#include <nlohmann/json.hpp>
-#include "ILoggable.hpp"
+#include <cstring>
+#include <cstdio>
 
 /**
  * @brief Class to store sensor data.
  *
  */
-class SensorData : public ILoggable
+class SensorData
 {
 protected:
-    // Name of the sensor
-    std::string sensorName;
+    char sensorName[16] = {0};
 
 public:
+    SensorData() = default;
+
     /**
      * @brief Construct a new Sensor Data object.
      *
      * @param sensorName Name of the sensor.
      */
-    SensorData(std::string sensorName) : sensorName(sensorName) {}
+    SensorData(const char* name) {
+        std::strncpy(sensorName, name, sizeof(sensorName) - 1);
+        sensorName[sizeof(sensorName) - 1] = '\0';
+    }
+
+    /**
+     * @brief Sets the name of the sensor.
+     * @param name Name of the sensor.
+     */
+    void setSensorName(const char* name) {
+        std::strncpy(sensorName, name, sizeof(sensorName) - 1);
+        sensorName[sizeof(sensorName) - 1] = '\0';
+    }
 
     /**
      * @brief Get the Sensor Name object
      *
-     * @return A string representing the name of the sensor.
+     * @return const char* Name of the sensor.
      */
-    std::string getSensorName() const
-    {
+    const char* getSensorName() const {
         return sensorName;
     }
-
-    /**
-     * @brief Get the JSON representation of the object.
-     *
-     * @return A json object.
-     */
-    virtual json toJSON() const override;
 };
-
-

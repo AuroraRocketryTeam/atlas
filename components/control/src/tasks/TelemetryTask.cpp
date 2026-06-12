@@ -18,13 +18,11 @@ float relAltitude_tele(float pressure, float pressureRef = 101325.0f,
 
 
 TelemetryTask::TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                             SemaphoreHandle_t modelMutex,
                              std::shared_ptr<EspNowTransmitter> espNowTransmitter,
                              uint32_t intervalMs,
                              IStateMachine* fsm)
     : BaseTask("TelemetryTask"),
       _rocketModel(rocketModel),
-      _modelMutex(modelMutex),
       _transmitter(espNowTransmitter),
       _fsm(fsm),
       _transmitIntervalMs(intervalMs),
@@ -150,15 +148,8 @@ void TelemetryTask::taskFunction()
 
 bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
 {
-    if (!_rocketModel || !_modelMutex)
+    if (!_rocketModel)
     {
-        return false;
-    }
-
-    // Take mutex with timeout
-    if (xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(10)) != pdTRUE)
-    {
-        LOG_WARNING("Telemetry", "Failed to acquire data mutex");
         return false;
     }
 
@@ -174,40 +165,44 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         packet.last_ack_command_id = _lastAckCommandId;
         _lastAckCommandId = 0;
 
-        auto bno055Data = _rocketModel->getBNO055Data();
-        if (bno055Data) {
-            packet.imu.accel_x = bno055Data->acceleration_x;
-            packet.imu.accel_y = bno055Data->acceleration_y;
-            packet.imu.accel_z = bno055Data->acceleration_z;
+        IMUData outBnoData;
+        SensorReadStatus bnoStatus = _rocketModel->getBNO055Data(outBnoData);
+        if (bnoStatus == SensorReadStatus::OK) {
+            packet.imu.accel_x = outBnoData.acceleration_x;
+            packet.imu.accel_y = outBnoData.acceleration_y;
+            packet.imu.accel_z = outBnoData.acceleration_z;
             LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
-            packet.imu.gyro_x = bno055Data->orientation_x;
-            packet.imu.gyro_y = bno055Data->orientation_y;
-            packet.imu.gyro_z = bno055Data->orientation_z;
+            packet.imu.gyro_x = outBnoData.orientation_x;
+            packet.imu.gyro_y = outBnoData.orientation_y;
+            packet.imu.gyro_z = outBnoData.orientation_z;
         } else {
             LOG_WARNING("Telemetry", "BNO055 data not available");
         }
 
-        auto baro1Data = _rocketModel->getMS561101BA03Data_1();
-        if (baro1Data) {
-            packet.baro1.pressure = baro1Data->pressure;
-            packet.baro1.temperature = baro1Data->temperature;
+        PressureSensorData outMs56Data1;
+        SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outMs56Data1);
+        if (baro1Status == SensorReadStatus::OK) {
+            packet.baro1.pressure = outMs56Data1.pressure;
+            packet.baro1.temperature = outMs56Data1.temperature;
         } else {
             LOG_WARNING("Telemetry", "Barometer 1 data not available");
         }
 
-        auto baro2Data = _rocketModel->getMS561101BA03Data_2();
-        if (baro2Data) {
-            packet.baro2.pressure = baro2Data->pressure;
-            packet.baro2.temperature = baro2Data->temperature;
+        PressureSensorData outMs56Data2;
+        SensorReadStatus baro2Status = _rocketModel->getMS561101BA03Data_2(outMs56Data2);
+        if (baro2Status == SensorReadStatus::OK) {
+            packet.baro2.pressure = outMs56Data2.pressure;
+            packet.baro2.temperature = outMs56Data2.temperature;
         } else {
             LOG_WARNING("Telemetry", "Barometer 2 data not available");
         }
 
-        auto gpsData = _rocketModel->getGPSData();
-        if (gpsData) {
-            packet.gps.latitude = gpsData->latitude;
-            packet.gps.longitude = gpsData->longitude;
-            packet.gps.altitude = gpsData->altitude;
+        GPSData gpsData;
+        SensorReadStatus gpsStatus = _rocketModel->getGPSData(gpsData);
+        if (gpsStatus == SensorReadStatus::OK) {
+            packet.gps.latitude = gpsData.latitude;
+            packet.gps.longitude = gpsData.longitude;
+            packet.gps.altitude = gpsData.altitude;
             LOG_DEBUG("Telemetry", "GPS ALT: %.2f LAT: %.6f LON: %.6f",
                       packet.gps.altitude, packet.gps.latitude, packet.gps.longitude);
         } else {
@@ -218,11 +213,8 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
     catch (const std::exception &e)
     {
         LOG_ERROR("Telemetry", "Exception collecting data: %s", e.what());
-        xSemaphoreGive(_modelMutex);
         return false;
     }
-
-    xSemaphoreGive(_modelMutex);
 
     return true;
 }

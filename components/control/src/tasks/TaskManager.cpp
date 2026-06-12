@@ -6,13 +6,11 @@
 #include <board.h>
 
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
-                         SemaphoreHandle_t modelMutex,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
                          IStateMachine* fsm) :
                          _rocketModel(rocketModel),
                          _logger(logger),
-                         _modelMutex(modelMutex),
                          _sd(sd),
                          _fsm(fsm)
 {
@@ -65,42 +63,25 @@ void TaskManager::initializeTasks()
     
     _tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
         _rocketModel,
-        _modelMutex,
         _logger);
     if (_rocketModel->hasGPS())
     {
         _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
             _rocketModel,
-            _modelMutex,
             _logger);
     } else LOG_INFO("TaskManager", "GPS unavailable. Skipping GPS task");
-    // _tasks[TaskType::EKF] = std::make_unique<EkfTask>(
-    //     _rocketModel,
-    //     _modelMutex,
-    //     _kalmanFilter);
     _tasks[TaskType::STORAGE] = std::make_unique<StorageLoggingTask>(
         _rocketModel,
-        _logger);
-    _tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
-        // Using a different simulation file where at the end of each line there is a
-        // pipe symbol, this was needed as the readLine function had problem recognizing
-        // the \n character, so separating each line
-        "/simulated_sensors_full_piped.csv",
-        _sd,
-        _rocketModel,
-        _modelMutex,
         _logger);
 
 #if CONFIG_AURORA_HIL_SIMULATION
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
-        _modelMutex,
         _logger);
 #endif
         
     _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
         _rocketModel,
-        _modelMutex,
         _logger);
     
 
@@ -108,7 +89,6 @@ void TaskManager::initializeTasks()
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
     auto telemetryTask = std::make_unique<TelemetryTask>(
         _rocketModel,
-        _modelMutex,
         _espNowTransmitter,
         TELEMETRY_INTERVAL_MS,
         _fsm);
@@ -119,8 +99,7 @@ void TaskManager::initializeTasks()
     _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
 
     _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
-        _rocketModel,
-        _modelMutex);
+        _rocketModel);
 
     LOG_INFO("TaskManager", "Created %d task instances", _tasks.size());
 }
@@ -251,21 +230,16 @@ void TaskManager::printTaskStatus() const
     LOG_INFO("TaskManager", "Free heap: %u bytes", ESP.getFreeHeap());
     LOG_INFO("TaskManager", "Task Status:");
 
-    const char *taskNames[] = {
-        "SENSOR", "EKF", "APOGEE_DETECTION", "RECOVERY",
-        "DATA_COLLECTION", "TELEMETRY", "GPS", "LOGGING"};
-
-    int index = 0;
     for (const auto &[type, task] : _tasks)
     {
         if (task)
         {
-            LOG_INFO("TaskManager", "  %s: %s (Stack HWM: %u)",
-                     taskNames[index],
+            LOG_INFO("TaskManager", "  [%s] %s: %s (Stack HWM: %u)",
+                     taskTypeToString(type),
+                     task->getName(),
                      task->isRunning() ? "RUNNING" : "STOPPED",
                      task->getStackHighWaterMark());
         }
-        index++;
     }
     LOG_INFO("TaskManager", "=================");
 }

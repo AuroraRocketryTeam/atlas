@@ -1,6 +1,6 @@
 #include "EspNowTransmitter.hpp"
 #include <PacketManager.hpp>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 #include <cstring>
 
 // Static instance pointer for callbacks

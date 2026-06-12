@@ -18,9 +18,9 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _ms56_1(ms56_1),
     _ms56_2(ms56_2),
     _gps(gps),
-    _isRising(std::make_shared<bool>(false)),
-    _heightGainSpeed(std::make_shared<float>(0.0f)),
-    _currentHeight(std::make_shared<float>(0.0f))
+    _isRising(false),
+    _heightGainSpeed(0.0f),
+    _currentHeight(0.0f)
 #if CONFIG_AURORA_HIL_SIMULATION
     , _reset_simulation(false)
 #endif
@@ -50,6 +50,11 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _storage = mirrorStorage;
 
     _cmd = Command();
+    _imuMutex = xSemaphoreCreateMutex();
+    _baro1Mutex = xSemaphoreCreateMutex();
+    _baro2Mutex = xSemaphoreCreateMutex();
+    _gpsMutex = xSemaphoreCreateMutex();
+    _stateMutex = xSemaphoreCreateMutex();
 }
 
 RocketModel::~RocketModel() {
@@ -63,30 +68,34 @@ void RocketModel::reset() {
     _cmd.reset();
 
     if (_isRising) {
-        *_isRising = false;
+        _isRising = false;
     }
 
     if (_heightGainSpeed) {
-        *_heightGainSpeed = 0.0f;
+        _heightGainSpeed = 0.0f;
     }
 
     if (_currentHeight) {
-        *_currentHeight = 0.0f;
+        _currentHeight = 0.0f;
     }
 
 #if CONFIG_AURORA_HIL_SIMULATION
     _reset_simulation = false;
 
-    setSimulatedBNO055Data(nullptr);
-    setSimulatedLIS3DHTRData(nullptr);
-    setSimulatedMS561101BA03Data_1(nullptr);
-    setSimulatedMS561101BA03Data_2(nullptr);
-    setSimulatedGPSData(nullptr);
+    IMUData bnoData;
+    AccelerometerSensorData lis3dhData;
+    PressureSensorData ms561101ba03Data_1;
+    PressureSensorData ms561101ba03Data_2;
+    GPSData gpsData;
+    setSimulatedBNO055Data(bnoData);
+    setSimulatedLIS3DHTRData(lis3dhData);
+    setSimulatedMS561101BA03Data_1(ms561101ba03Data_1);
+    setSimulatedMS561101BA03Data_2(ms561101ba03Data_2);
+    setSimulatedGPSData(gpsData);
 
     LOG_INFO("Main", "Set simulated data to nullptr");
 #endif
 }   
-
 
 void RocketModel::readBattery() {
     esp_err_t res = adc_oneshot_read(_adc1_handle, ADC_PIN, &_batteryAdc);
@@ -107,35 +116,26 @@ void RocketModel::readBattery() {
 }
 
 bool RocketModel::setOpenMainCommand(){
-    // take lock;
-    _cmd.setMain(true);
-    // bitmask |= FSM_DONE;
-    // if bitmask == DONE:
-    //     bitmask = 0;
-    //     xTaskNotifyGive(); // unlock Simulation task to simulatorTask
-    // release lock;
+    if (xSemaphoreTake(_stateMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _cmd.setMain(true);
+        xSemaphoreGive(_stateMutex);
+    }
     return true;
 }
 
 bool RocketModel::setOpenDrogueCommand(){
-    // take lock;
-    _cmd.setDrogue(true);
-    // bitmask |= FSM_DONE;
-    // if bitmask == DONE:
-    //     bitmask = 0;
-    //     xTaskNotifyGive(); // unlock Simulation task to simulatorTask
-    // release lock;
+    if (xSemaphoreTake(_stateMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _cmd.setDrogue(true);
+        xSemaphoreGive(_stateMutex);
+    }
     return true;
 }
 
 bool RocketModel::setAirbrakesCommand(float lvl){
-    // take lock;
-    _cmd.setAirbrakes(lvl);
-    // bitmask |= AIRBRAKE_DONE;
-    // if bitmask == DONE:
-    //     bitmask = 0;    
-    //     xTaskNotifyGive(); // unlock Simulation task to simulatorTask
-    // release lock;
+    if (xSemaphoreTake(_stateMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _cmd.setAirbrakes(lvl);
+        xSemaphoreGive(_stateMutex);
+    }
     return true;
 }
 
@@ -161,105 +161,223 @@ bool RocketModel::getResetSimulationFlag()
 #endif
 
 bool RocketModel::updateBNO055() {
-    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
-    if (!_bno) return true;
     bool result = _bno->updateData();
 
-    _bnoData = _bno->getData();
-
+    if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (result) {
+            _bnoData = _bno->getData();    
+        }
+        _bnoDataValid = result;
+        xSemaphoreGive(_imuMutex);
+    }    
     return result;
 }
 
 bool RocketModel::updateLIS3DHTR() {
-    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
-    if (!_lis3dh) return true;
     bool result = _lis3dh->updateData();
 
-    _lis3dhData = _lis3dh->getData();
-
+    if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (result) {
+            _lis3dhData = _lis3dh->getData();
+        }
+        _lis3dhDataValid = result;
+        xSemaphoreGive(_imuMutex);
+    }
     return result;
 }
 
 bool RocketModel::updateMS561101BA03_1() {
-    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
-    if (!_ms56_1) return true;
     bool result = _ms56_1->updateData();
 
-    _ms561101ba03Data_1 = _ms56_1->getData();
-
+    if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (result) {
+            _ms561101ba03Data_1 = _ms56_1->getData();
+        }
+        _ms561101ba03Data_1_Valid = result;
+        xSemaphoreGive(_baro1Mutex);
+    }
     return result;
 }
 
 bool RocketModel::updateMS561101BA03_2() {
-    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
-    if (!_ms56_2) return true;
     bool result = _ms56_2->updateData();
 
-    _ms561101ba03Data_2 = _ms56_2->getData();
-
+    if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (result) {
+            _ms561101ba03Data_2 = _ms56_2->getData();
+        }
+        _ms561101ba03Data_2_Valid = result;
+        xSemaphoreGive(_baro2Mutex);
+    }
     return result;
 }
 
 bool RocketModel::updateGPS() {
-    // In simulation mode, the data is set directly by the HilSimulationTask, so we can just return true here, to avoid trying to read from the sensor
-    if (!_gps) return true;
     bool result = _gps->updateData();
 
-    _gpsData = _gps->getData();
-
+    if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (result) {
+            _gpsData = _gps->getData();
+        }
+        _gpsDataValid = result;
+        xSemaphoreGive(_gpsMutex);
+    }
     return result;
 }
 
-std::shared_ptr<IMUData> RocketModel::getBNO055Data() {
-    return _bnoData;
+SensorReadStatus RocketModel::getBNO055Data(IMUData& data) {
+#if !CONFIG_AURORA_HIL_SIMULATION
+    if (!_bno) return SensorReadStatus::NOT_PRESENT;
+#endif
+
+    if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (!_bnoDataValid) {
+            xSemaphoreGive(_imuMutex);
+            return SensorReadStatus::SENSOR_ERROR;
+        }
+        data = _bnoData;
+        xSemaphoreGive(_imuMutex);
+        return SensorReadStatus::OK;
+    }
+    return SensorReadStatus::MUTEX_TIMEOUT;
 }
 
-std::shared_ptr<AccelerometerSensorData> RocketModel::getLIS3DHTRData() {
-    return _lis3dhData;
+SensorReadStatus RocketModel::getLIS3DHTRData(AccelerometerSensorData& data) {
+#if !CONFIG_AURORA_HIL_SIMULATION
+    if (!_lis3dh) return SensorReadStatus::NOT_PRESENT;
+#endif
+
+    if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (!_lis3dhDataValid) {
+            xSemaphoreGive(_imuMutex);
+            return SensorReadStatus::SENSOR_ERROR;
+        }
+        data = _lis3dhData;
+        xSemaphoreGive(_imuMutex);
+        return SensorReadStatus::OK;
+    }
+    return SensorReadStatus::MUTEX_TIMEOUT;
 }
 
-std::shared_ptr<PressureSensorData> RocketModel::getMS561101BA03Data_1() {
-    return _ms561101ba03Data_1;
+SensorReadStatus RocketModel::getMS561101BA03Data_1(PressureSensorData& data) {
+#if !CONFIG_AURORA_HIL_SIMULATION
+    if (!_ms56_1) return SensorReadStatus::NOT_PRESENT;
+#endif
+    
+    if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (!_ms561101ba03Data_1_Valid) {
+            xSemaphoreGive(_baro1Mutex);
+            return SensorReadStatus::SENSOR_ERROR;
+        }
+        data = _ms561101ba03Data_1;
+        xSemaphoreGive(_baro1Mutex);
+        return SensorReadStatus::OK;
+    }
+    return SensorReadStatus::MUTEX_TIMEOUT;
 }
 
-std::shared_ptr<PressureSensorData> RocketModel::getMS561101BA03Data_2() {
-    return _ms561101ba03Data_2;
+SensorReadStatus RocketModel::getMS561101BA03Data_2(PressureSensorData& data) {
+#if !CONFIG_AURORA_HIL_SIMULATION
+    if (!_ms56_2) return SensorReadStatus::NOT_PRESENT;
+#endif
+    
+    if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (!_ms561101ba03Data_2_Valid) {
+            xSemaphoreGive(_baro2Mutex);
+            return SensorReadStatus::SENSOR_ERROR;
+        }
+        data = _ms561101ba03Data_2;
+        xSemaphoreGive(_baro2Mutex);
+        return SensorReadStatus::OK;
+    }
+    return SensorReadStatus::MUTEX_TIMEOUT;
 }
 
-std::shared_ptr<GPSData> RocketModel::getGPSData() {
-    return _gpsData;
+SensorReadStatus RocketModel::getGPSData(GPSData& data) {
+#if !CONFIG_AURORA_HIL_SIMULATION
+    if (!_gps) return SensorReadStatus::NOT_PRESENT;
+#endif
+    
+    if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (!_gpsDataValid) {
+            xSemaphoreGive(_gpsMutex);
+            return SensorReadStatus::SENSOR_ERROR;
+        }
+        data = _gpsData;
+        xSemaphoreGive(_gpsMutex);
+        return SensorReadStatus::OK;
+    }
+    return SensorReadStatus::MUTEX_TIMEOUT;
 }
 
-void RocketModel::setSimulatedBNO055Data(std::shared_ptr<IMUData> data) {
-    _bnoData = data;
+bool RocketModel::setSimulatedBNO055Data(IMUData data) {
+    if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _bnoData = data;
+        _bnoDataValid = true;
+        xSemaphoreGive(_imuMutex);
+        return true;
+    }
+    return false;
 }
 
-void RocketModel::setSimulatedLIS3DHTRData(std::shared_ptr<AccelerometerSensorData> data) {
-    _lis3dhData = data;
+bool RocketModel::setSimulatedLIS3DHTRData(AccelerometerSensorData data) {
+    if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _lis3dhData = data;
+        _lis3dhDataValid = true;
+        xSemaphoreGive(_imuMutex);
+        return true;
+    }
+    return false;
 }
 
-void RocketModel::setSimulatedMS561101BA03Data_1(std::shared_ptr<PressureSensorData> data) {
-    _ms561101ba03Data_1 = data;
+bool RocketModel::setSimulatedMS561101BA03Data_1(PressureSensorData data) {
+    if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _ms561101ba03Data_1 = data;
+        _ms561101ba03Data_1_Valid = true;
+        xSemaphoreGive(_baro1Mutex);
+        return true;
+    }
+    return false;
 }
 
-void RocketModel::setSimulatedMS561101BA03Data_2(std::shared_ptr<PressureSensorData> data) {
-    _ms561101ba03Data_2 = data;
+bool RocketModel::setSimulatedMS561101BA03Data_2(PressureSensorData data) {
+    if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _ms561101ba03Data_2 = data;
+        _ms561101ba03Data_2_Valid = true;
+        xSemaphoreGive(_baro2Mutex);
+        return true;
+    }
+    return false;
 }
 
-void RocketModel::setSimulatedGPSData(std::shared_ptr<GPSData> data) {
-    _gpsData = data;
+bool RocketModel::setSimulatedGPSData(GPSData data) {
+    if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _gpsData = data;
+        _gpsDataValid = true;
+        xSemaphoreGive(_gpsMutex);
+        return true;
+    }
+    return false;
 }
 
-std::shared_ptr<bool> RocketModel::getIsRising() {
+bool RocketModel::getIsRising() {
     return _isRising;
 }
 
-std::shared_ptr<float> RocketModel::getHeightGainSpeed() {
+void RocketModel::setIsRising(bool isRising) {
+    _isRising = isRising;
+}
+
+float RocketModel::getHeightGainSpeed() {
     return _heightGainSpeed;
 }
 
-std::shared_ptr<float> RocketModel::getCurrentHeight() {
+float RocketModel::getCurrentHeight() {
     return _currentHeight;
+}
+
+void RocketModel::setCurrentHeight(float height) {
+    _currentHeight = height;
 }
 
 bool RocketModel::isStorageInitialized(uint32_t timeoutMs) const {
@@ -319,30 +437,26 @@ std::string RocketModel::storageReadLine(uint32_t timeoutMs) {
     return "";
 }
 
-bool RocketModel::storageWriteFile(const char* filename, const char* content, uint32_t timeoutMs) {
-    if (filename == nullptr || content == nullptr) {
-        return false;
-    }
+bool RocketModel::storageWriteFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs) {
+    if (filename == nullptr || data == nullptr || length == 0) return false;
 
     if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const bool ready = _storage && _storage->isInitialized();
-        const bool ok = ready && _storage->openFile(filename) && _storage->writeFile(filename, content) && _storage->closeFile();
+        const bool ok = ready && _storage->openFile(filename) && 
+                        _storage->writeFile(filename, data, length) && 
+                        _storage->closeFile();
         xSemaphoreGive(_storageMutex);
         return ok;
     }
     return false;
 }
 
-bool RocketModel::storageAppendFile(const char* filename, const char* content, uint32_t timeoutMs) {
-    if (filename == nullptr || content == nullptr) {
-        return false;
-    }
+bool RocketModel::storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs) {
+    if (filename == nullptr || data == nullptr || length == 0) return false;
 
     if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const bool ready = _storage && _storage->isInitialized();
-        
-        const bool ok = ready && _storage->appendFile(filename, content);
-        
+        const bool ok = ready && _storage->appendFile(filename, data, length);
         xSemaphoreGive(_storageMutex);
         return ok;
     }
@@ -354,12 +468,10 @@ std::shared_ptr<BNO055Sensor> RocketModel::getBNO055Sensor() {
 }
 
 bool RocketModel::isSensorSystemCalibrated() {
-    // Assuming your BNO055Sensor class has a method to check the system calibration status.
-    // Since NVS auto-loads on boot, this should return true almost immediately.
     if (_bno) {
-        return _bno->isFullyCalibrated(); // You may need to ensure this method exists in BNO055Sensor.hpp
+        return _bno->isFullyCalibrated(); 
     }
-    return true; // Fallback so the FSM doesn't lock up if the BNO is missing/disabled
+    return true; 
 }
 
 void RocketModel::addBarometerSample(float pressure) {

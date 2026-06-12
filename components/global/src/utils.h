@@ -12,4 +12,3 @@ public:
 private:
     static volatile uint32_t _simMillis;
 };
-

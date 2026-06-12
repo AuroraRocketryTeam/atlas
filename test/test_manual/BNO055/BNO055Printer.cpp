@@ -5,28 +5,12 @@ BNO055Printer::BNO055Printer(ISensor* sensor) : bno055(sensor) { }
 
 void BNO055Printer::displayCalibrationStatus() {
     auto data = bno055->getData();
-    if (!data.has_value()) {
-        Serial.println("ERROR: COULD NOT GET SENSOR DATA");
-        return;
-    }
-    if (!data.value().getData("system_calibration").has_value() ||
-        !data.value().getData("gyro_calibration").has_value() ||
-        !data.value().getData("accel_calibration").has_value() ||
-        !data.value().getData("mag_calibration").has_value()
-    ) {
-        Serial.println("ERROR: Could not read all calibration status variables");
-        return;
-    }
-    uint8_t system = std::get<uint8_t>(data.value().getData("system_calibration").value()),
-        gyro = std::get<uint8_t>(data.value().getData("gyro_calibration").value()),
-        accel = std::get<uint8_t>(data.value().getData("accel_calibration").value()),
-        mag = std::get<uint8_t>(data.value().getData("mag_calibration").value());
 
     PrintUtils::printHeader("CALIBRATION STATUS: 0=not calibrated, 3=fully calibrated");
-    Serial.println("Sys: " + String(system));
-    Serial.println("Gyro: " + String(gyro));
-    Serial.println("Accel: " + String(accel));
-    Serial.println("Mag: " + String(mag));
+    Serial.println("Sys: " + String(data.calibration_sys));
+    Serial.println("Gyro: " + String(data.calibration_gyro));
+    Serial.println("Accel: " + String(data.calibration_accel));
+    Serial.println("Mag: " + String(data.calibration_mag));
     Serial.println("");
 }
 
@@ -65,25 +49,42 @@ void BNO055Printer::displayGravity() {
 
 void BNO055Printer::printXYZMap(const char* key) {
     auto data = bno055->getData();
-    if (!data.has_value()) {
-        Serial.println("ERROR: COULD NOT GET SENSOR DATA");
-        return;
-    }
+    PrintUtils::printHeader(key);
 
-    auto optVal = data.value().getData(key);
-    if (!optVal.has_value()) {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+
+    if (strcmp(key, "magnetometer") == 0) {
+        x = data.magnetometer_x;
+        y = data.magnetometer_y;
+        z = data.magnetometer_z;
+    } else if (strcmp(key, "orientation") == 0) {
+        x = data.orientation_x;
+        y = data.orientation_y;
+        z = data.orientation_z;
+    } else if (strcmp(key, "accelerometer") == 0) {
+        x = data.acceleration_x;
+        y = data.acceleration_y;
+        z = data.acceleration_z;
+    } else if (strcmp(key, "angular_velocity") == 0) {
+        x = data.angular_velocity_x;
+        y = data.angular_velocity_y;
+        z = data.angular_velocity_z;
+    } else if (strcmp(key, "linear_acceleration") == 0) {
+        x = data.linear_acceleration_x;
+        y = data.linear_acceleration_y;
+        z = data.linear_acceleration_z;
+    } else if (strcmp(key, "gravity") == 0) {
+        x = data.gravity_x;
+        y = data.gravity_y;
+        z = data.gravity_z;
+    } else {
         Serial.println(String("ERROR: Could not read ") + key + " values");
         return;
     }
 
-    auto val = std::get<std::map<std::string, float>>(data.value().getData(key).value());
-    PrintUtils::printHeader(key);
-
-    auto x = val.find("x"), y = val.find("y"), z = val.find("z");
-    if (x == val.end() || y == val.end() || z == val.end()) {
-        Serial.println(String("ERROR: Could not find all the") + key + "values");
-    }
-    Serial.print("X: " + String(x->second, DECIMAL_PLACES));
-    Serial.print(" Y: " + String(y->second, DECIMAL_PLACES));
-    Serial.print(" Z: " + String(z->second, DECIMAL_PLACES));    
+    Serial.print("X: " + String(x, DECIMAL_PLACES));
+    Serial.print(" Y: " + String(y, DECIMAL_PLACES));
+    Serial.print(" Z: " + String(z, DECIMAL_PLACES));    
 }

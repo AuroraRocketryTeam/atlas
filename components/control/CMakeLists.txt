@@ -21,17 +21,12 @@ idf_component_register(
         global
         data
         model
-        core
-        implementation
+        rocket_logger
         SD
-        BME680
         BNO055
         GPS
         LIS3DHTR
-        MPRLS
         MS561101BA03
-        Termoresistenze
-        filters_kalman
         status
         protocol
         radio_espnow

@@ -1,8 +1,8 @@
-# Component: radio_espnow (lib/telemetry/radio_espnow)
+# Component: serializations (lib/logger/serializations)
 file(GLOB SRCS "src/*.cpp" "src/*.c")
 
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "src"
-    REQUIRES global data protocol
+    REQUIRES global data SD
 )

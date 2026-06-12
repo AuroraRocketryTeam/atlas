@@ -1,12 +1,11 @@
 #pragma once
 
 #include "ITask.hpp"
-#include "SharedData.hpp"
 #include <memory>
 #include <map>
 #include <string>
 #include "TaskConfig.hpp"
-#include "Logger.hpp"
+#include "SerialLogger.hpp"
 #include "SD-master.hpp"
 #include "IStorage.hpp"
 #include "RocketModel.hpp"
@@ -15,9 +14,7 @@
 #include "SensorTask.hpp"
 #include "AirbrakesTask.hpp"
 #include "StorageLoggingTask.hpp"
-#include "EkfTask.hpp"
 #include "GpsTask.hpp"
-#include "SimulationTask.hpp"
 
 #if CONFIG_AURORA_HIL_SIMULATION
 #include "HilSimulationTask.hpp"
@@ -27,8 +24,6 @@
 #include "AltitudeTask.hpp"
 #include <EspNowTransmitter.hpp>
 #include <E220LoRaTransmitter.hpp>
-
-// #define SIMULATION_DATA // Uncomment this out to use CSV file readings simulation data
 
 /**
  * @brief Class to manage tasks in the system.
@@ -40,12 +35,10 @@ public:
      * @brief Construct a new Task Manager object
      * 
      * @param rocketModel The shared pointer to the rocket model
-     * @param modelMutex The semaphore handle to protect access to the model
      * @param sd The shared pointer to the SD card
      * @param logger The shared pointer to the RocketLogger instance
      */
     TaskManager(std::shared_ptr<RocketModel> rocketModel,
-            SemaphoreHandle_t modelMutex,
             std::shared_ptr<SD> sd,
             std::shared_ptr<RocketLogger> logger,
             IStateMachine* fsm = nullptr);
@@ -120,7 +113,6 @@ private:
     // Shared resources
     std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
-    SemaphoreHandle_t _modelMutex;
 
     std::shared_ptr<SD> _sd;
     // Telemetry

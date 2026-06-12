@@ -29,7 +29,6 @@
 
 // Interfaces
 #include <ISensor.hpp>
-#include <ILogger.hpp>
 #include <ITransmitter.hpp>
 
 // System model
@@ -45,7 +44,8 @@
 #include <SD-master.hpp>
 #include <Flash.hpp>
 #include <RocketLogger.hpp>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
+#include <PayloadSerializer.hpp>
 
 // Controllers and filters
 #include <LEDController.hpp>
@@ -153,6 +153,7 @@ void setup()
     // Initialize logger
     LOG_INFO("Init", "Initializing rocket logger...");
     logger = std::make_shared<RocketLogger>();
+    logger->setSerializer(PayloadSerializers::toJson);
     LOG_INFO("Init", "Rocket logger initialized");
 
     LOG_INFO("Init", "Initializing external flash for mirrored logging...");
@@ -395,11 +396,11 @@ void wifi_softap_init(void)
     wifi_config.ap.channel = HIL_WIFI_CHANNEL;
     wifi_config.ap.max_connection = HIL_MAX_STA_CONN;
 
-    strncpy(reinterpret_cast<char *>(wifi_config.ap.ssid),
+    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.ssid),
             HIL_WIFI_SSID,
             sizeof(wifi_config.ap.ssid) - 1);
 
-    strncpy(reinterpret_cast<char *>(wifi_config.ap.password),
+    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.password),
             HIL_WIFI_PASSWORD,
             sizeof(wifi_config.ap.password) - 1);
 

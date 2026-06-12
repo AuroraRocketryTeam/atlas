@@ -1,6 +1,5 @@
 #pragma once
 #include <SensorData.hpp>
-#include <string.h>
 
 /**
  * @brief Data structure for GPS sensor readings
@@ -9,9 +8,7 @@
 class GPSData : public SensorData
 {
 public:
-    GPSData(std::string sensorName="GPS") : SensorData(sensorName) {}
-
-    // Number of satellites in view
+    GPSData() = default;
     uint8_t satellites = 0;
     
     // Fix type (0=no fix, 1=dead reckoning, 2=2D fix, 3=3D fix, 4=GNSS+dead reckoning, 5=time-only fix) 
@@ -34,22 +31,10 @@ public:
     
     // Metadata
     uint32_t timestamp = 0;
-    json toJSON() const override {
-        json j;
-        j["source"] = getSensorName();
-
-        json sensorDataJson;
-        sensorDataJson["satellites"] = satellites;
-        sensorDataJson["fixType"] = fixType;
-        sensorDataJson["latitude"] = latitude;
-        sensorDataJson["longitude"] = longitude;
-        sensorDataJson["altitude"] = altitude;
-        sensorDataJson["ground_speed"] = ground_speed;
-        sensorDataJson["hdop"] = hdop;
-        sensorDataJson["timestamp"] = timestamp;
-
-        j["sensorData"] = sensorDataJson;
-
-        return j;
+    
+    size_t serializeJson(char* buffer, size_t maxLength) const {
+        return snprintf(buffer, maxLength, 
+            "{\"source\":\"%s\",\"sensorData\":{\"satellites\":%u,\"fixType\":%u,\"latitude\":%f,\"longitude\":%f,\"altitude\":%f,\"ground_speed\":%f,\"hdop\":%f,\"timestamp\":%lu}}\n",
+            getSensorName(), satellites, fixType, latitude, longitude, altitude, ground_speed, hdop, (unsigned long)timestamp);
     }
 };

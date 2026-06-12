@@ -107,11 +107,9 @@ static bool send_all(int _client_sock, const uint8_t *buf, size_t len, const vol
 
 HilSimulationTask::HilSimulationTask(
     std::shared_ptr<RocketModel> rocketModel,
-    SemaphoreHandle_t modelMutex,
     std::shared_ptr<RocketLogger> logger)
     : BaseTask("HilSimulationTask"),
       _rocketModel(rocketModel),
-      _modelMutex(modelMutex),
       _logger(logger)
 {
     // ctor
@@ -379,33 +377,38 @@ void HilSimulationTask::taskFunction() {
 
             /* ================= FILL SENSOR DATA ================= */
 
-            auto bnoData = std::make_shared<IMUData>("Sim_IMU");
-            auto lis3dhData = std::make_shared<AccelerometerSensorData>("Sim_LIS3DH");
-            auto ms1 = std::make_shared<PressureSensorData>("Sim_MS5611_1");
-            auto ms2 = std::make_shared<PressureSensorData>("Sim_MS5611_2");
-            auto gps = std::make_shared<GPSData>("Sim_GPS");
+            IMUData bnoData;
+            AccelerometerSensorData lis3dhData;
+            PressureSensorData ms1;
+            PressureSensorData ms2;
+            GPSData gps;
             
             const uint32_t sim_time_ms = static_cast<uint32_t>(pkt.sim_time * 1000.0f);
 
-            bnoData->timestamp = sim_time_ms;
-            bnoData->acceleration_x = pkt.ax;
-            bnoData->acceleration_y = pkt.ay;
-            bnoData->acceleration_z = pkt.az;
+            bnoData.timestamp = sim_time_ms;
+            bnoData.acceleration_x = pkt.ax;
+            bnoData.acceleration_y = pkt.ay;
+            bnoData.acceleration_z = pkt.az;
+            bnoData.setSensorName("BNO055_SIM");
 
-            lis3dhData->timestamp = sim_time_ms;
-            lis3dhData->acceleration_x = pkt.ax;
-            lis3dhData->acceleration_y = pkt.ay;
-            lis3dhData->acceleration_z = pkt.az;
+            lis3dhData.timestamp = sim_time_ms;
+            lis3dhData.acceleration_x = pkt.ax;
+            lis3dhData.acceleration_y = pkt.ay;
+            lis3dhData.acceleration_z = pkt.az;
+            lis3dhData.setSensorName("LIS3DH_SIM");
 
-            ms1->timestamp = sim_time_ms;
-            ms1->pressure = pkt.p;
-            ms2->timestamp = sim_time_ms;
-            ms2->pressure = pkt.p;
+            ms1.timestamp = sim_time_ms;
+            ms1.pressure = pkt.p;
+            ms1.setSensorName("MS56_1_SIM");
+            ms2.timestamp = sim_time_ms;
+            ms2.pressure = pkt.p;
+            ms2.setSensorName("MS56_2_SIM");
 
-            gps->timestamp = sim_time_ms;
-            gps->latitude  = pkt.lat;
-            gps->longitude = pkt.lon;
-            gps->altitude  = pkt.alt;
+            gps.timestamp = sim_time_ms;
+            gps.latitude  = pkt.lat;
+            gps.longitude = pkt.lon;
+            gps.altitude  = pkt.alt;
+            gps.setSensorName("GPS_SIM");
 
             ESP_LOGI(TAG, "Received sim packet: time=%d ax=%.2f ay=%.2f az=%.2f p=%.2f lat=%.6f lon=%.6f alt=%.2f",
                 sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.lat, pkt.lon, pkt.alt
@@ -413,38 +416,29 @@ void HilSimulationTask::taskFunction() {
             
             /* ================= UPDATE MODEL ================= */
 
-            if (_rocketModel && xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(200))) {
-                _rocketModel->setSimulatedBNO055Data(bnoData);
-                _rocketModel->setSimulatedLIS3DHTRData(lis3dhData);
-                _rocketModel->setSimulatedMS561101BA03Data_1(ms1);
-                _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
-                _rocketModel->setSimulatedGPSData(gps);
-    
-                if (_logger) {
-                    _logger->logSensorData(bnoData);
-                    _logger->logSensorData(lis3dhData);
-                    _logger->logSensorData(ms1);
-                    _logger->logSensorData(ms2);
-                    _logger->logSensorData(gps);
-                }
+            _rocketModel->setSimulatedBNO055Data(bnoData);
+            _rocketModel->setSimulatedLIS3DHTRData(lis3dhData);
+            _rocketModel->setSimulatedMS561101BA03Data_1(ms1);
+            _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
+            _rocketModel->setSimulatedGPSData(gps);
 
-                xSemaphoreGive(_modelMutex);
+            if (_logger) {
+                _logger->logSensorData(bnoData);
+                _logger->logSensorData(lis3dhData);
+                _logger->logSensorData(ms1);
+                _logger->logSensorData(ms2);
+                _logger->logSensorData(gps);
             }
 
             Utils::setSimMillis(sim_time_ms);
 
             // yield in order to let the other task to set the command
-            taskYIELD();
+            vTaskDelay(pdMS_TO_TICKS(20));
             if(!running) break;
 
             /* ================= READ COMMAND FROM MODEL ================= */
             esp_task_wdt_reset();
-            Command cmd;
-
-            if (_rocketModel && xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(200))) {
-                cmd = _rocketModel->getCommand();
-                xSemaphoreGive(_modelMutex);
-            }
+            Command cmd =_rocketModel->getCommand();
 
             /* ================= PACK + SEND ================= */
 
@@ -481,7 +475,7 @@ void HilSimulationTask::taskFunction() {
             //     pkt.alt
             // );
 
-            vTaskDelay(pdMS_TO_TICKS(20)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
+            //vTaskDelay(pdMS_TO_TICKS(20)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
         }
 
         if (_client_sock >= 0) {

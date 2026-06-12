@@ -75,3 +75,28 @@ struct TaskConfig
                TaskCore core = TaskCore::ANY_CORE, bool run = true)
         : type(t), name(n), stackSize(stack), priority(prio), coreId(core), shouldRun(run) {}
 };
+
+/**
+ * @brief Convert TaskType enum to string representation
+ * * Uses switch statement to ensure compile-time checking - if a new task
+ * is added to the enum, the compiler will warn about a missing case.
+ * * @param type The task type to convert
+ * @return const char* String representation of the task type
+ */
+inline const char* taskTypeToString(TaskType type) {
+    switch (type) {
+        case TaskType::SENSOR:          return "SENSOR";
+        case TaskType::SIMULATION:      return "SIMULATION";
+        case TaskType::HIL_SIMULATION:  return "HIL_SIMULATION";
+        case TaskType::EKF:             return "EKF";
+        case TaskType::RECOVERY:        return "RECOVERY";
+        case TaskType::DATA_COLLECTION: return "DATA_COLLECTION";
+        case TaskType::STORAGE:         return "STORAGE";
+        case TaskType::TELEMETRY:       return "TELEMETRY";
+        case TaskType::GPS:             return "GPS";
+        case TaskType::ALTITUDE:        return "ALTITUDE";
+        case TaskType::LOGGING:         return "LOGGING";
+        case TaskType::AIRBRAKES:       return "AIRBRAKES";
+    }
+    return "UNKNOWN_TASK";
+}

@@ -13,8 +13,6 @@
 #define BNO055_I2C_ADDR 0x28
 
 /* Legacy sensors */
-// #define BME680_I2C_ADDR_1 0x77
-// #define BME680_I2C_ADDR_2 0x76
 // #define MPRLS_I2C_ADDR 0x18
 // #define I2C_MULTIPLEXER_ADDRESS 0x70
 // #define I2C_MULTIPLEXER_MPRLS1 1
@@ -90,7 +88,7 @@
 // Larger = smoother but more lag (recommended: 3-7)
 // At 10Hz sampling: window=5 adds 50ms lag
 #define ALTITUDE_FILTER_WINDOW 11
-#define APOGEE_DETECTION_WINDOW_SIZE 65
+#define APOGEE_DETECTION_WINDOW_SIZE 35
 
 #define STATE_INDEX_ALTITUDE 0
 #define STATE_INDEX_VELOCITY 1

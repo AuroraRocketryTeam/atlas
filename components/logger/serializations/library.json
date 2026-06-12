@@ -1,5 +1,5 @@
 {
-  "name": "aurora_rocketry_BNO055",
+  "name": "aurora_rocketry_serializations",
   "version": "0.1.0",
   "frameworks": ["arduino"],
   "platforms": ["espressif32"]
