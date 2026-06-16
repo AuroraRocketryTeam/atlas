@@ -1,6 +1,6 @@
 set(MAIN_SRCS)
 
-if(CONFIG_AURORA_HIL_SIMULATION)
+if(CONFIG_AURORA_HIL_SUPPORT)
     list(APPEND MAIN_SRCS "main_hil.cpp")
 else()
     list(APPEND MAIN_SRCS "main.cpp")

@@ -21,7 +21,7 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _isRising(false),
     _heightGainSpeed(0.0f),
     _currentHeight(0.0f)
-#if CONFIG_AURORA_HIL_SIMULATION
+#if CONFIG_AURORA_HIL_SUPPORT
     , _reset_simulation(false)
 #endif
     , _storageMutex(xSemaphoreCreateMutex())
@@ -79,7 +79,7 @@ void RocketModel::reset() {
         _currentHeight = 0.0f;
     }
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if CONFIG_AURORA_HIL_SUPPORT
     _reset_simulation = false;
 
     IMUData bnoData;
@@ -148,7 +148,7 @@ void RocketModel::resetCommand()
     _cmd.reset();
 }
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if CONFIG_AURORA_HIL_SUPPORT
 void RocketModel::setResetSimulationFlag(bool value)
 {
     _reset_simulation = value;

@@ -86,8 +86,6 @@ static void createAndStartFSM();
 static void resetHilSimulationIfRequested();
 static void resetHilSimulation();
 
-#if CONFIG_AURORA_HIL_SIMULATION
-
 static constexpr const char *HIL_WIFI_SSID = CONFIG_AURORA_HIL_WIFI_SSID;
 static constexpr const char *HIL_WIFI_PASSWORD = CONFIG_AURORA_HIL_WIFI_PASSWORD;
 static constexpr int HIL_WIFI_CHANNEL = CONFIG_AURORA_HIL_WIFI_CHANNEL;
@@ -104,8 +102,6 @@ static_assert(
     sizeof(CONFIG_AURORA_HIL_WIFI_PASSWORD) >= 9,
     "CONFIG_AURORA_HIL_WIFI_PASSWORD must be empty or at least 8 characters"
 );
-
-#endif
 
 void setup()
 {
