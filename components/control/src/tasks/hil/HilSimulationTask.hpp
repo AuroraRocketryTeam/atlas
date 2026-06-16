@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BaseTask.hpp"
+#include "IStateMachine.hpp"
 #include "SerialLogger.hpp"
 #include "RocketLogger.hpp"
 #include <ISensor.hpp>
@@ -28,13 +29,13 @@ public:
      * @brief Construct a new Simulation Task object
      * 
      * @param rocketModel The shared pointer to the rocket model
-     * @param modelMutex The semaphore handle to protect access to the model
      * @param logger The shared pointer to the RocketLogger instance
-     * @param loggerMutex The semaphore handle to protect access to the logger
+     * @param fsm The FSM object of the rocket
      */
     HilSimulationTask(
         std::shared_ptr<RocketModel> rocketModel,
-        std::shared_ptr<RocketLogger> logger
+        std::shared_ptr<RocketLogger> logger,
+        IStateMachine* fsm
     );
 
     ~HilSimulationTask();
@@ -53,6 +54,8 @@ private:
     std::shared_ptr<RocketModel> _rocketModel;
 
     std::shared_ptr<RocketLogger> _logger;
+
+    IStateMachine* _fsm = nullptr;
 
     int _listen_sock = -1;
     int _client_sock = -1;
