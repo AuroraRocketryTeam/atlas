@@ -1,15 +1,16 @@
 #include <BNO055Sensor.hpp>
 #include <utils.h>
 
-BNO055Sensor::BNO055Sensor(I2CBus* bus, uint8_t address)
-    : _bno_interface(bus, address)
+BNO055Sensor::BNO055Sensor(const char *sensorName, I2CBus* bus, uint8_t address)
+    : ISensor(sensorName), _bno_interface(bus, address)
 {
+    _data.setSensorName(this->getSensorName());
 }
 
 bool BNO055Sensor::init()
 {
     int attempts = 0;
-    uint start = Utils::millis();
+    uint32_t start = Utils::millis();
     bool initialized = false;
     
     while (attempts++ < SENSOR_LOOKUP_MAX_ATTEMPTS) {
@@ -17,7 +18,7 @@ bool BNO055Sensor::init()
             // Auto-load calibration from NVS
             loadCalibrationFromNVS();
 
-            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_AMG)) {
+            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_NDOF)) {
                 initialized = true;
                 break;
             } else {
@@ -27,7 +28,7 @@ bool BNO055Sensor::init()
             return false;
         }
         
-        uint end = Utils::millis();
+        uint32_t end = Utils::millis();
         while (end - start < SENSOR_LOOKUP_TIMEOUT) {
             end = Utils::millis();
         }
@@ -50,62 +51,60 @@ bool BNO055Sensor::updateData()
         return false;
     }
 
-    _data = std::make_shared<IMUData>("BNO055");
+    // Get burst data from the sensor
+    if (!_bno_interface.get_burst_data(_burst_data))
+    {
+        return false;
+    }
 
-    _data->calibration_sys = _bno_interface.check_calibration_sys();
-    _data->calibration_gyro = _bno_interface.check_calibration_gyro();
-    _data->calibration_accel = _bno_interface.check_calibration_accel();
-    _data->calibration_mag = _bno_interface.check_calibration_mag();
+    // Map calibration statuses
+    _data.calibration_sys = _burst_data.calib_sys;
+    _data.calibration_gyro = _burst_data.calib_gyro;
+    _data.calibration_accel = _burst_data.calib_accel;
+    _data.calibration_mag = _burst_data.calib_mag;
 
-    // Get orientation (Euler angles)
-    std::vector<float> orientation = _bno_interface.get_euler_deg();
-    _data->orientation_x = orientation[0];
-    _data->orientation_y = orientation[1];
-    _data->orientation_z = orientation[2];
+    // Map orientation (Euler angles)
+    _data.orientation_x = _burst_data.euler[0];
+    _data.orientation_y = _burst_data.euler[1];
+    _data.orientation_z = _burst_data.euler[2];
 
-    // Get angular velocity (gyroscope)
-    std::vector<float> angular_velocity = _bno_interface.get_gyro_dps();
-    _data->angular_velocity_x = angular_velocity[0];
-    _data->angular_velocity_y = angular_velocity[1];
-    _data->angular_velocity_z = angular_velocity[2];
+    // Map angular velocity (gyroscope)
+    _data.angular_velocity_x = _burst_data.gyro[0];
+    _data.angular_velocity_y = _burst_data.gyro[1];
+    _data.angular_velocity_z = _burst_data.gyro[2];
 
-    // Get linear acceleration
-    std::vector<float> linear_accel = _bno_interface.get_linear_accel();
-    _data->linear_acceleration_x = linear_accel[0];
-    _data->linear_acceleration_y = linear_accel[1];
-    _data->linear_acceleration_z = linear_accel[2];
+    // Map linear acceleration
+    _data.linear_acceleration_x = _burst_data.lin_accel[0];
+    _data.linear_acceleration_y = _burst_data.lin_accel[1];
+    _data.linear_acceleration_z = _burst_data.lin_accel[2];
 
-    // Get magnetometer data
-    std::vector<float> mag = _bno_interface.get_mag();
-    _data->magnetometer_x = mag[0];
-    _data->magnetometer_y = mag[1];
-    _data->magnetometer_z = mag[2];
+    // Map magnetometer data
+    _data.magnetometer_x = _burst_data.mag[0];
+    _data.magnetometer_y = _burst_data.mag[1];
+    _data.magnetometer_z = _burst_data.mag[2];
 
-    // Get acceleration data
-    std::vector<float> accel = _bno_interface.get_accel();
-    _data->acceleration_x = accel[0];
-    _data->acceleration_y = accel[1];
-    _data->acceleration_z = accel[2];
+    // Map acceleration data
+    _data.acceleration_x = _burst_data.accel[0];
+    _data.acceleration_y = _burst_data.accel[1];
+    _data.acceleration_z = _burst_data.accel[2];
 
-    // Get gravity vector
-    std::vector<float> gravity = _bno_interface.get_gravity();
-    _data->gravity_x = gravity[0];
-    _data->gravity_y = gravity[1];
-    _data->gravity_z = gravity[2];
+    // Map gravity vector
+    _data.gravity_x = _burst_data.gravity[0];
+    _data.gravity_y = _burst_data.gravity[1];
+    _data.gravity_z = _burst_data.gravity[2];
 
-    // Get temperature
-    _data->temperature = _bno_interface.get_temperature();
+    // Map temperature
+    _data.temperature = _burst_data.temp;
 
-    // Get quaternion data
-    std::vector<float> quaternion = _bno_interface.get_quaternion();
-    _data->quaternion_w = quaternion[0];
-    _data->quaternion_x = quaternion[1];
-    _data->quaternion_y = quaternion[2];
-    _data->quaternion_z = quaternion[3];
+    // Map quaternion data (order from get_burst_data parsing is W, X, Y, Z)
+    _data.quaternion_w = _burst_data.quaternion[0];
+    _data.quaternion_x = _burst_data.quaternion[1];
+    _data.quaternion_y = _burst_data.quaternion[2];
+    _data.quaternion_z = _burst_data.quaternion[3];
 
-    // Update timestamp
-    _data->timestamp = Utils::millis();
-
+    // Update timestamp and validation flag
+    _data.timestamp = Utils::millis();
+    
     return true;
 }
 
@@ -122,7 +121,7 @@ bool BNO055Sensor::hardwareTest() {
     return accel_status && mag_status && gyro_status && mcu_status;
 }
 
-std::shared_ptr<IMUData> BNO055Sensor::getData() {
+IMUData BNO055Sensor::getData() {
     return _data;
 }
 

@@ -20,9 +20,8 @@ public:
 
     bool openFile(const char* filename) override;
     bool closeFile() override;
-    bool writeFile(const char* filename, const char* content) override;
-    bool appendFile(const char* filename, const char* content) override;
-
+    bool writeFile(const char* filename, const uint8_t* data, size_t length) override;
+    bool appendFile(const char* filename, const uint8_t* data, size_t length) override;
     std::string readFile(const char* filename) override;
     std::string readLine() override;
 

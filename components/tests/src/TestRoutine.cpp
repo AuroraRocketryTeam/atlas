@@ -14,7 +14,7 @@
 #include <config.h>
 #include <board.h>
 #include <utils.h>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 #include <E220LoRaTransmitter.hpp>
 #include <I2CBus.hpp>
 
@@ -140,38 +140,56 @@ bool TestRoutine::testPowerAndLEDs()
 bool TestRoutine::testSensors()
 {
     LOG_INFO("Test", "\n[STEP 2] Test sensori");
-    bool imu_ok   = _model->updateBNO055();
-    bool baro1_ok = _model->updateMS561101BA03_1();
-    bool baro2_ok = _model->updateMS561101BA03_2();
-    bool accl_ok  = _model->updateLIS3DHTR();
 
     _board.init_sensor_test_pins();
-
-    if (!imu_ok) {
+    
+    IMUData imuData;
+    SensorReadStatus imuStatus = _model->getBNO055Data(imuData);
+    if (imuStatus != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
         LOG_ERROR("Test", "Errore: IMU non inizializzata.");
     } else {
-        auto bnoData = _model->getBNO055Data();
         LOG_INFO("Test", "IMU Accelerometer: x=%.2f, y=%.2f, z=%.2f m/s^2",
-                 (double)bnoData->acceleration_x,
-                 (double)bnoData->acceleration_y,
-                 (double)bnoData->acceleration_z);
+                 (double)imuData.acceleration_x,
+                 (double)imuData.acceleration_y,
+                 (double)imuData.acceleration_z);
     }
-    if (!baro1_ok) {
+
+
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+    delay(20);
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+    delay(20);
+    
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+
+    PressureSensorData baro1Data;
+    SensorReadStatus baro1Status = _model->getMS561101BA03Data_1(baro1Data);
+    if (baro1Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO1_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
     } else {
         LOG_INFO("Test", "Barometer 1 Pressure: %.2f Pa",
-                 (double)_model->getMS561101BA03Data_1()->pressure);
+                 (double)baro1Data.pressure);
     }
-    if (!baro2_ok) {
+
+
+    PressureSensorData baro2Data;
+    SensorReadStatus baro2Status = _model->getMS561101BA03Data_2(baro2Data);
+    if (baro2Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO2_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
     } else {
         LOG_INFO("Test", "Barometer 2 Pressure: %.2f Pa",
-                 (double)_model->getMS561101BA03Data_2()->pressure);
+                 (double)baro2Data.pressure);
     }
-    if (!accl_ok) {
+
+    AccelerometerSensorData acclData;
+    SensorReadStatus acclStatus  = _model->getLIS3DHTRData(acclData);
+    if (acclStatus != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
     } else {
@@ -212,7 +230,9 @@ bool TestRoutine::testSDCard()
 
     if (_sdCard->openFile(TEST_FILE)) {
         std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms\n";
-        if (_sdCard->writeFile(TEST_FILE, content.c_str())) {
+        const uint8_t* data = reinterpret_cast<const uint8_t*>(content.c_str());
+        size_t length = content.length();
+        if (_sdCard->writeFile(TEST_FILE, data, length)) {
             LOG_INFO("Test", "SD card write test successful");
             std::string readContent = _sdCard->readFile(TEST_FILE);
             if (!readContent.empty())
@@ -298,7 +318,10 @@ bool TestRoutine::testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: write '%s'", testFile.c_str());
-    if (!_flash->writeFile(testFile.c_str(), "Hello, ESP32 Flash Storage!\n"))
+    const char* writeMsg = "Hello, ESP32 Flash Storage!\n";
+    if (!_flash->writeFile(testFile.c_str(), 
+                       reinterpret_cast<const uint8_t*>(writeMsg), 
+                       strlen(writeMsg)))
     {
         LOG_ERROR("Test", "Flash write failed.");
     }
@@ -319,7 +342,10 @@ bool TestRoutine::testFlashMemory()
     }
 
     LOG_INFO("Test", "Flash: append to '%s'", testFile.c_str());
-    if (!_flash->appendFile(testFile.c_str(), "Appended line.\n"))
+    const char* appendMsg = "Appended line.\n";
+    if (!_flash->appendFile(testFile.c_str(), 
+                        reinterpret_cast<const uint8_t*>(appendMsg), 
+                        strlen(appendMsg)))
     {
         LOG_ERROR("Test", "Flash append failed.");
     }
@@ -386,7 +412,7 @@ bool TestRoutine::clearFlashMemory()
 
     printf("WARNING: This operation will format the entire Flash memory.\n");
     printf("All data will be lost!\n");
-    printf("Are you sure you want to continue? (Y/n): ");
+    printf("Are you sure you want to continue? (Y/n): \n");
     
     char buffer[16] = {0};
     Utils::readLine(buffer, sizeof(buffer));
@@ -688,14 +714,20 @@ bool TestRoutine::calibrateAndSaveIMU()
     while (!calibrated)
     {
         _model->updateBNO055();
-        auto data = _model->getBNO055Data();
-        
-        LOG_INFO("Test", "Calib Status -> SYS: %d, GYRO: %d, ACCEL: %d, MAG: %d",
-                 data->calibration_sys, data->calibration_gyro, 
-                 data->calibration_accel, data->calibration_mag);
+        IMUData data;
+        SensorReadStatus bnoStatus = _model->getBNO055Data(data);
+        if (bnoStatus != SensorReadStatus::OK) {
+            LOG_WARNING("Test", "Failed to get BNO055 data");
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
 
-        if (data->calibration_sys == 3 && data->calibration_gyro == 3 && 
-            data->calibration_accel == 3 && data->calibration_mag == 3) 
+        LOG_INFO("Test", "Calib Status -> SYS: %d, GYRO: %d, ACCEL: %d, MAG: %d",
+                 data.calibration_sys, data.calibration_gyro, 
+                 data.calibration_accel, data.calibration_mag);
+
+        if (data.calibration_sys == 3 && data.calibration_gyro == 3 && 
+            data.calibration_accel == 3 && data.calibration_mag == 3) 
         {
             LOG_INFO("Test", "IMU is FULLY CALIBRATED!");
             calibrated = true;

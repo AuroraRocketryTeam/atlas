@@ -4,7 +4,7 @@
 #include <RocketModel.hpp>
 #include "EspNowTransmitter.hpp"
 #include "E220LoRaTransmitter.hpp"
-#include "Logger.hpp"
+#include "SerialLogger.hpp"
 #include <Packet.hpp>
 #include <PacketManager.hpp>
 #include "IStateMachine.hpp"
@@ -74,7 +74,6 @@ class TelemetryTask : public BaseTask
 {
 private:
     std::shared_ptr<RocketModel> _rocketModel;
-    SemaphoreHandle_t _modelMutex;
     std::shared_ptr<EspNowTransmitter> _transmitter;
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
     IStateMachine* _fsm;
@@ -99,7 +98,6 @@ public:
      * @param intervalMs Interval between transmissions in milliseconds (default 1000ms = 1Hz).
      */
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                  SemaphoreHandle_t modelMutex,
                   std::shared_ptr<EspNowTransmitter> espNowTransmitter,
                   uint32_t intervalMs = 1000,
                   IStateMachine* fsm = nullptr);

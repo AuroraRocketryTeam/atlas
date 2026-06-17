@@ -4,7 +4,7 @@
 #include "tasks/TaskManager.hpp"
 #include "states/StateAction.hpp"
 #include "states/TransitionManager.hpp"
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 #include "RocketLogger.hpp"
 #include "config.h"
 #include <SD-master.hpp>
@@ -116,7 +116,6 @@ private:
     // Shared data
     std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
-    SemaphoreHandle_t _modelMutex;
 
     std::shared_ptr<SD> _sd;
     IBoardHardware* _board;

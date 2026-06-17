@@ -402,3 +402,60 @@ bool BNO055SensorInterface::set_calibration_profile(const uint8_t* profile_buffe
     vTaskDelay(pdMS_TO_TICKS(25));
     return (res == BNO055_SUCCESS);
 }
+
+bool BNO055SensorInterface::get_burst_data(BNO055_BurstData& out_data) {
+    uint8_t buffer[46];
+    
+    // 0x08 is BNO055_ACCEL_DATA_X_LSB_ADDR. Read 46 continuous bytes up to 0x35 (CALIB_STAT)
+    if (bno.bus_read(bno.dev_addr, 0x08, buffer, 46) != BNO055_SUCCESS) {
+        return false;
+    }
+
+    // Accel (100 LSB = 1 m/s^2)
+    out_data.accel[0] = ((int16_t)((buffer[1] << 8) | buffer[0])) / 100.0f;
+    out_data.accel[1] = ((int16_t)((buffer[3] << 8) | buffer[2])) / 100.0f;
+    out_data.accel[2] = ((int16_t)((buffer[5] << 8) | buffer[4])) / 100.0f;
+
+    // Mag (16 LSB = 1 uT)
+    out_data.mag[0] = ((int16_t)((buffer[7] << 8) | buffer[6])) / 16.0f;
+    out_data.mag[1] = ((int16_t)((buffer[9] << 8) | buffer[8])) / 16.0f;
+    out_data.mag[2] = ((int16_t)((buffer[11] << 8) | buffer[10])) / 16.0f;
+
+    // Gyro (16 LSB = 1 dps)
+    out_data.gyro[0] = ((int16_t)((buffer[13] << 8) | buffer[12])) / 16.0f;
+    out_data.gyro[1] = ((int16_t)((buffer[15] << 8) | buffer[14])) / 16.0f;
+    out_data.gyro[2] = ((int16_t)((buffer[17] << 8) | buffer[16])) / 16.0f;
+
+    // Euler (16 LSB = 1 degree)
+    out_data.euler[0] = ((int16_t)((buffer[19] << 8) | buffer[18])) / 16.0f;
+    out_data.euler[1] = ((int16_t)((buffer[21] << 8) | buffer[20])) / 16.0f;
+    out_data.euler[2] = ((int16_t)((buffer[23] << 8) | buffer[22])) / 16.0f;
+
+    // Quaternion (16384 LSB = 1) - Order: W, X, Y, Z
+    out_data.quaternion[0] = ((int16_t)((buffer[25] << 8) | buffer[24])) / 16384.0f; // W
+    out_data.quaternion[1] = ((int16_t)((buffer[27] << 8) | buffer[26])) / 16384.0f; // X
+    out_data.quaternion[2] = ((int16_t)((buffer[29] << 8) | buffer[28])) / 16384.0f; // Y
+    out_data.quaternion[3] = ((int16_t)((buffer[31] << 8) | buffer[30])) / 16384.0f; // Z
+
+    // Linear Accel (100 LSB = 1 m/s^2)
+    out_data.lin_accel[0] = ((int16_t)((buffer[33] << 8) | buffer[32])) / 100.0f;
+    out_data.lin_accel[1] = ((int16_t)((buffer[35] << 8) | buffer[34])) / 100.0f;
+    out_data.lin_accel[2] = ((int16_t)((buffer[37] << 8) | buffer[36])) / 100.0f;
+
+    // Gravity (100 LSB = 1 m/s^2)
+    out_data.gravity[0] = ((int16_t)((buffer[39] << 8) | buffer[38])) / 100.0f;
+    out_data.gravity[1] = ((int16_t)((buffer[41] << 8) | buffer[40])) / 100.0f;
+    out_data.gravity[2] = ((int16_t)((buffer[43] << 8) | buffer[42])) / 100.0f;
+
+    // Temperature (1 LSB = 1 C)
+    out_data.temp = (int8_t)buffer[44];
+
+    // Calibration Status (Register 0x35)
+    // Bits: 6-7 Sys, 4-5 Gyro, 2-3 Accel, 0-1 Mag
+    out_data.calib_sys   = (buffer[45] >> 6) & 0x03;
+    out_data.calib_gyro  = (buffer[45] >> 4) & 0x03;
+    out_data.calib_accel = (buffer[45] >> 2) & 0x03;
+    out_data.calib_mag   = buffer[45] & 0x03;
+
+    return true;
+}

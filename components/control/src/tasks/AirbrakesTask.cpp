@@ -70,11 +70,9 @@ namespace
 }
 
 AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
-                             SemaphoreHandle_t modelMutex,
                              std::shared_ptr<RocketLogger> logger)
     : BaseTask("AirbrakesTask"),
       _rocketModel(rocketModel),
-      _modelMutex(modelMutex),
       _logger(logger)
 {
     // LOG_INFO(TAG, "Constructor initialized");
@@ -104,26 +102,9 @@ void AirbrakesTask::taskFunction()
         float currentLevel = 0.0f;
 
         /* ===== READ MODEL ===== */
-        if (_rocketModel &&
-            _modelMutex &&
-            xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(50)) == pdTRUE)
-        {
-            auto alt_ptr = _rocketModel->getCurrentHeight();
+        altitude = _rocketModel->getCurrentHeight();
 
-            if (alt_ptr)
-            {
-                altitude = *alt_ptr;
-            }
-
-            currentLevel = _rocketModel->getCommand().getAirbrakes();
-
-            xSemaphoreGive(_modelMutex);
-        }
-        else
-        {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
-        }
+        currentLevel = _rocketModel->getCommand().getAirbrakes();
 
         currentLevel = clamp01(currentLevel);
 
@@ -186,11 +167,7 @@ void AirbrakesTask::taskFunction()
         // TODO: we still need real actuation!
 
         /* ===== WRITE COMMAND ===== */
-        if (_rocketModel && _modelMutex && xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(50)) == pdTRUE)
-        {
-            _rocketModel->setAirbrakesCommand(newDeployment);
-            xSemaphoreGive(_modelMutex);
-        }
+        _rocketModel->setAirbrakesCommand(newDeployment);
 
         /*
          * Optional debug:

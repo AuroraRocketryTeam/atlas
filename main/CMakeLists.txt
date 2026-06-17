@@ -17,21 +17,17 @@ idf_component_register(
         data
         control
         model
-        core
-        implementation
+        rocket_logger
+        serializations
         status
         SD
         flash
-        BME680
         BNO055
         GPS
         LIS3DHTR
-        MPRLS
         MS561101BA03
         I2C
         SPI
-        Termoresistenze
-        filters_kalman
         protocol
         radio_espnow
         radio_lora

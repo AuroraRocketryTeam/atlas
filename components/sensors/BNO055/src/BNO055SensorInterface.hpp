@@ -11,6 +11,23 @@ extern "C" {
 
 // !!! Errors given by the BNO APIs should be managed, maybe with a Publisher-Subscriber pattern?
 
+struct BNO055_BurstData {
+        float accel[3];
+        float mag[3];
+        float gyro[3]; 
+        float euler[3]; 
+        float quaternion[4];
+        float lin_accel[3];
+        float gravity[3];
+        float temp;
+        
+        // Calibration statuses
+        uint8_t calib_sys;
+        uint8_t calib_gyro;
+        uint8_t calib_accel;
+        uint8_t calib_mag;
+    };
+
 /**
  * @brief Interface for BNO055 sensor operations, using low-level APIs from the BNO055_SensorAPI official library, instead of Adafruit_BNO055.
  */
@@ -283,4 +300,12 @@ public:
      * @return true if calibration profile set successfully, false otherwise
      */
     bool set_calibration_profile(const uint8_t* profile_buffer);
+
+    /**
+     * @brief Get all sensor data in a single burst read operation
+     * @param out_data Reference to a BNO055_BurstData structure to store the retrieved sensor data
+     * @return true if burst data retrieved successfully, false otherwise
+     * @details This function performs a single I2C read operation to retrieve all relevant sensor
+     */
+    bool get_burst_data(BNO055_BurstData& out_data);
 };

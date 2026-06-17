@@ -32,28 +32,22 @@ bool MirrorStorage::closeFile() {
     return success;
 }
 
-bool MirrorStorage::writeFile(const char* filename, const char* content) {
-    if (filename == nullptr || content == nullptr) {
-        return false;
-    }
-
+bool MirrorStorage::writeFile(const char* filename, const uint8_t* data, size_t length) {
+    if (filename == nullptr || data == nullptr || length == 0) return false;
     bool success = false;
     for (const auto& storage : _storages) {
-        if (storage->isInitialized() && storage->writeFile(filename, content)) {
+        if (storage->isInitialized() && storage->writeFile(filename, data, length)) {
             success = true;
         }
     }
     return success;
 }
 
-bool MirrorStorage::appendFile(const char* filename, const char* content) {
-    if (filename == nullptr || content == nullptr) {
-        return false;
-    }
-
+bool MirrorStorage::appendFile(const char* filename, const uint8_t* data, size_t length) {
+    if (filename == nullptr || data == nullptr || length == 0) return false;
     bool success = false;
     for (const auto& storage : _storages) {
-        if (storage->isInitialized() && storage->appendFile(filename, content)) {
+        if (storage->isInitialized() && storage->appendFile(filename, data, length)) {
             success = true;
         }
     }

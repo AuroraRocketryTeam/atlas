@@ -4,7 +4,7 @@ file(GLOB SRCS "*.cpp" "*.c")
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "."
-    REQUIRES storage global data core SPI fatfs sdmmc vfs driver
+    REQUIRES storage global data rocket_logger SPI fatfs sdmmc vfs driver
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-error=overloaded-virtual")

@@ -4,11 +4,11 @@
 
 static const char *TAG = "GPS_SENSOR";
 
-GPS::GPS(int tx_pin, int rx_pin) : _tx_pin(tx_pin), _rx_pin(rx_pin), _nmea_hdl(nullptr)
+GPS::GPS(const char *sensorName, int tx_pin, int rx_pin) : ISensor(sensorName),  _tx_pin(tx_pin), _rx_pin(rx_pin), _nmea_hdl(nullptr)
 {
-    // Initialize our shared data object and the FreeRTOS mutex
-    _data = std::make_shared<GPSData>();
+    // Initialize the data object and the FreeRTOS mutex
     _data_mutex = xSemaphoreCreateMutex();
+    _data.setSensorName(this->getSensorName());
 }
 
 GPS::~GPS()
@@ -60,25 +60,25 @@ bool GPS::init()
 
 bool GPS::updateData()
 {
-    bool isValid = false;
-    
-    // Safely read the fix type using the mutex
+    uint8_t fixType = 0;
     if (xSemaphoreTake(_data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        isValid = (_data->fixType >= 2); 
+        fixType = _data.fixType;
         xSemaphoreGive(_data_mutex);
+    } else {
+        ESP_LOGW(TAG, "Failed to acquire GPS data mutex");
     }
 
-    return isValid;
+    return fixType >= 2;
 }
 
-std::shared_ptr<GPSData> GPS::getData()
+GPSData GPS::getData()
 {
-    // Create a safe copy so the background task doesn't overwrite 
+    // Create a safe copy so the background task doesn't overwrite
     // the data while the caller is actively trying to read it.
-    auto safe_copy = std::make_shared<GPSData>();
+    GPSData safe_copy;
     
     if (xSemaphoreTake(_data_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        *safe_copy = *_data; // Copy the contents securely
+        safe_copy = _data; // Copy the contents securely
         xSemaphoreGive(_data_mutex);
     } else {
         ESP_LOGW(TAG, "Failed to acquire GPS data mutex");
@@ -95,26 +95,26 @@ void GPS::gps_event_handler(void *event_handler_arg, esp_event_base_t event_base
     // Lock the mutex before writing new data to the shared _data object
     if (xSemaphoreTake(gps_instance->_data_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
         
-        gps_instance->_data->satellites = gps->sats_in_use;
+        gps_instance->_data.satellites = gps->sats_in_use;
         
         // Map ESP-IDF fix enum to integers
         if (gps->fix == GPS_FIX_INVALID) {
-            gps_instance->_data->fixType = 0;
+            gps_instance->_data.fixType = 0;
         } else {
             // Valid fix implied (minimum 3 for standard 3D NMEA parsing)
-            gps_instance->_data->fixType = 3; 
+            gps_instance->_data.fixType = 3; 
         }
 
         if (gps->fix != GPS_FIX_INVALID) {
-            gps_instance->_data->latitude = gps->latitude;
-            gps_instance->_data->longitude = gps->longitude;
-            gps_instance->_data->altitude = gps->altitude;
+            gps_instance->_data.latitude = gps->latitude;
+            gps_instance->_data.longitude = gps->longitude;
+            gps_instance->_data.altitude = gps->altitude;
             // The parser provides speed in m/s. Convert to km/h.
-            gps_instance->_data->ground_speed = gps->speed * 3.6; 
-            gps_instance->_data->hdop = gps->dop_h;
+            gps_instance->_data.ground_speed = gps->speed * 3.6; 
+            gps_instance->_data.hdop = gps->dop_h;
             
             // esp_timer_get_time() returns microseconds since boot. Convert to ms.
-            gps_instance->_data->timestamp = esp_timer_get_time() / 1000; 
+            gps_instance->_data.timestamp = esp_timer_get_time() / 1000; 
         }
         
         xSemaphoreGive(gps_instance->_data_mutex);

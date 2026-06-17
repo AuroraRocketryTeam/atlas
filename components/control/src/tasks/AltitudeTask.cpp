@@ -1,7 +1,7 @@
 #include "AltitudeTask.hpp"
 #include <cmath>
 #include <config.h>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 
 void AltitudeTask::taskFunction()
 {
@@ -17,26 +17,20 @@ void AltitudeTask::taskFunction()
         esp_task_wdt_reset();
         if(!running) break;
 
+        PressureSensorData baroData;
 #ifdef BARO_1
-        auto baroData = _rocketModel->getMS561101BA03Data_1();
+        SensorReadStatus baro_status = _rocketModel->getMS561101BA03Data_1(baroData);
 #else
-        auto baroData = _rocketModel->getMS561101BA03Data_2();
+        SensorReadStatus baro_status = _rocketModel->getMS561101BA03Data_2(baroData);
 #endif
-
-        if (!baroData) {
-            LOG_ERROR("AltitudeTask", "Barometer data not available");
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
-        }
-
         // Reject identical simulated packets
-        if (baroData->pressure <= 0.0f || baroData->timestamp == lastTimestamp) {
+        if ((baro_status != SensorReadStatus::OK) || baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
         
-        lastTimestamp = baroData->timestamp;
-        float rawPressure = baroData->pressure;
+        lastTimestamp = baroData.timestamp;
+        float rawPressure = baroData.pressure;
 
         // Physics Lock, if the pressure change is too extreme, clamp it 
         // to a maximum plausible change based on physical limits of the 
@@ -78,9 +72,7 @@ void AltitudeTask::taskFunction()
         }
 
         // Update Model
-        if (auto heightPtr = _rocketModel->getCurrentHeight()) {
-            *heightPtr = currentAltitude;
-        }
+        _rocketModel->setCurrentHeight(currentAltitude);
         
         float currentVelocity = apogeeDetector.getVelocity();
 
@@ -105,10 +97,6 @@ float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
 
 void AltitudeTask::updateRisingTrend(float currentAltitude)
 {
-    auto isRisingPtr = _rocketModel->getIsRising();
-    if (!isRisingPtr) return;
-
-    apogeeDetector.update(currentAltitude);
-    
-    *isRisingPtr = apogeeDetector.isRising();
+    apogeeDetector.update(currentAltitude);   
+    _rocketModel->setIsRising(apogeeDetector.isRising());
 }

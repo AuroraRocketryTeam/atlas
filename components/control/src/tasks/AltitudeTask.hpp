@@ -2,8 +2,7 @@
 #include "BaseTask.hpp"
 
 #include <MS561101BA03.hpp>
-#include <Logger.hpp>
-#include <SharedData.hpp>
+#include <SerialLogger.hpp>
 #include <RocketModel.hpp>
 #include <config.h>
 #include <array>
@@ -134,10 +133,9 @@ private:
 class AltitudeTask : public BaseTask
 {
 public:
-    AltitudeTask(std::shared_ptr<RocketModel> rocketModel, SemaphoreHandle_t modelMutex)
+    AltitudeTask(std::shared_ptr<RocketModel> rocketModel)
         : BaseTask("AltitudeTask"),
           _rocketModel(rocketModel),
-          _modelMutex(modelMutex),
           _max_altitude_read(-1000.0f)
     {
     }
@@ -151,7 +149,6 @@ public:
  
 private:
     std::shared_ptr<RocketModel> _rocketModel;
-    SemaphoreHandle_t _modelMutex;
 
     float _max_altitude_read;
     

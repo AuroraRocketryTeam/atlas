@@ -3,17 +3,19 @@
 #include "freertos/task.h"
 #include <utils.h>
 
-MS561101BA03::MS561101BA03(SPIBus* bus, gpio_num_t cs_pin)
+MS561101BA03::MS561101BA03(const char *sensorName, SPIBus *bus, gpio_num_t cs_pin) : ISensor(sensorName)
 {
     memset(_calibrationData, 0, sizeof(_calibrationData));
 
-    spi_device_interface_config_t dev_cfg = {
-        .mode           = 0,           // SPI mode 0 (CPOL=0, CPHA=0)
-        .clock_speed_hz = 20'000'000,    // 20 MHz (MS5611 max)
-        .spics_io_num   = cs_pin,
-        .queue_size     = 1,
-    };
+    spi_device_interface_config_t dev_cfg = {};
+    dev_cfg.mode = 0;                    // SPI mode 0 (CPOL=0, CPHA=0)
+    dev_cfg.clock_speed_hz = 20'000'000;    // 20 MHz (MS5611 max)
+    dev_cfg.spics_io_num = cs_pin;
+    dev_cfg.queue_size = 7;
+    
     spi_bus_add_device(bus->get_host(), &dev_cfg, &_dev_handle);
+
+    _data.setSensorName(this->getSensorName());
 }
 
 MS561101BA03::~MS561101BA03()
@@ -38,22 +40,41 @@ bool MS561101BA03::init()
 
 bool MS561101BA03::updateData()
 {
-    // Read raw pressure and temperature
-    uint32_t D1 = readRawPressure();
-    uint32_t D2 = readRawTemperature();
+    uint32_t now = Utils::millis();
 
-    if (D1 == 0 || D2 == 0) {
-        return false;
+    switch (_state) {
+        // Conversion started, but data not ready
+        case BaroState::IDLE:
+            writeCommand(MS5611_CMD_CONV_D1_2048);
+            _conv_start_time = now;
+            _state = BaroState::WAIT_D1;
+            return false; 
+
+        // Finished conversion of D1 and starting D2
+        case BaroState::WAIT_D1:
+            // Check if 10ms has passed without blocking the task
+            if (now - _conv_start_time >= CONV_TIME_NEEDED) {
+                _d1 = readADC();
+                writeCommand(MS5611_CMD_CONV_D2_4096);
+                _conv_start_time = now;
+                _state = BaroState::WAIT_D2;
+            }
+            return false; 
+
+        // Prepare final data
+        case BaroState::WAIT_D2:
+            if (now - _conv_start_time >= CONV_TIME_NEEDED) {
+                uint32_t D2 = readADC();
+                
+                calculatePressureAndTemperature(_d1, D2, _data.pressure, _data.temperature);
+                _data.timestamp = now;
+                
+                _state = BaroState::IDLE;
+                return true;
+            }
+            return false;
     }
-
-    _data = std::make_shared<PressureSensorData>("MS561101BA03");
-
-    // Calculate compensated pressure and temperature
-    calculatePressureAndTemperature(D1, D2, _data->pressure, _data->temperature);
-
-    _data->timestamp = Utils::millis();
-
-    return true;
+    return false;
 }
 
 void MS561101BA03::reset()
@@ -120,14 +141,12 @@ uint32_t MS561101BA03::readADC()
 uint32_t MS561101BA03::readRawPressure()
 {
     writeCommand(MS5611_CMD_CONV_D1_2048);
-    vTaskDelay(pdMS_TO_TICKS(10)); // Wait for conversion
     return readADC();
 }
 
 uint32_t MS561101BA03::readRawTemperature()
 {
     writeCommand(MS5611_CMD_CONV_D2_4096);
-    vTaskDelay(pdMS_TO_TICKS(10)); // Wait for conversion
     return readADC();
 }
 
@@ -175,7 +194,7 @@ void MS561101BA03::calculatePressureAndTemperature(uint32_t D1, uint32_t D2, flo
     pressure = P; // Convert to hPa/mbar
 }
 
-std::shared_ptr<PressureSensorData> MS561101BA03::getData()
+PressureSensorData MS561101BA03::getData()
 {
     return _data;
 }

@@ -9,6 +9,7 @@
 #include "esp_partition.h"
 #include "SPIBus.hpp"
 #include "IStorage.hpp"
+#include "SerialLogger.hpp"
 
 class Flash : public IStorage
 {
@@ -73,13 +74,13 @@ public:
     /**
      * @brief Write a string of data to a file (overwrites existing).
      */
-    bool writeFile(const char* filename, const char* content) override;
-
+    bool writeFile(const char* filename, const uint8_t* data, size_t length) override;
+    
     /**
      * @brief Append a string of data to a file.
      */
-    bool appendFile(const char* filename, const char* content) override;
-
+    bool appendFile(const char* filename, const uint8_t* data, size_t length) override;
+    
     /**
      * @brief Read the whole content of a file.
      * @note Caller is responsible for freeing the returned memory using `delete[]`.

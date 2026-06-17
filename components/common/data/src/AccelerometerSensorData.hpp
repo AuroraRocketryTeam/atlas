@@ -1,6 +1,5 @@
 #pragma once
 #include <SensorData.hpp>
-#include <string.h>
 
 /**
  * @brief Data structure for a general accelerometer sensor readings
@@ -9,8 +8,7 @@
 class AccelerometerSensorData : public SensorData
 {
 public:
-    AccelerometerSensorData(std::string sensorName) : SensorData(sensorName) {}
-
+    AccelerometerSensorData() = default;
     // Acceleration (m/s^2)
     float acceleration_x = 0.0f;
     float acceleration_y = 0.0f;
@@ -19,18 +17,9 @@ public:
     // Metadata
     uint32_t timestamp = 0;
 
-    json toJSON() const override {
-        json j;
-        j["source"] = getSensorName();
-
-        json sensorDataJson;
-        sensorDataJson["acceleration_x"] = acceleration_x;
-        sensorDataJson["acceleration_y"] = acceleration_y;
-        sensorDataJson["acceleration_z"] = acceleration_z;
-        sensorDataJson["timestamp"] = timestamp;
-
-        j["sensorData"] = sensorDataJson;
-
-        return j;
+    size_t serializeJson(char* buffer, size_t maxLength) const {
+        return snprintf(buffer, maxLength, 
+            "{\"source\":\"%s\",\"sensorData\":{\"acceleration_x\":%f,\"acceleration_y\":%f,\"acceleration_z\":%f,\"timestamp\":%lu}}\n",
+            getSensorName(), acceleration_x, acceleration_y, acceleration_z, (unsigned long)timestamp);
     }
 };

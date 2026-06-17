@@ -7,8 +7,7 @@ idf_component_register(
         global
         data
         model
-        core
-        implementation
+        rocket_logger
         control
         status
         SD
