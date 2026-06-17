@@ -127,53 +127,54 @@
         "Accelerometer": {
           "name": "Noisy Accelerometer",
           "measurement_range": 100,
-          "resolution": 0.25,
-          "noise_density": 0.02,
-          "random_walk_density": 0.005,
-          "constant_bias": 1.0,
-          "temperature_bias": 0.05,
+          "resolution": 0.01,
+          "noise_density": 0.04,
+          "random_walk_density": 0.004,
+          "constant_bias": 0.05,
+          "temperature_bias": 0.002,
           "operating_temperature": 25,
-          "cross_axis_sensitivity": 0.02
+          "cross_axis_sensitivity": 0.005
         },
         "Barometer": {
           "name": "Noisy Barometer",
           "measurement_range": 200000,
           "resolution": 0.1,
-          "noise_density": 15.0,
-          "noise_variance": 15.0,
-          "random_walk_density": 0.01,
-          "constant_bias": 1.5,
+          "noise_density": 1.5,
+          "noise_variance": 2.25,
+          "random_walk_density": 0.005,
+          "constant_bias": 1.0,
           "operating_temperature": 25,
-          "temperature_bias": 0.03,
-          "temperature_scale_factor": 0.02
+          "temperature_bias": 0.01,
+          "temperature_scale_factor": 0.005
         },
         "GnssReceiver": {
           "name": "Noisy GPS",
-          "position_accuracy": 0.1,
-          "altitude_accuracy": 0.1
+          "position_accuracy": 1.5,
+          "altitude_accuracy": 2.5
         }
       },
       "very_noisy": {
         "_inherits": "noisy",
         "Accelerometer": {
           "name": "Very Noisy Accelerometer",
-          "noise_density": 2,
-          "random_walk_density": 0.05,
-          "constant_bias": 2.0,
-          "temperature_bias": 0.1
+          "noise_density": 0.2,
+          "random_walk_density": 0.02,
+          "constant_bias": 0.25,
+          "temperature_bias": 0.01,
+          "cross_axis_sensitivity": 0.02
         },
         "Barometer": {
           "name": "Very Noisy Barometer",
-          "noise_density": 15.0,
-          "noise_variance": 15.0,
-          "random_walk_density": 0.01,
-          "constant_bias": 2.5,
-          "temperature_bias": 1
+          "noise_density": 8.0,
+          "noise_variance": 64.0,
+          "random_walk_density": 0.02,
+          "constant_bias": 5.0,
+          "temperature_bias": 0.05
         },
         "GnssReceiver": {
           "name": "Very Noisy GPS",
-          "position_accuracy": 0.3,
-          "altitude_accuracy": 0.4
+          "position_accuracy": 5.0,
+          "altitude_accuracy": 8.0
         }
       }
     }

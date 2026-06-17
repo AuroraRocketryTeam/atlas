@@ -19,7 +19,9 @@ from __future__ import annotations
 import math
 import socket
 import struct
+from collections import deque
 from dataclasses import dataclass
+from statistics import median
 
 
 # ----------------------------------------------------------------------
@@ -32,22 +34,25 @@ class MockConfig:
     bind_host: str = "127.0.0.1"
     bind_port: int = 5000
 
-    # READY_FOR_LAUNCH is returned on this received calibration sample.
+    # Must match the launcher calibration run. READY_FOR_LAUNCH is returned on
+    # this received calibration sample, so --calibration-samples=300 works.
     calibration_samples_before_ready: int = 300
 
-    launch_min_agl_m: float = 0.75
-    use_pressure_for_launch: bool = False
-    launch_pressure_drop_pa: float = 8.0
+    # Launch detection is armed only after READY_FOR_LAUNCH has been reported.
+    # Manny detects launch from total accelerometer magnitude.
+    launch_accel_threshold_g: float = 3.0
     launch_marker_samples: int = 1
 
     # Mock powered-flight phase after launch. This is intentionally independent
     # from the airbrakes command: FSM phase progression must stay monotonic.
     accelerated_flight_duration_s: float = 0.8
 
-    # Apogee detection. The mock declares apogee once altitude has fallen from
-    # the observed peak, or pressure has risen from the observed minimum.
+    # Apogee detection. Median filters and consecutive confirmations prevent a
+    # single noisy altitude/pressure sample from declaring apogee.
+    apogee_filter_samples: int = 5
     apogee_altitude_drop_m: float = 0.75
     apogee_pressure_rise_pa: float = 8.0
+    apogee_confirmation_samples: int = 3
     apogee_marker_samples: int = 2
 
     # Airbrakes are commanded only during ascent and only inside this AGL band.
@@ -215,6 +220,8 @@ class MockMannyState:
         self.samples_seen = 0
         self.pad_altitude_m: float | None = None
         self.pad_pressure_pa: float | None = None
+        self.calibration_altitudes_m: list[float] = []
+        self.calibration_pressures_pa: list[float] = []
         self.last_altitude_m: float | None = None
         self.last_pressure_pa: float | None = None
 
@@ -224,30 +231,33 @@ class MockMannyState:
         self.launch_marker_samples_left = 0
         self.apogee_detected = False
         self.apogee_marker_samples_left = 0
+        self.apogee_condition_samples = 0
 
         self.peak_altitude_m = -math.inf
         self.min_pressure_pa = math.inf
+        self.filtered_altitudes_m = deque(maxlen=self.cfg.apogee_filter_samples)
+        self.filtered_pressures_pa = deque(maxlen=self.cfg.apogee_filter_samples)
         self.last_fsm_state = FSM_STATE_INACTIVE
 
     def update_and_choose_state(self, sample: SimInput) -> int:
         self.samples_seen += 1
 
-        if self.pad_altitude_m is None:
-            self.pad_altitude_m = sample.altitude_m
-            self.pad_pressure_pa = sample.pressure_pa
-
-        altitude_agl_m = self.altitude_agl_m(sample)
+        if not self.ready_for_launch_reported:
+            self.calibration_altitudes_m.append(sample.altitude_m)
+            self.calibration_pressures_pa.append(sample.pressure_pa)
 
         if self.samples_seen < self.cfg.calibration_samples_before_ready:
             return self._set_state(FSM_STATE_CALIBRATING, sample)
 
         if not self.ready_for_launch_reported:
             self.ready_for_launch_reported = True
-            # Re-baseline at READY_FOR_LAUNCH so calibration noise cannot arm a
-            # later pressure-based launch if that optional mode is enabled.
-            self.pad_altitude_m = sample.altitude_m
-            self.pad_pressure_pa = sample.pressure_pa
+            self._set_pad_reference_from_calibration()
             return self._set_state(FSM_STATE_READY_FOR_LAUNCH, sample)
+
+        altitude_agl_m = self.altitude_agl_m(sample)
+
+        if self.last_fsm_state == FSM_STATE_LANDING:
+            return self._set_state(FSM_STATE_LANDING, sample)
 
         if not self.launch_detected:
             if self._launch_condition(sample):
@@ -256,12 +266,15 @@ class MockMannyState:
                 self.launch_marker_samples_left = max(1, self.cfg.launch_marker_samples)
                 self.peak_altitude_m = sample.altitude_m
                 self.min_pressure_pa = sample.pressure_pa
+                self.filtered_altitudes_m.clear()
+                self.filtered_pressures_pa.clear()
                 self.launch_marker_samples_left -= 1
                 return self._set_state(FSM_STATE_LAUNCH, sample)
             return self._set_state(FSM_STATE_READY_FOR_LAUNCH, sample)
 
-        self.peak_altitude_m = max(self.peak_altitude_m, sample.altitude_m)
-        self.min_pressure_pa = min(self.min_pressure_pa, sample.pressure_pa)
+        filtered_altitude_m, filtered_pressure_pa = self._filtered_apogee_inputs(sample)
+        self.peak_altitude_m = max(self.peak_altitude_m, filtered_altitude_m)
+        self.min_pressure_pa = min(self.min_pressure_pa, filtered_pressure_pa)
 
         if self.launch_marker_samples_left > 0:
             self.launch_marker_samples_left -= 1
@@ -270,9 +283,15 @@ class MockMannyState:
         if self._in_accelerated_flight(sample):
             return self._set_state(FSM_STATE_ACCELERATED_FLIGHT, sample)
 
-        if not self.apogee_detected and self._apogee_condition(sample):
-            self.apogee_detected = True
-            self.apogee_marker_samples_left = max(1, self.cfg.apogee_marker_samples)
+        if not self.apogee_detected:
+            if self._apogee_condition(filtered_altitude_m, filtered_pressure_pa):
+                self.apogee_condition_samples += 1
+            else:
+                self.apogee_condition_samples = 0
+
+            if self.apogee_condition_samples >= self.cfg.apogee_confirmation_samples:
+                self.apogee_detected = True
+                self.apogee_marker_samples_left = max(1, self.cfg.apogee_marker_samples)
 
         if self.apogee_marker_samples_left > 0:
             self.apogee_marker_samples_left -= 1
@@ -310,6 +329,13 @@ class MockMannyState:
             return 0.0
         return sample.altitude_m - self.pad_altitude_m
 
+    def _set_pad_reference_from_calibration(self) -> None:
+        if not self.calibration_altitudes_m or not self.calibration_pressures_pa:
+            raise RuntimeError("cannot compute pad reference without calibration samples")
+
+        self.pad_altitude_m = float(median(self.calibration_altitudes_m))
+        self.pad_pressure_pa = float(median(self.calibration_pressures_pa))
+
     def airbrakes_deployment(self, sample: SimInput) -> float:
         if not self.launch_detected or self.apogee_detected:
             return 0.0
@@ -324,26 +350,21 @@ class MockMannyState:
         return 0.0
 
     def _launch_condition(self, sample: SimInput) -> bool:
-        altitude_agl_m = self.altitude_agl_m(sample)
-        altitude_says_launch = altitude_agl_m >= self.cfg.launch_min_agl_m
+        return sample.accel_norm_g >= self.cfg.launch_accel_threshold_g
 
-        if self.pad_pressure_pa is None:
-            pressure_says_launch = False
-        else:
-            pressure_says_launch = (
-                self.pad_pressure_pa - sample.pressure_pa
-                >= self.cfg.launch_pressure_drop_pa
-            )
-
-        return altitude_says_launch or (
-            self.cfg.use_pressure_for_launch and pressure_says_launch
+    def _filtered_apogee_inputs(self, sample: SimInput) -> tuple[float, float]:
+        self.filtered_altitudes_m.append(sample.altitude_m)
+        self.filtered_pressures_pa.append(sample.pressure_pa)
+        return (
+            float(median(self.filtered_altitudes_m)),
+            float(median(self.filtered_pressures_pa)),
         )
 
-    def _apogee_condition(self, sample: SimInput) -> bool:
-        altitude_drop_m = self.peak_altitude_m - sample.altitude_m
+    def _apogee_condition(self, altitude_m: float, pressure_pa: float) -> bool:
+        altitude_drop_m = self.peak_altitude_m - altitude_m
         altitude_says_apogee = altitude_drop_m >= self.cfg.apogee_altitude_drop_m
 
-        pressure_rise_pa = sample.pressure_pa - self.min_pressure_pa
+        pressure_rise_pa = pressure_pa - self.min_pressure_pa
         pressure_says_apogee = pressure_rise_pa >= self.cfg.apogee_pressure_rise_pa
 
         return altitude_says_apogee or pressure_says_apogee
@@ -466,10 +487,11 @@ def serve(cfg: MockConfig) -> None:
     print("[MOCK MANNY] Ctrl+C to stop")
     print("[MOCK MANNY] config:")
     print(f"  calibration_samples_before_ready = {cfg.calibration_samples_before_ready}")
-    print(f"  launch_min_agl_m                 = {cfg.launch_min_agl_m}")
-    print(f"  use_pressure_for_launch          = {cfg.use_pressure_for_launch}")
+    print(f"  launch_accel_threshold_g         = {cfg.launch_accel_threshold_g}")
     print(f"  accelerated_flight_duration_s    = {cfg.accelerated_flight_duration_s}")
+    print(f"  apogee_filter_samples            = {cfg.apogee_filter_samples}")
     print(f"  apogee_altitude_drop_m           = {cfg.apogee_altitude_drop_m}")
+    print(f"  apogee_confirmation_samples      = {cfg.apogee_confirmation_samples}")
     print(f"  airbrakes_agl_band_m             = {cfg.airbrakes_min_agl_m}..{cfg.airbrakes_max_agl_m}")
     print(f"  airbrakes_level                  = {cfg.airbrakes_level}")
     print(f"  recovery_mode                    = {cfg.recovery_mode}")

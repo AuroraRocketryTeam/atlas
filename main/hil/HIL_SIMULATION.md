@@ -193,16 +193,17 @@ Example:
         "_inherits": "clean",
         "Accelerometer": {
           "name": "Noisy Accelerometer",
-          "noise_density": 0.02,
-          "random_walk_density": 0.005,
-          "constant_bias": 1.0
+          "noise_density": 0.04,
+          "random_walk_density": 0.004,
+          "constant_bias": 0.05
         }
       },
       "very_noisy": {
         "_inherits": "noisy",
         "Accelerometer": {
           "name": "Very Noisy Accelerometer",
-          "noise_density": 2.0
+          "noise_density": 0.2,
+          "constant_bias": 0.25
         }
       }
     }
@@ -472,11 +473,14 @@ Mock behavior:
 
 - starts in calibration
 - reports `READY_FOR_LAUNCH` after `calibration_samples_before_ready`
+- computes pad altitude/pressure references from the median of calibration
+  samples
 - arms launch detection only after `READY_FOR_LAUNCH` has been reported
-- detects launch from altitude increase by default
-- can optionally enable pressure-based launch detection in `MockConfig`
-- detects apogee only after launch/accelerated flight, from altitude drop or
-  pressure rise
+- detects launch from total accelerometer magnitude
+- median-filters altitude and pressure before apogee detection
+- requires consecutive filtered apogee confirmations before reporting `APOGEE`
+- detects apogee only after launch and accelerated flight
+- treats `LANDING` as terminal until reset
 - commands airbrakes only during ascent and only inside a configured AGL band
 - supports `single_main_at_apogee` and `drogue_then_main` recovery modes
 - resets state and closes the connection when it receives `MSG_TYPE_SIM_RESET`
