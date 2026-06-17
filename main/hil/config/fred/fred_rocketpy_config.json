@@ -2,87 +2,86 @@
   "Environment": {
     "latitude": 44.290583,
     "longitude": 12.027111,
-    "elevation": 18
+    "elevation": 18,
+    "_calls": [
+      {
+        "method": "set_date",
+        "kwargs": {
+          "date": [2025, 5, 9, 12]
+        }
+      },
+      {
+        "method": "set_atmospheric_model",
+        "kwargs": {
+          "type": "Ensemble",
+          "file": "Villafranca_ensemble_5to11may2020to2026.nc",
+          "dictionary": {
+            "ensemble": "number",
+            "time": "valid_time",
+            "latitude": "latitude",
+            "longitude": "longitude",
+            "level": "pressure_level",
+            "temperature": "t",
+            "surface_geopotential_height": null,
+            "geopotential_height": null,
+            "geopotential": "z",
+            "u_wind": "u",
+            "v_wind": "v"
+          }
+        }
+      }
+    ]
   },
-
-  "set_date": [2025, 5, 9, 12],
   "max_expected_height": 4500,
-
-  "set_atmospheric_model": {
-    "type": "Windy",
-    "file": "GFS",
-    "dictionary": {
-      "ensemble": "number",
-      "time": "valid_time",
-      "latitude": "latitude",
-      "longitude": "longitude",
-      "level": "pressure_level",
-      "temperature": "",
-      "surface_geopotential_height": null,
-      "geopotential_height": null,
-      "geopotential": "z",
-      "u_wind": "u",
-      "v_wind": "v"
-    }
-  },
-
   "SolidMotor": {
-    "thrust_source": "reshape_test_2026-05-21_21-07-43.csv",
-    "dry_mass": 0.622,
-    "dry_inertia": [0.66, 0.66, 0.00001],
+    "thrust_source": "SRAD_thrustcurve_BRICO_45_7mm.csv",
+    "dry_mass": 0.7871568876139587,
+    "dry_inertia": [0.66, 0.66, 1e-05],
     "nozzle_radius": 0.01371,
     "throat_radius": 0.0095,
     "grain_number": 1,
-
-    "_grain_mass": 0.196,
+    "_grain_mass": 0.19694061309132402,
     "grain_outer_radius": 0.0165,
     "grain_initial_inner_radius": 0.0065,
     "grain_initial_height": 0.147,
     "grain_density": "= $SolidMotor._grain_mass / (pi * ($SolidMotor.grain_outer_radius^2 - $SolidMotor.grain_initial_inner_radius^2) * $SolidMotor.grain_initial_height)",
-
     "grain_separation": 0.003,
     "grains_center_of_mass_position": 0.125,
     "center_of_dry_mass_position": 0.09941,
     "nozzle_position": 0,
-    "burn_time": 2.30,
+    "burn_time": 0.64,
     "coordinate_system_orientation": "nozzle_to_combustion_chamber"
   },
-
   "RocketV2": {
     "radius": 0.0425,
-    "_dry_mass": 2.201,
+    "_dry_mass": 2.595,
     "_ballast": 0.0,
     "mass": "= $RocketV2._dry_mass + $RocketV2._ballast",
     "inertia": [1.49, 1.49, 0.01],
-    "power_off_drag": "CD_power_off_v2.3_TEST.csv",
-    "power_on_drag": "CD_power_on_v2.3_TEST.csv",
-    "center_of_mass_without_motor": 0.409,
+    "power_off_drag": "FRED_v2.0_CD_power_off.csv",
+    "power_on_drag": "FRED_v2.0_CD_power_on.csv",
+    "center_of_mass_without_motor": 0.373,
     "coordinate_system_orientation": "nose_to_tail"
   },
-
   "set_rail_buttons": {
     "upper_button_position": 0.424,
     "lower_button_position": 0.625,
     "angular_position": 0
   },
-
   "add_tail": {
     "top_radius": 0.0425,
     "bottom_radius": 0.03,
     "length": 0.043,
     "position": 0.81
   },
-
   "add_motor": {
     "position": "= $add_tail.position + $add_tail.length"
   },
-
   "add_nose": {
     "length": 0.14,
     "kind": "elliptical",
     "position": 0
   },
-
   "add_trapezoidal_fins": {
     "n": 3,
     "root_chord": 0.12,
@@ -92,7 +91,6 @@
     "cant_angle": 0,
     "sweep_angle": 30.3
   },
-
   "add_parachute": [
     {
       "name": "Main",
@@ -100,17 +98,86 @@
       "_cd": 0.97,
       "_area": 1.168,
       "cd_s": "= $_cd * $_area",
-        "_lag_se": 1,
-      "_lag_rec": 1,
+      "_lag_se": 0.1,
+      "_lag_rec": 2.0,
       "lag": "= $_lag_se + $_lag_rec",
       "noise": [0, 6.5, 0.3]
     }
   ],
-
   "Flight": {
-    "rail_length": 1.5,
-    "inclination": 80,
-    "heading": 160,
+    "rail_length": 2,
+    "inclination": 75,
+    "heading": 305,
     "time_overshoot": false
+  },
+  "Sensors": {
+    "_default_position": 0,
+    "_profiles": {
+      "clean": {
+        "Accelerometer": {
+          "name": "Clean Accelerometer"
+        },
+        "Barometer": {
+          "name": "Clean Barometer"
+        },
+        "GnssReceiver": {
+          "name": "Clean GPS"
+        }
+      },
+      "noisy": {
+        "_inherits": "clean",
+        "Accelerometer": {
+          "name": "Noisy Accelerometer",
+          "measurement_range": 100,
+          "resolution": 0.25,
+          "noise_density": 0.02,
+          "random_walk_density": 0.005,
+          "constant_bias": 1.0,
+          "temperature_bias": 0.05,
+          "operating_temperature": 25,
+          "cross_axis_sensitivity": 0.02
+        },
+        "Barometer": {
+          "name": "Noisy Barometer",
+          "measurement_range": 200000,
+          "resolution": 0.1,
+          "noise_density": 15.0,
+          "noise_variance": 15.0,
+          "random_walk_density": 0.01,
+          "constant_bias": 1.5,
+          "operating_temperature": 25,
+          "temperature_bias": 0.03,
+          "temperature_scale_factor": 0.02
+        },
+        "GnssReceiver": {
+          "name": "Noisy GPS",
+          "position_accuracy": 0.1,
+          "altitude_accuracy": 0.1
+        }
+      },
+      "very_noisy": {
+        "_inherits": "noisy",
+        "Accelerometer": {
+          "name": "Very Noisy Accelerometer",
+          "noise_density": 2,
+          "random_walk_density": 0.05,
+          "constant_bias": 2.0,
+          "temperature_bias": 0.1
+        },
+        "Barometer": {
+          "name": "Very Noisy Barometer",
+          "noise_density": 15.0,
+          "noise_variance": 15.0,
+          "random_walk_density": 0.01,
+          "constant_bias": 2.5,
+          "temperature_bias": 1
+        },
+        "GnssReceiver": {
+          "name": "Very Noisy GPS",
+          "position_accuracy": 0.3,
+          "altitude_accuracy": 0.4
+        }
+      }
+    }
   }
 }

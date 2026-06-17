@@ -1,27 +1,36 @@
-"""Configuration helpers for RocketPy HiL simulations.
+"""Configuration helpers for RocketPy HIL simulations.
 
-This module keeps the JSON parsing/resolution logic out of hil_rocketpy.py.
+This module owns the mechanical conversion from JSON to Python/RocketPy
+arguments. The launcher should not know about JSON quirks, path resolution,
+formula evaluation, or how clean/noisy sensor profiles are assembled.
 
-Rules:
-- JSON sections named like RocketPy constructors/methods are intended to be
-  passed with **kwargs.
-- Keys starting with '_' are config-only helper values and are not forwarded
-  to RocketPy.
-- Plain numbers are used as-is.
-- Plain strings are kept as strings.
-- Strings starting with '=' are evaluated as numeric formulas.
-- Formula references use '$path.to.value'. Local dict references are resolved
-  first, then absolute root-config references are used.
+Configuration rules:
+- JSON sections named like RocketPy constructors/methods are forwarded with
+  ``**kwargs`` after normalization.
+- Keys starting with ``_`` are HIL-only metadata and are never forwarded to
+  RocketPy constructors.
+- Plain numbers and strings are preserved.
+- Strings starting with ``=`` are numeric formulas.
+- Formula references use ``$path.to.value``. Local references are resolved
+  before root-config references.
+- ``Sensors`` must define profiles under ``_profiles``:
+  ``{"_profiles": {"clean": {...}, "noisy": {"_inherits": "clean", ...}}}``.
+- Sections may define ordered method calls under ``_calls``. Because the key
+  starts with ``_``, method calls never leak into constructor kwargs.
+- Mandatory sections are validated explicitly by callers through
+  ``require_config_section`` instead of relying on raw ``KeyError`` messages.
 """
 
 from __future__ import annotations
 
 import ast
+import copy
 import json
 import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 FILE_PATH_KEYS = {
@@ -47,6 +56,36 @@ PAIR_LIST_KEYS = {
     "temperature",
 }
 
+DEFAULT_CLEAN_SENSOR_PROFILE: dict[str, dict[str, Any]] = {
+    "Accelerometer": {
+        "consider_gravity": True,
+        "orientation": [0, 0, 0],
+        "noise_density": 0.0,
+        "random_walk_density": 0.0,
+        "constant_bias": 0.0,
+        "temperature_bias": 0.0,
+        "temperature_scale_factor": 0.0,
+        "cross_axis_sensitivity": 0.0,
+        "name": "Clean Accelerometer",
+        "_position": 0,
+    },
+    "Barometer": {
+        "noise_density": 0.0,
+        "random_walk_density": 0.0,
+        "constant_bias": 0.0,
+        "temperature_bias": 0.0,
+        "temperature_scale_factor": 0.0,
+        "name": "Clean Barometer",
+        "_position": 0,
+    },
+    "GnssReceiver": {
+        "position_accuracy": 0.0,
+        "altitude_accuracy": 0.0,
+        "name": "Clean GPS",
+        "_position": 0,
+    },
+}
+
 _ALLOWED_FORMULA_NAMES = {
     "pi": math.pi,
 }
@@ -69,12 +108,63 @@ _REFERENCE_RE = re.compile(
 )
 
 
-def load_hil_config(config_path: Path) -> dict[str, Any]:
-    """Load a HiL RocketPy JSON config and resolve numeric formulas."""
-    with open(config_path, "r", encoding="utf-8") as f:
-        cfg = json.load(f)
+@dataclass(frozen=True)
+class PreparedSensorConfig:
+    """Fully resolved RocketPy sensor configuration."""
 
-    return resolve_numeric_formulas(cfg)
+    sensor_type: str
+    constructor_kwargs: dict[str, Any]
+    position: float
+    profile_name: str
+
+    def metadata(self) -> dict[str, Any]:
+        """Return JSON-safe metadata for capture files."""
+        return {
+            "profile": self.profile_name,
+            "position": self.position,
+            "args": copy.deepcopy(self.constructor_kwargs),
+        }
+
+
+def load_hil_config(config_path: Path) -> dict[str, Any]:
+    """Load a HIL RocketPy JSON config and resolve numeric formulas."""
+    with open(config_path, "r", encoding="utf-8") as config_file:
+        config = json.load(config_file)
+
+    if not isinstance(config, dict):
+        raise TypeError(f"HIL config root must be a JSON object: {config_path}")
+
+    return resolve_numeric_formulas(config)
+
+
+def require_config_section(config: dict[str, Any], section_name: str) -> dict[str, Any]:
+    """Return a mandatory JSON object section with a clear config error."""
+    if section_name not in config:
+        raise KeyError(f"Missing required HIL config section: {section_name}")
+
+    section = config[section_name]
+    if not isinstance(section, dict):
+        raise TypeError(
+            f"HIL config section {section_name!r} must be a JSON object, "
+            f"got {type(section).__name__}"
+        )
+
+    return section
+
+
+def require_config_list(config: dict[str, Any], section_name: str) -> list[Any]:
+    """Return a mandatory JSON array section with a clear config error."""
+    if section_name not in config:
+        raise KeyError(f"Missing required HIL config section: {section_name}")
+
+    section = config[section_name]
+    if not isinstance(section, list):
+        raise TypeError(
+            f"HIL config section {section_name!r} must be a JSON array, "
+            f"got {type(section).__name__}"
+        )
+
+    return section
 
 
 def cfg_path(config_dir: Path, path_value: str) -> str:
@@ -93,8 +183,7 @@ def rocketpy_kwargs(section: dict[str, Any]) -> dict[str, Any]:
     """
     Return arguments to forward to RocketPy.
 
-    Keys starting with '_' are config-only helper values and are not forwarded
-    to RocketPy.
+    Keys starting with ``_`` are HIL/config metadata and are not forwarded.
     """
     return {
         key: value
@@ -111,7 +200,7 @@ def looks_like_pair_list(value: Any) -> bool:
 
 
 def normalize_rocketpy_value(config_dir: Path, key: str, value: Any) -> Any:
-    """Apply only mechanical JSON-to-Python conversions before **kwargs."""
+    """Apply only mechanical JSON-to-Python conversions before ``**kwargs``."""
     if key in FILE_PATH_KEYS and isinstance(value, str):
         return cfg_path(config_dir, value)
 
@@ -133,12 +222,262 @@ def normalize_rocketpy_value(config_dir: Path, key: str, value: Any) -> Any:
     return value
 
 
-def prepare_rocketpy_kwargs(section: dict[str, Any], config_dir: Path) -> dict[str, Any]:
+def prepare_rocketpy_kwargs(
+    section: dict[str, Any],
+    config_dir: Path,
+) -> dict[str, Any]:
     """Filter config-only keys and normalize JSON values for RocketPy."""
     return {
         key: normalize_rocketpy_value(config_dir, key, value)
         for key, value in rocketpy_kwargs(section).items()
     }
+
+
+def apply_configured_calls(
+    target: Any,
+    section: dict[str, Any],
+    config_dir: Path,
+    section_name: str,
+) -> list[dict[str, Any]]:
+    """
+    Apply ordered method calls declared in ``section["_calls"]``.
+
+    Expected shape:
+
+    ``{"_calls": [{"method": "method_name", "args": [], "kwargs": {}}]}``
+
+    ``args`` and ``kwargs`` are optional. Values pass through the same
+    normalization used for RocketPy constructor kwargs, so paths and tuples are
+    handled consistently.
+    """
+    calls = section.get("_calls", [])
+    if calls == []:
+        return []
+
+    if not isinstance(calls, list):
+        raise TypeError(f"{section_name}._calls must be a JSON array")
+
+    applied_calls: list[dict[str, Any]] = []
+
+    for index, call_config in enumerate(calls):
+        call_path = f"{section_name}._calls[{index}]"
+
+        if not isinstance(call_config, dict):
+            raise TypeError(f"{call_path} must be a JSON object")
+
+        method_name = call_config.get("method")
+        if not isinstance(method_name, str) or not method_name:
+            raise TypeError(f"{call_path}.method must be a non-empty string")
+
+        if not hasattr(target, method_name):
+            raise AttributeError(f"{section_name} object has no method {method_name!r}")
+
+        method = getattr(target, method_name)
+        if not callable(method):
+            raise TypeError(f"{section_name}.{method_name} is not callable")
+
+        raw_args = call_config.get("args", [])
+        raw_kwargs = call_config.get("kwargs", {})
+
+        if not isinstance(raw_args, list):
+            raise TypeError(f"{call_path}.args must be a JSON array when provided")
+
+        if not isinstance(raw_kwargs, dict):
+            raise TypeError(f"{call_path}.kwargs must be a JSON object when provided")
+
+        args = [
+            normalize_rocketpy_value(config_dir, "args", arg)
+            for arg in raw_args
+        ]
+        kwargs = prepare_rocketpy_kwargs(raw_kwargs, config_dir)
+
+        method(*args, **kwargs)
+        applied_calls.append(
+            {
+                "method": method_name,
+                "args": copy.deepcopy(args),
+                "kwargs": copy.deepcopy(kwargs),
+            }
+        )
+
+    return applied_calls
+
+
+def prepare_sensor_configs(
+    config: dict[str, Any],
+    config_dir: Path,
+    requested_profile_name: str,
+    default_sampling_rate_hz: int,
+    known_sensor_types: Iterable[str],
+) -> tuple[str, list[PreparedSensorConfig]]:
+    """
+    Resolve a named sensor profile into RocketPy constructor arguments.
+
+    Clean profile:
+        Uses ``DEFAULT_CLEAN_SENSOR_PROFILE`` and applies optional JSON
+        overrides. This makes the all-zero no-noise baseline centralized.
+
+    Other profiles:
+        Profile names are defined entirely by the JSON config. Non-clean
+        profiles inherit ``clean`` by default, so custom configs can override
+        only the real noise parameters instead of duplicating every clean field.
+
+    A profile can disable inheritance with ``"_inherits": null`` or inherit
+    another profile with ``"_inherits": "profile_name"``.
+    """
+    sensors_section = require_config_section(config, "Sensors")
+
+    profile_map = _extract_sensor_profile_map(sensors_section)
+    if "clean" not in profile_map:
+        raise ValueError("Sensors._profiles.clean is required, even when it only overrides names")
+
+    if not isinstance(requested_profile_name, str) or not requested_profile_name:
+        raise TypeError("requested_profile_name must be a non-empty string")
+
+    profile_name = requested_profile_name
+    if profile_name not in profile_map:
+        available = ", ".join(sorted(profile_map.keys())) or "none"
+        raise ValueError(
+            f"Unknown sensor profile {requested_profile_name!r}. "
+            f"Available profiles: {available}"
+        )
+
+    if "_default_position" not in sensors_section:
+        raise KeyError("Sensors._default_position is required")
+
+    default_position = sensors_section["_default_position"]
+    resolved_profile = _resolve_sensor_profile(profile_map, profile_name)
+    known_sensor_type_set = set(known_sensor_types)
+
+    prepared_sensors: list[PreparedSensorConfig] = []
+
+    for sensor_type, sensor_config in resolved_profile.items():
+        if sensor_type.startswith("_"):
+            continue
+
+        if sensor_type not in known_sensor_type_set:
+            known = ", ".join(sorted(known_sensor_type_set))
+            raise ValueError(f"Unknown sensor type {sensor_type!r}. Known sensor types: {known}")
+
+        if not isinstance(sensor_config, dict):
+            raise TypeError(
+                f"Sensors._profiles.{profile_name}.{sensor_type} must be a JSON object"
+            )
+
+        if "sampling_rate" in sensor_config:
+            raise ValueError(
+                f"Sensors._profiles.{profile_name}.{sensor_type}.sampling_rate is not supported. "
+                "Use --sampling-rate so all HIL components run at the same rate."
+            )
+
+        constructor_kwargs = prepare_rocketpy_kwargs(sensor_config, config_dir)
+        constructor_kwargs["sampling_rate"] = default_sampling_rate_hz
+
+        prepared_sensors.append(
+            PreparedSensorConfig(
+                sensor_type=sensor_type,
+                constructor_kwargs=constructor_kwargs,
+                position=sensor_config.get("_position", default_position),
+                profile_name=profile_name,
+            )
+        )
+
+    return profile_name, prepared_sensors
+
+
+def _extract_sensor_profile_map(sensors_section: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """
+    Return the available sensor profiles from the canonical JSON layout.
+    """
+    if "_profiles" not in sensors_section:
+        raise ValueError(
+            "Sensors must define profiles under Sensors._profiles. "
+            "Expected: {'Sensors': {'_profiles': {'clean': {...}, 'noisy': {...}}}}"
+        )
+
+    profiles = sensors_section["_profiles"]
+    if not isinstance(profiles, dict):
+        raise TypeError("Sensors._profiles must be a JSON object")
+
+    profile_map: dict[str, dict[str, Any]] = {}
+
+    for profile_name, profile_config in profiles.items():
+        if not isinstance(profile_name, str) or not profile_name:
+            raise TypeError("Sensors._profiles keys must be non-empty strings")
+
+        if not isinstance(profile_config, dict):
+            raise TypeError(f"Sensors._profiles.{profile_name} must be a JSON object")
+
+        profile_map[profile_name] = copy.deepcopy(profile_config)
+
+    return profile_map
+
+
+def _resolve_sensor_profile(
+    profile_map: dict[str, dict[str, Any]],
+    profile_name: str,
+    resolving: set[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve inheritance and merge defaults for one sensor profile."""
+    if resolving is None:
+        resolving = set()
+
+    if profile_name in resolving:
+        chain = " -> ".join((*resolving, profile_name))
+        raise ValueError(f"Cyclic sensor profile inheritance detected: {chain}")
+
+    if profile_name == "clean":
+        base_profile = copy.deepcopy(DEFAULT_CLEAN_SENSOR_PROFILE)
+        override_profile = copy.deepcopy(profile_map.get("clean", {}))
+        return _deep_merge_sensor_profiles(base_profile, override_profile)
+
+    if profile_name not in profile_map:
+        raise ValueError(f"Missing sensor profile: {profile_name}")
+
+    resolving.add(profile_name)
+    override_profile = copy.deepcopy(profile_map[profile_name])
+    inherited_profile_name = override_profile.pop("_inherits", "clean")
+
+    if inherited_profile_name is None:
+        base_profile = {}
+    else:
+        if not isinstance(inherited_profile_name, str):
+            raise TypeError(
+                f"Sensors._profiles.{profile_name}._inherits must be a string or null"
+            )
+
+        base_profile = _resolve_sensor_profile(
+            profile_map,
+            inherited_profile_name,
+            resolving,
+        )
+
+    resolving.remove(profile_name)
+    return _deep_merge_sensor_profiles(base_profile, override_profile)
+
+
+def _deep_merge_sensor_profiles(
+    base_profile: dict[str, dict[str, Any]],
+    override_profile: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Merge sensor-profile dictionaries without mutating either input."""
+    merged = copy.deepcopy(base_profile)
+
+    for sensor_type, override_config in override_profile.items():
+        if sensor_type.startswith("_"):
+            merged[sensor_type] = copy.deepcopy(override_config)
+            continue
+
+        base_config = merged.get(sensor_type, {})
+        if not isinstance(base_config, dict) or not isinstance(override_config, dict):
+            merged[sensor_type] = copy.deepcopy(override_config)
+            continue
+
+        sensor_config = copy.deepcopy(base_config)
+        sensor_config.update(copy.deepcopy(override_config))
+        merged[sensor_type] = sensor_config
+
+    return merged
 
 
 def _get_path_value(root: Any, dotted_path: str) -> Any:
@@ -178,16 +517,13 @@ def _resolve_path_value(
     resolving: set[Any],
 ) -> float:
     """
-    Resolve a $reference used by a formula.
+    Resolve a ``$reference`` used by a formula.
 
     Examples:
-    - $RocketV2.mass: absolute lookup from the root config.
-    - $add_tail.length: absolute lookup from the root config.
-    - $_cd: local lookup inside the current dict.
-    - $lag_se: local lookup if present in current dict, otherwise root lookup.
-
-    If the referenced value is itself a formula, it is resolved first, cached,
-    and written back into the config to avoid stale reads.
+    - ``$RocketV2.mass``: absolute lookup from the root config.
+    - ``$add_tail.length``: absolute lookup from the root config.
+    - ``$_cd``: local lookup inside the current dict.
+    - ``$lag_se``: local lookup if present in current dict, otherwise root lookup.
     """
     first_part = dotted_path.split(".", 1)[0]
 
@@ -205,7 +541,6 @@ def _resolve_path_value(
         raise ValueError(f"Cyclic formula reference detected while resolving ${dotted_path}")
 
     resolving.add(cache_key)
-
     value = _get_path_value(lookup_root, dotted_path)
 
     if isinstance(value, str) and value.startswith("="):
@@ -282,15 +617,10 @@ def _eval_numeric_formula(
     Evaluate a small numeric-only formula.
 
     Supported syntax examples:
-    - = $RocketV2._dry_mass + $RocketV2._ballast
-    - = $add_tail.position + $add_tail.length
-    - = $SolidMotor._grain_mass / (pi * ($SolidMotor.grain_outer_radius^2 - $SolidMotor.grain_initial_inner_radius^2) * $SolidMotor.grain_initial_height)
-    - = $_cd * $_area
-    - = sin(radians($_wind_heading_deg))
-
-    This is intentionally not a Python eval replacement. It only accepts
-    arithmetic operators, parentheses, numeric constants, whitelisted math
-    functions, pi, and $field references.
+    - ``= $RocketV2._dry_mass + $RocketV2._ballast``
+    - ``= $add_tail.position + $add_tail.length``
+    - ``= $_cd * $_area``
+    - ``= sin(radians($_wind_heading_deg))``
     """
     if not expression.startswith("="):
         raise ValueError(f"Formula must start with '=': {expression!r}")
@@ -329,14 +659,11 @@ def _eval_numeric_formula(
 
 def resolve_numeric_formulas(config: dict[str, Any]) -> dict[str, Any]:
     """
-    Resolve only derived numeric fields in-place and return the config.
-
-    Plain JSON numbers are used as-is.
-    Plain strings are kept as strings.
-    Strings starting with '=' are evaluated as numeric formulas.
+    Resolve derived numeric fields in-place and return the config.
 
     Formula references are resolved through a cache and cycle detector, so
-    formulas may reference other formulas without reading stale unresolved values.
+    formulas may reference other formulas without reading stale unresolved
+    values.
     """
     cache: dict[Any, float] = {}
     resolving: set[Any] = set()
