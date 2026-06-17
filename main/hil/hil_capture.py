@@ -50,6 +50,24 @@ import numpy as np
 
 G0 = 9.80665
 
+# Keep this local so hil_capture.py can plot saved captures without importing
+# hil_communication.py. These names mirror RocketState / hil_communication.
+FSM_STATE_ORDER = {
+    "INACTIVE": 0,
+    "CALIBRATING": 1,
+    "READY_FOR_LAUNCH": 2,
+    "LAUNCH": 3,
+    "ACCELERATED_FLIGHT": 4,
+    "BALLISTIC_FLIGHT": 5,
+    "APOGEE": 6,
+    "STABILIZATION": 7,
+    "DECELERATION": 8,
+    "LANDING": 9,
+    "RECOVERED": 10,
+}
+
+FSM_STATE_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">"]
+
 
 # ----------------------------------------------------------------------
 # JSON SAVE / LOAD API
@@ -159,7 +177,7 @@ def load_hil_capture(
 
 
 # ----------------------------------------------------------------------
-# NUMERIC HELPERS
+# NUMERIC / EVENT HELPERS
 # ----------------------------------------------------------------------
 
 def _as_array(log: dict[str, list[Any]], key: str) -> np.ndarray:
@@ -167,6 +185,17 @@ def _as_array(log: dict[str, list[Any]], key: str) -> np.ndarray:
         raise KeyError(f"Missing key in hil_log: {key}")
 
     return np.asarray(log[key], dtype=float)
+
+
+def _as_optional_array(log: dict[str, list[Any]], key: str, length: int) -> np.ndarray:
+    if key not in log:
+        return np.full(length, np.nan, dtype=float)
+
+    arr = np.asarray(log[key], dtype=float)
+    if len(arr) != length:
+        return np.full(length, np.nan, dtype=float)
+
+    return arr
 
 
 def _lat_lon_to_local_meters(
@@ -194,8 +223,8 @@ def _lat_lon_to_local_meters(
     return x, y
 
 
-def _nearest_sample_index(t: np.ndarray, target_t: float) -> int:
-    return int(np.argmin(np.abs(t - target_t)))
+def _nearest_sample_index(sim_time_s: np.ndarray, target_sim_time_s: float) -> int:
+    return int(np.argmin(np.abs(sim_time_s - target_sim_time_s)))
 
 
 def _sanitize_event_times(raw_events: Any) -> list[float]:
@@ -229,26 +258,93 @@ def _sanitize_airbrake_events(raw_events: Any) -> list[tuple[float, float]]:
     return out
 
 
+def _sanitize_fsm_events(raw_events: Any) -> list[tuple[float, str]]:
+    """
+    Accept current and likely historical FSM event formats:
+
+      - [(time, "STATE"), ...]
+      - [[time, "STATE"], ...]
+      - [{"time": t, "state": "STATE"}, ...]
+      - [{"t": t, "name": "STATE"}, ...]
+    """
+    if raw_events is None:
+        return []
+
+    out: list[tuple[float, str]] = []
+
+    for item in raw_events:
+        event_t: Any = None
+        state: Any = None
+
+        if isinstance(item, dict):
+            event_t = item.get("time", item.get("t", item.get("sim_time")))
+            state = item.get("state", item.get("name", item.get("fsm_state")))
+        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+            event_t = item[0]
+            state = item[1]
+
+        try:
+            event_t_f = float(event_t)
+        except (TypeError, ValueError):
+            continue
+
+        if state is None:
+            continue
+
+        out.append((event_t_f, str(state)))
+
+    # Keep chronological order even if the source list was somehow unordered.
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def _fsm_state_to_y(state: str, state_to_y: dict[str, int]) -> int:
+    if state not in state_to_y:
+        state_to_y[state] = len(state_to_y)
+    return state_to_y[state]
+
+
+def _event_marker_for_state(state: str) -> str:
+    order = FSM_STATE_ORDER.get(state)
+    if order is None:
+        order = abs(hash(state))
+    return FSM_STATE_MARKERS[order % len(FSM_STATE_MARKERS)]
+
+
 # ----------------------------------------------------------------------
 # PLOTTING HELPERS
 # ----------------------------------------------------------------------
 
-def _mark_event_lines(ax, event_times: list[float], label: str) -> None:
+def _mark_event_lines(ax, event_times: list[float], label: str, *, linestyle: str = "--") -> None:
     first = True
 
     for event_t in event_times:
         ax.axvline(
             event_t,
-            linestyle="--",
+            linestyle=linestyle,
             linewidth=1,
             label=label if first else None,
         )
         first = False
 
 
+def _mark_fsm_event_lines(ax, fsm_events: list[tuple[float, str]]) -> None:
+    first = True
+
+    for event_t, state in fsm_events:
+        ax.axvline(
+            event_t,
+            linestyle=":",
+            linewidth=1,
+            alpha=0.7,
+            label="FSM transition" if first else None,
+        )
+        first = False
+
+
 def _mark_event_points_2d(
     ax,
-    t: np.ndarray,
+    sim_time_s: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
     event_times: list[float],
@@ -258,7 +354,7 @@ def _mark_event_points_2d(
     first = True
 
     for event_t in event_times:
-        idx = _nearest_sample_index(t, event_t)
+        idx = _nearest_sample_index(sim_time_s, event_t)
         ax.scatter(
             x[idx],
             y[idx],
@@ -269,9 +365,40 @@ def _mark_event_points_2d(
         first = False
 
 
+def _mark_fsm_points_2d(
+    ax,
+    sim_time_s: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    fsm_events: list[tuple[float, str]],
+    *,
+    annotate: bool = True,
+) -> None:
+    first = True
+
+    for event_t, state in fsm_events:
+        idx = _nearest_sample_index(sim_time_s, event_t)
+        ax.scatter(
+            x[idx],
+            y[idx],
+            s=55,
+            marker=_event_marker_for_state(state),
+            label="FSM state" if first else None,
+        )
+        if annotate:
+            ax.annotate(
+                f"{state}\nt={event_t:.2f}s",
+                xy=(x[idx], y[idx]),
+                xytext=(6, 6),
+                textcoords="offset points",
+                fontsize=8,
+            )
+        first = False
+
+
 def _mark_event_points_3d(
     ax,
-    t: np.ndarray,
+    sim_time_s: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
     z: np.ndarray,
@@ -282,7 +409,7 @@ def _mark_event_points_3d(
     first = True
 
     for event_t in event_times:
-        idx = _nearest_sample_index(t, event_t)
+        idx = _nearest_sample_index(sim_time_s, event_t)
 
         ax.scatter(
             x[idx],
@@ -296,16 +423,50 @@ def _mark_event_points_3d(
             x[idx],
             y[idx],
             z[idx],
-            f" {label}\nt={t[idx]:.2f}s",
+            f" {label}\nt={event_t:.2f}s",
         )
 
+        first = False
+
+
+def _mark_fsm_points_3d(
+    ax,
+    sim_time_s: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    fsm_events: list[tuple[float, str]],
+) -> None:
+    first = True
+
+    for event_t, state in fsm_events:
+        idx = _nearest_sample_index(sim_time_s, event_t)
+        ax.scatter(
+            x[idx],
+            y[idx],
+            z[idx],
+            s=65,
+            marker=_event_marker_for_state(state),
+            label="FSM state" if first else None,
+        )
+        ax.text(
+            x[idx],
+            y[idx],
+            z[idx],
+            f" {state}\nt={event_t:.2f}s",
+        )
         first = False
 
 
 def _set_legend_if_needed(ax) -> None:
     handles, labels = ax.get_legend_handles_labels()
     if handles:
-        ax.legend()
+        # De-duplicate labels while preserving order.
+        unique: dict[str, Any] = {}
+        for handle, label in zip(handles, labels):
+            if label and label not in unique:
+                unique[label] = handle
+        ax.legend(unique.values(), unique.keys())
 
 
 # ----------------------------------------------------------------------
@@ -316,95 +477,96 @@ def plot_hil_log(
     hil_log: dict[str, list[Any]],
     hil_events: dict[str, list[Any]] | None = None,
     *,
-    sampling_rate: float | None = None,
     show: bool = True,
 ) -> None:
     """
     Plot a live or saved HIL capture.
 
-    This intentionally shows only core HIL review plots:
-      - mandatory 3D trajectory with event markers and event timing
+    Core plots:
+      - mandatory 3D trajectory with event markers and timing
       - altitude and barometer pressure together
       - GPS ground track
       - acceleration payload
+      - FSM state timeline
       - airbrakes command, when present
 
-    The sampling_rate argument is accepted for API compatibility with
-    hil_rocketpy.py, but no packet dt plot is generated here.
+    FSM events are expected in hil_events["fsm_state"] as (time, state_name),
+    matching hil_rocketpy.py's current capture format.
     """
-    del sampling_rate  # kept only for backward-compatible calls from hil_rocketpy.py
-
     if hil_events is None:
         hil_events = {}
 
-    t = _as_array(hil_log, "t")
+    sim_time_s = _as_array(hil_log, "sim_time_s")
 
-    if len(t) == 0:
+    if len(sim_time_s) == 0:
         print("[PLOT] No HIL samples logged.")
         return
 
     seq = _as_array(hil_log, "seq")
 
-    ax_data = _as_array(hil_log, "ax")
-    ay_data = _as_array(hil_log, "ay")
-    az_data = _as_array(hil_log, "az")
-    pressure = _as_array(hil_log, "p")
-    lat = _as_array(hil_log, "lat")
-    lon = _as_array(hil_log, "lon")
-    alt = _as_array(hil_log, "alt")
+    accel_x_m_s2 = _as_array(hil_log, "accel_x_m_s2")
+    accel_y_m_s2 = _as_array(hil_log, "accel_y_m_s2")
+    accel_z_m_s2 = _as_array(hil_log, "accel_z_m_s2")
+    pressure_pa = _as_array(hil_log, "pressure_pa")
+    temperature_k = _as_optional_array(hil_log, "temperature_k", len(sim_time_s))
+    latitude_deg = _as_array(hil_log, "latitude_deg")
+    longitude_deg = _as_array(hil_log, "longitude_deg")
+    altitude_m = _as_array(hil_log, "altitude_m")
 
-    gps_x, gps_y = _lat_lon_to_local_meters(lat, lon)
+    gps_x, gps_y = _lat_lon_to_local_meters(latitude_deg, longitude_deg)
 
-    ax_g = ax_data / G0
-    ay_g = ay_data / G0
-    az_g = az_data / G0
-    accel_norm_g = np.sqrt(ax_data**2 + ay_data**2 + az_data**2) / G0
+    accel_x_g = accel_x_m_s2 / G0
+    accel_y_g = accel_y_m_s2 / G0
+    accel_z_g = accel_z_m_s2 / G0
+    accel_norm_g = np.sqrt(accel_x_m_s2**2 + accel_y_m_s2**2 + accel_z_m_s2**2) / G0
 
     drogue_times = _sanitize_event_times(hil_events.get("open_drogue", []))
     main_times = _sanitize_event_times(hil_events.get("open_main", []))
     airbrake_events = _sanitize_airbrake_events(hil_events.get("airbrakes", []))
+    fsm_events = _sanitize_fsm_events(hil_events.get("fsm_state", []))
 
-    apogee_idx = int(np.argmax(alt))
-    dt = np.diff(t)
+    apogee_idx = int(np.argmax(altitude_m))
+    sample_periods_s = np.diff(sim_time_s)
 
     print("\n========== HIL DATA SUMMARY ==========")
-    print(f"Samples sent:        {len(t)}")
+    print(f"Samples sent:        {len(sim_time_s)}")
     print(f"First seq:           {seq[0]:.0f}")
     print(f"Last seq:            {seq[-1]:.0f}")
-    print(f"Start time:          {t[0]:.6f} s")
-    print(f"End time:            {t[-1]:.6f} s")
-    print(f"Duration:            {t[-1] - t[0]:.6f} s")
+    print(f"Start sim time:      {sim_time_s[0]:.6f} s")
+    print(f"End sim time:        {sim_time_s[-1]:.6f} s")
+    print(f"Duration:            {sim_time_s[-1] - sim_time_s[0]:.6f} s")
 
-    if len(dt) > 0:
-        print(f"Mean dt:             {np.mean(dt):.6f} s")
-        print(f"Effective rate:      {1.0 / np.mean(dt):.3f} Hz")
+    if len(sample_periods_s) > 0:
+        print(f"Mean sample period:  {np.mean(sample_periods_s):.6f} s")
+        print(f"Effective rate:      {1.0 / np.mean(sample_periods_s):.3f} Hz")
 
-    print(f"Max altitude:        {np.max(alt):.3f} m")
-    print(f"Apogee time:         {t[apogee_idx]:.3f} s")
+    print(f"Max altitude:        {np.max(altitude_m):.3f} m")
+    print(f"Apogee sim time:     {sim_time_s[apogee_idx]:.3f} s")
     print(f"Max |accel|:         {np.max(accel_norm_g):.3f} g")
     print(f"Drogue events:       {drogue_times}")
     print(f"Main events:         {main_times}")
     print(f"Airbrake changes:    {airbrake_events}")
+    print(f"FSM transitions:     {fsm_events}")
     print("======================================\n")
 
     # ------------------------------------------------------------------
     # Mandatory 3D trajectory with event timing
     # ------------------------------------------------------------------
-    fig_3d = plt.figure(figsize=(10, 8))
+    fig_3d = plt.figure(figsize=(11, 8))
     ax_3d = fig_3d.add_subplot(111, projection="3d")
 
-    ax_3d.plot(gps_x, gps_y, alt, label="GPS trajectory sent to FC")
+    ax_3d.plot(gps_x, gps_y, altitude_m, label="GPS trajectory sent to FC")
 
-    ax_3d.scatter(gps_x[0], gps_y[0], alt[0], s=90, marker="o", label="START")
-    ax_3d.text(gps_x[0], gps_y[0], alt[0], f" START\nt={t[0]:.2f}s")
+    ax_3d.scatter(gps_x[0], gps_y[0], altitude_m[0], s=90, marker="o", label="START")
+    ax_3d.text(gps_x[0], gps_y[0], altitude_m[0], f" START\nsim_time={sim_time_s[0]:.2f}s")
 
-    ax_3d.scatter(gps_x[-1], gps_y[-1], alt[-1], s=90, marker="X", label="END")
-    ax_3d.text(gps_x[-1], gps_y[-1], alt[-1], f" END\nt={t[-1]:.2f}s")
+    ax_3d.scatter(gps_x[-1], gps_y[-1], altitude_m[-1], s=90, marker="X", label="END")
+    ax_3d.text(gps_x[-1], gps_y[-1], altitude_m[-1], f" END\nsim_time={sim_time_s[-1]:.2f}s")
 
     ax_3d.scatter(
         gps_x[apogee_idx],
         gps_y[apogee_idx],
-        alt[apogee_idx],
+        altitude_m[apogee_idx],
         s=90,
         marker="^",
         label="APOGEE",
@@ -412,12 +574,13 @@ def plot_hil_log(
     ax_3d.text(
         gps_x[apogee_idx],
         gps_y[apogee_idx],
-        alt[apogee_idx],
-        f" APOGEE\nt={t[apogee_idx]:.2f}s\nalt={alt[apogee_idx]:.1f}m",
+        altitude_m[apogee_idx],
+        f" APOGEE\nsim_time={sim_time_s[apogee_idx]:.2f}s\nalt={altitude_m[apogee_idx]:.1f}m",
     )
 
-    _mark_event_points_3d(ax_3d, t, gps_x, gps_y, alt, drogue_times, "OPEN_DROGUE", "v")
-    _mark_event_points_3d(ax_3d, t, gps_x, gps_y, alt, main_times, "OPEN_MAIN", "s")
+    _mark_event_points_3d(ax_3d, sim_time_s, gps_x, gps_y, altitude_m, drogue_times, "OPEN_DROGUE", "v")
+    _mark_event_points_3d(ax_3d, sim_time_s, gps_x, gps_y, altitude_m, main_times, "OPEN_MAIN", "s")
+    _mark_fsm_points_3d(ax_3d, sim_time_s, gps_x, gps_y, altitude_m, fsm_events)
 
     ax_3d.set_title("3D GPS Payload Trajectory Sent to Flight Controller")
     ax_3d.set_xlabel("local GPS x / east [m]")
@@ -432,15 +595,17 @@ def plot_hil_log(
     fig_alt_pressure, ax_alt = plt.subplots(figsize=(12, 5))
     ax_pressure = ax_alt.twinx()
 
-    alt_line = ax_alt.plot(t, alt, label="GPS altitude", linewidth=1.8)
-    pressure_line = ax_pressure.plot(t, pressure, linestyle="--", label="barometer pressure")
+    ax_alt.plot(sim_time_s, altitude_m, label="GPS altitude", linewidth=1.8)
+    ax_pressure.plot(sim_time_s, pressure_pa, linestyle="--", label="barometer pressure")
 
-    ax_alt.scatter(t[0], alt[0], s=50, marker="o", label="START")
-    ax_alt.scatter(t[-1], alt[-1], s=50, marker="X", label="END")
-    ax_alt.scatter(t[apogee_idx], alt[apogee_idx], s=60, marker="^", label="APOGEE")
+    ax_alt.scatter(sim_time_s[0], altitude_m[0], s=50, marker="o", label="START")
+    ax_alt.scatter(sim_time_s[-1], altitude_m[-1], s=50, marker="X", label="END")
+    ax_alt.scatter(sim_time_s[apogee_idx], altitude_m[apogee_idx], s=60, marker="^", label="APOGEE")
 
     _mark_event_lines(ax_alt, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_alt, main_times, "OPEN_MAIN")
+    _mark_fsm_event_lines(ax_alt, fsm_events)
+    _mark_fsm_points_2d(ax_alt, sim_time_s, sim_time_s, altitude_m, fsm_events, annotate=True)
 
     ax_alt.set_title("Altitude and Barometer Pressure Sent to FC")
     ax_alt.set_xlabel("Simulation time [s]")
@@ -450,7 +615,12 @@ def plot_hil_log(
 
     handles_alt, labels_alt = ax_alt.get_legend_handles_labels()
     handles_pressure, labels_pressure = ax_pressure.get_legend_handles_labels()
-    ax_alt.legend(handles_alt + handles_pressure, labels_alt + labels_pressure)
+    # De-duplicate while preserving order.
+    combined = {}
+    for handle, label in zip(handles_alt + handles_pressure, labels_alt + labels_pressure):
+        if label and label not in combined:
+            combined[label] = handle
+    ax_alt.legend(combined.values(), combined.keys())
     fig_alt_pressure.tight_layout()
 
     # ------------------------------------------------------------------
@@ -461,8 +631,9 @@ def plot_hil_log(
     ax_track.scatter(gps_x[0], gps_y[0], s=50, marker="o", label="START")
     ax_track.scatter(gps_x[-1], gps_y[-1], s=50, marker="X", label="END")
     ax_track.scatter(gps_x[apogee_idx], gps_y[apogee_idx], s=60, marker="^", label="APOGEE")
-    _mark_event_points_2d(ax_track, t, gps_x, gps_y, drogue_times, "OPEN_DROGUE", "v")
-    _mark_event_points_2d(ax_track, t, gps_x, gps_y, main_times, "OPEN_MAIN", "s")
+    _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, drogue_times, "OPEN_DROGUE", "v")
+    _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, main_times, "OPEN_MAIN", "s")
+    _mark_fsm_points_2d(ax_track, sim_time_s, gps_x, gps_y, fsm_events, annotate=True)
     ax_track.set_title("GPS Ground Track Sent to FC")
     ax_track.set_xlabel("local GPS x / east [m]")
     ax_track.set_ylabel("local GPS y / north [m]")
@@ -475,12 +646,13 @@ def plot_hil_log(
     # Acceleration payload
     # ------------------------------------------------------------------
     fig_accel, ax_acc = plt.subplots(figsize=(12, 5))
-    ax_acc.plot(t, ax_g, label="ax [g]")
-    ax_acc.plot(t, ay_g, label="ay [g]")
-    ax_acc.plot(t, az_g, label="az [g]")
-    ax_acc.plot(t, accel_norm_g, linestyle="--", label="|a| [g]")
+    ax_acc.plot(sim_time_s, accel_x_g, label="ax [g]")
+    ax_acc.plot(sim_time_s, accel_y_g, label="ay [g]")
+    ax_acc.plot(sim_time_s, accel_z_g, label="az [g]")
+    ax_acc.plot(sim_time_s, accel_norm_g, linestyle="--", label="|a| [g]")
     _mark_event_lines(ax_acc, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_acc, main_times, "OPEN_MAIN")
+    _mark_fsm_event_lines(ax_acc, fsm_events)
     ax_acc.set_title("Accelerometer Payload Sent to FC")
     ax_acc.set_xlabel("Simulation time [s]")
     ax_acc.set_ylabel("Acceleration [g]")
@@ -489,26 +661,97 @@ def plot_hil_log(
     fig_accel.tight_layout()
 
     # ------------------------------------------------------------------
+    # Optional temperature payload
+    # ------------------------------------------------------------------
+    if not np.all(np.isnan(temperature_k)):
+        fig_temp, ax_temp = plt.subplots(figsize=(12, 4))
+        ax_temp.plot(sim_time_s, temperature_k, label="temperature [K]")
+        _mark_event_lines(ax_temp, drogue_times, "OPEN_DROGUE")
+        _mark_event_lines(ax_temp, main_times, "OPEN_MAIN")
+        _mark_fsm_event_lines(ax_temp, fsm_events)
+        ax_temp.set_title("Temperature Payload Sent to FC")
+        ax_temp.set_xlabel("Simulation time [s]")
+        ax_temp.set_ylabel("Temperature [K]")
+        ax_temp.grid(True)
+        _set_legend_if_needed(ax_temp)
+        fig_temp.tight_layout()
+
+    # ------------------------------------------------------------------
+    # FSM state timeline
+    # ------------------------------------------------------------------
+    if len(fsm_events) > 0:
+        state_to_y: dict[str, int] = {}
+        event_t_values: list[float] = []
+        event_y_values: list[int] = []
+
+        # Prefer RocketState ordering when known, but preserve unknown states too.
+        for _event_t, state in fsm_events:
+            if state in FSM_STATE_ORDER and state not in state_to_y:
+                state_to_y[state] = FSM_STATE_ORDER[state]
+
+        for event_t, state in fsm_events:
+            event_t_values.append(event_t)
+            event_y_values.append(_fsm_state_to_y(state, state_to_y))
+
+        fig_fsm, ax_fsm = plt.subplots(figsize=(12, 4))
+
+        # Step plot: state is assumed to remain active until the next transition.
+        step_t = event_t_values.copy()
+        step_y = event_y_values.copy()
+        if step_t[0] > sim_time_s[0]:
+            step_t.insert(0, sim_time_s[0])
+            step_y.insert(0, step_y[0])
+        if step_t[-1] < sim_time_s[-1]:
+            step_t.append(sim_time_s[-1])
+            step_y.append(step_y[-1])
+
+        ax_fsm.step(step_t, step_y, where="post", label="FSM state")
+        ax_fsm.scatter(event_t_values, event_y_values, s=65, marker="o", label="FSM transition")
+
+        for event_t, state, y_value in zip(event_t_values, [s for _, s in fsm_events], event_y_values):
+            ax_fsm.annotate(
+                f"{state}\nt={event_t:.2f}s",
+                xy=(event_t, y_value),
+                xytext=(6, 6),
+                textcoords="offset points",
+                fontsize=8,
+            )
+
+        # Build readable y ticks. Sort by numeric y value.
+        y_to_state = {y: state for state, y in state_to_y.items()}
+        used_y_values = sorted(set(event_y_values))
+        ax_fsm.set_yticks(used_y_values)
+        ax_fsm.set_yticklabels([y_to_state.get(y, str(y)) for y in used_y_values])
+        ax_fsm.set_title("FSM State Timeline Reported by Flight Controller")
+        ax_fsm.set_xlabel("Simulation time [s]")
+        ax_fsm.set_ylabel("FSM state")
+        ax_fsm.grid(True)
+        _set_legend_if_needed(ax_fsm)
+        fig_fsm.tight_layout()
+
+    # ------------------------------------------------------------------
     # Airbrakes command level
     # ------------------------------------------------------------------
     if len(airbrake_events) > 0:
-        air_t = [t[0]]
+        air_t = [sim_time_s[0]]
         air_lvl = [0.0]
 
         for event_t, lvl in airbrake_events:
             air_t.append(event_t)
             air_lvl.append(lvl)
 
-        air_t.append(t[-1])
+        air_t.append(sim_time_s[-1])
         air_lvl.append(air_lvl[-1])
 
         fig_air, ax_air = plt.subplots(figsize=(12, 4))
         ax_air.step(air_t, air_lvl, where="post")
+        _mark_fsm_event_lines(ax_air, fsm_events)
         ax_air.set_title("Airbrakes Command Received from FC")
         ax_air.set_xlabel("Simulation time [s]")
         ax_air.set_ylabel("Deployment level")
         ax_air.set_ylim(-0.05, 1.05)
         ax_air.grid(True)
+        _set_legend_if_needed(ax_air)
         fig_air.tight_layout()
 
     if show:
