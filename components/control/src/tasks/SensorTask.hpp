@@ -6,6 +6,7 @@
 #include <ISensor.hpp>
 #include <memory>
 #include "RocketModel.hpp"
+#include "config.h"
 
 /**
  * @brief Class to implement a Sensor task.

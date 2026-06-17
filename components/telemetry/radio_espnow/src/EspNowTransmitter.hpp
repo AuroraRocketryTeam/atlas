@@ -8,6 +8,7 @@
 #include <vector>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include "config.h"
 
 /**
  * @brief ESP-NOW transmitter for sending Packet structures to a peer receiver.

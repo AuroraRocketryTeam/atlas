@@ -10,6 +10,7 @@
 #include "IStorage.hpp"
 #include "RocketModel.hpp"
 #include "IStateMachine.hpp"
+#include "config.h"
 
 #include "SensorTask.hpp"
 #include "AirbrakesTask.hpp"

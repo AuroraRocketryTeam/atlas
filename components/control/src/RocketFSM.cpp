@@ -355,7 +355,7 @@ void RocketFSM::setupStateActions()
         .setExitAction([this]()
                        { LOG_INFO("RocketFSM", "Exiting CALIBRATING"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        // .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -734,6 +734,9 @@ void RocketFSM::checkTransitions()
         accZ = outBno055Data.acceleration_z;
     }
 
+    auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
+    LOG_INFO("RocketFSM", "ax: %.5f ay: %.5f az: %.5f mag: %.5f", accX, accY, accZ, accMag);
+
     // Fast state-based checks
     switch (_currentState)
     {
@@ -763,13 +766,14 @@ void RocketFSM::checkTransitions()
 
         LOG_INFO("RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d", 
                  isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
-
+        
         // Evaluate transition
         if (isBaroReady && isBnoReady)
         {
             LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed & IMU calibrated.");
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
+
         // Fallback timeout: Increased to 10s to ensure we get enough samples if sensor reads are slow
         else if (Utils::millis() - _stateStartTime > 10000U) 
         {
@@ -813,6 +817,7 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::ACCELERATED_FLIGHT:
+        
         if (Utils::millis() - _launchDetectionTime >= LAUNCH_TO_BALLISTIC_THRESHOLD)
         {
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);

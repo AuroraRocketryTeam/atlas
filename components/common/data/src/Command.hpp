@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "FlightState.hpp"
 
 /**
  * @brief Packed wire format (TCP payload)
