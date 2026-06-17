@@ -205,13 +205,9 @@ static void createAndStartFSM()
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Start FSM tasks
-    statusManager.setSystemCode(FSM_STARTED);
-    
-    LOG_INFO("Main", "Force transition - READY_FOR_LAUNCH");
-    rocketFSM->forceTransition(RocketState::READY_FOR_LAUNCH);
-    
     LOG_INFO("Main", "Starting Flight State Machine...");
     rocketFSM->start();
+    statusManager.setSystemCode(FSM_STARTED);
 }
 
 static void resetHilSimulationIfRequested()
