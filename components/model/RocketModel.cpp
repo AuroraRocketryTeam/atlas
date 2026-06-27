@@ -372,6 +372,10 @@ float RocketModel::getHeightGainSpeed() {
     return _heightGainSpeed;
 }
 
+void RocketModel::setHeightGainSpeed(float heightGainSpeed) {
+    _heightGainSpeed = heightGainSpeed;
+}
+
 float RocketModel::getCurrentHeight() {
     return _currentHeight;
 }
