@@ -189,11 +189,9 @@ bool RocketModel::updateLIS3DHTR() {
 bool RocketModel::updateMS561101BA03_1() {
     bool result = _ms56_1->updateData();
 
-    if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        if (result) {
-            _ms561101ba03Data_1 = _ms56_1->getData();
-        }
-        _ms561101ba03Data_1_Valid = result;
+    if (result && xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _ms561101ba03Data_1 = _ms56_1->getData();
+        _ms561101ba03Data_1_Valid = true;
         xSemaphoreGive(_baro1Mutex);
     }
     return result;
@@ -202,11 +200,9 @@ bool RocketModel::updateMS561101BA03_1() {
 bool RocketModel::updateMS561101BA03_2() {
     bool result = _ms56_2->updateData();
 
-    if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        if (result) {
-            _ms561101ba03Data_2 = _ms56_2->getData();
-        }
-        _ms561101ba03Data_2_Valid = result;
+    if (result && xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _ms561101ba03Data_2 = _ms56_2->getData();
+        _ms561101ba03Data_2_Valid = true;
         xSemaphoreGive(_baro2Mutex);
     }
     return result;
