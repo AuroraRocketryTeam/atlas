@@ -1,6 +1,22 @@
+"""RocketPy -> ESP32 HIL launcher.
+
+Reference-frame convention used by this file:
+
+    I -> B -> S_clean -> S_out
+
+where I is RocketPy inertial (+X east, +Y north, +Z up), B is the RocketPy
+body frame, S_clean is the ideal orthogonal accelerometer frame, and S_out is
+the payload frame after accelerometer cross-axis mixing. During replay the
+inverse path is used: S_out -> S_clean -> B -> I.
+"""
+
 import argparse
+import copy
 import threading
 from pathlib import Path
+from typing import Any
+
+import numpy as np
 
 from rocketpy import Environment, Flight, SolidMotor, RocketV2
 from rocketpy import Accelerometer
@@ -15,6 +31,18 @@ from hil_config import (
     prepare_rocketpy_kwargs,
     prepare_sensor_configs,
     require_config_section,
+)
+from hil_utils import (
+    accelerometer_body_to_clean_sensor_matrix as _utils_accelerometer_body_to_clean_sensor_matrix,
+    accelerometer_body_to_sensor_output_matrix as _utils_accelerometer_body_to_sensor_output_matrix,
+    accelerometer_cross_axis_matrix as _utils_accelerometer_cross_axis_matrix,
+    matrix_like_to_numpy_3x3 as _matrix_like_to_numpy,
+    numeric_array as _numeric_config_array,
+    numeric_scalar as _numeric_config_scalar,
+    rail_body_to_inertial_matrix as _rail_body_to_inertial_matrix,
+    rocketpy_constructor_orientation_from_config as _rocketpy_constructor_orientation_from_config,
+    rocketpy_euler313_matrix as _rocketpy_euler313_matrix,
+    rotation_matrix_to_rocketpy_quaternion as _rotation_matrix_to_rocketpy_quaternion,
 )
 from hil_capture import create_capture_file, save_hil_capture, plot_hil_log
 
@@ -334,13 +362,29 @@ selected_sensor_metadata = {}
 selected_sensor_instances = {}
 
 for prepared_sensor in prepared_sensor_configs:
+    sensor_constructor_kwargs = copy.deepcopy(prepared_sensor.constructor_kwargs)
+    sensor_metadata = prepared_sensor.metadata()
+
+    # HIL config uses radians for 3-angle inertial-sensor orientations.
+    # Some RocketPy versions still apply deg2rad() internally to 3-angle
+    # constructor values, so pass an explicit S_clean -> B matrix instead.
+    if prepared_sensor.sensor_type == "Accelerometer" and "orientation" in sensor_constructor_kwargs:
+        effective_orientation_matrix = _rocketpy_constructor_orientation_from_config(
+            sensor_constructor_kwargs["orientation"]
+        )
+        sensor_constructor_kwargs["orientation"] = effective_orientation_matrix
+        sensor_metadata["orientation_convention"] = "radians"
+        sensor_metadata["effective_orientation_matrix_sensor_to_body"] = (
+            effective_orientation_matrix
+        )
+
     sensor = SENSOR_CLASSES[prepared_sensor.sensor_type](
-        **prepared_sensor.constructor_kwargs
+        **sensor_constructor_kwargs
     )
     rocket.add_sensor(sensor, position=prepared_sensor.position)
 
     selected_sensor_instances[prepared_sensor.sensor_type] = sensor
-    selected_sensor_metadata[prepared_sensor.sensor_type] = prepared_sensor.metadata()
+    selected_sensor_metadata[prepared_sensor.sensor_type] = sensor_metadata
 
 print(f"Sensors... READY ({selected_sensor_profile_name})")
 
@@ -465,6 +509,9 @@ def append_hil_log_sample(
     """
     Log one HIL packet that was actually queued/sent to the FC.
 
+    Truth state is stored in RocketPy inertial/body attitude variables.
+    Accelerometer channels are stored exactly as payload output: ``S_out``.
+
     During calibration there is no RocketPy Flight state yet, so we log a
     stationary synthetic truth state. During flight, enqueue_data(...) passes
     the real RocketPy state values.
@@ -522,7 +569,7 @@ def enqueue_data(rocketpy_time_s, state, sensors):
         )
 
     # ------------------------------------------------------------------
-    # Extract truth state from RocketPy
+    # Extract RocketPy truth state: inertial position/velocity + body attitude.
     # ------------------------------------------------------------------
     x = require_callback_float(state, "x", "state")
     y = require_callback_float(state, "y", "state")
@@ -542,7 +589,7 @@ def enqueue_data(rocketpy_time_s, state, sensors):
     omega3 = require_callback_float(state, "omega3", "state")
 
     # ------------------------------------------------------------------
-    # Extract sensor data sent to the FC
+    # Extract sensor payload sent to the FC. Accelerometer is already S_out.
     # ------------------------------------------------------------------
     accel_x_m_s2 = require_callback_float(sensors, "ax", "sensors")
     accel_y_m_s2 = require_callback_float(sensors, "ay", "sensors")
@@ -636,6 +683,25 @@ def environment_temperature_at_asl_m(altitude_asl_m):
         ) from exc
 
 
+def environment_gravity_at_asl_m(altitude_asl_m):
+    """Return RocketPy/Environment gravity magnitude at altitude ASL.
+
+    Environment.gravity is a positive magnitude; the physical gravity vector in
+    the inertial frame is therefore ``[0, 0, -g]``. For a stationary rocket on
+    the rail, the accelerometer measures the opposite support force
+    ``[0, 0, +g]``.
+    """
+    try:
+        gravity_model = env.gravity
+        if hasattr(gravity_model, "get_value_opt"):
+            return float(gravity_model.get_value_opt(altitude_asl_m))
+        return float(gravity_model(altitude_asl_m))
+    except Exception as exc:
+        raise RuntimeError(
+            f"RocketPy Environment.gravity failed at altitude_asl_m={altitude_asl_m!r}"
+        ) from exc
+
+
 def get_launch_site_conditions():
     elevation_m = require_environment_float("elevation")
 
@@ -645,8 +711,150 @@ def get_launch_site_conditions():
         "longitude": require_environment_float("longitude"),
         "pressure_pa": environment_pressure_at_asl_m(elevation_m),
         "temperature_k": environment_temperature_at_asl_m(elevation_m),
+        "gravity_m_s2": environment_gravity_at_asl_m(elevation_m),
     }
 
+
+# ----------------------------------------------------------------------
+# CALIBRATION ATTITUDE / ACCELEROMETER GEOMETRY
+# ----------------------------------------------------------------------
+# Shared frame/sensor transform helpers live in hil_utils.py.
+# Keep this tiny alias for old call sites/tests that may still import it.
+def _evaluate_numeric_config_value(value: Any) -> float:
+    """Backward-compatible scalar wrapper around the shared config resolver."""
+    return _numeric_config_scalar(value)
+
+
+def _accelerometer_sensor_to_body_matrix():
+    """Return the accelerometer mounting matrix: ``S_clean -> body``.
+
+    Prefer RocketPy's public pure geometry matrix when available. Do not use
+    ``_total_rotation_sensor_to_body`` directly as geometry because it may also
+    include cross-axis output mixing.
+    """
+    accel_sensor = selected_sensor_instances.get("Accelerometer")
+
+    if accel_sensor is not None and hasattr(accel_sensor, "rotation_sensor_to_body"):
+        return _matrix_like_to_numpy(accel_sensor.rotation_sensor_to_body)
+
+    # Fallback for RocketPy versions that only expose the private total matrix.
+    # In RocketPy source this is rotation_sensor_to_body @ cross_axis_matrix, so
+    # remove cross-axis mixing and keep only the geometric S_clean -> B mount.
+    if accel_sensor is not None and hasattr(accel_sensor, "_total_rotation_sensor_to_body"):
+        total_sensor_to_body = _matrix_like_to_numpy(
+            accel_sensor._total_rotation_sensor_to_body
+        )
+        return total_sensor_to_body @ np.linalg.inv(_accelerometer_cross_axis_matrix())
+
+    sensor_metadata = selected_sensor_metadata.get("Accelerometer", {})
+
+    effective_orientation_matrix = sensor_metadata.get(
+        "effective_orientation_matrix_sensor_to_body"
+    )
+    if effective_orientation_matrix is not None:
+        return _matrix_like_to_numpy(effective_orientation_matrix)
+
+    sensor_args = sensor_metadata.get("args", {})
+    orientation = sensor_args.get("orientation", [0.0, 0.0, 0.0])
+
+    orientation_array = _numeric_config_array(orientation)
+    if orientation_array.shape == (3, 3):
+        return orientation_array
+    if orientation_array.shape == (3,):
+        return _rocketpy_euler313_matrix(orientation_array)
+
+    raise ValueError(
+        "Accelerometer orientation must be 3 Euler angles or a 3x3 matrix"
+    )
+
+
+def _accelerometer_cross_axis_matrix():
+    """Return RocketPy-style cross-axis mixing: ``S_clean -> S_out``."""
+    sensor_metadata = selected_sensor_metadata.get("Accelerometer", {})
+    sensor_args = sensor_metadata.get("args", {})
+    return _utils_accelerometer_cross_axis_matrix(
+        sensor_args.get("cross_axis_sensitivity", 0.0)
+    )
+
+
+def _accelerometer_body_to_clean_sensor_matrix():
+    """Return the geometric projection: ``body -> S_clean``."""
+    return _utils_accelerometer_body_to_clean_sensor_matrix(
+        _accelerometer_sensor_to_body_matrix()
+    )
+
+
+def _accelerometer_body_to_sensor_output_matrix():
+    """Return the calibration transform: ``body -> S_clean -> S_out``.
+
+    The geometry step gives clean orthogonal sensor-axis components. Cross-axis
+    sensitivity is then applied as output-space mixing, matching the replay path
+    where that mixing is inverted before drawing orthogonal components.
+    """
+    return _utils_accelerometer_body_to_sensor_output_matrix(
+        _accelerometer_sensor_to_body_matrix(),
+        _accelerometer_cross_axis_matrix(),
+    )
+
+
+def _accelerometer_body_to_sensor_matrix():
+    """Backward-compatible alias for body -> sensor payload output."""
+    return _accelerometer_body_to_sensor_output_matrix()
+
+
+def _stationary_calibration_acceleration_sensor_frame(
+    *,
+    gravity_m_s2,
+    rail_inclination_deg,
+    rail_heading_deg,
+):
+    """Return stationary-pad accelerometer output and initial attitude.
+
+    The rocket is supported by the rail. The physical gravity vector points
+    down, but the accelerometer specific-force vector measured during static
+    calibration points up from earth to sky: ``[0, 0, +g]`` in inertial axes.
+
+    The calibration payload is produced through this explicit chain:
+
+        I(+Z support) -> B -> S_clean -> S_out
+    """
+    body_to_inertial = _rail_body_to_inertial_matrix(
+        rail_inclination_deg,
+        rail_heading_deg,
+    )
+    body_to_clean_sensor = _accelerometer_body_to_clean_sensor_matrix()
+    clean_sensor_to_output = _accelerometer_cross_axis_matrix()
+
+    specific_force_inertial = np.asarray([0.0, 0.0, gravity_m_s2], dtype=float)
+    specific_force_body = body_to_inertial.T @ specific_force_inertial  # I -> B
+    specific_force_sensor_clean = body_to_clean_sensor @ specific_force_body  # B -> S_clean
+    specific_force_sensor_output = clean_sensor_to_output @ specific_force_sensor_clean  # S_clean -> S_out
+
+    # Replay check: S_out -> S_clean -> B -> I.
+    reconstructed_inertial = (
+        body_to_inertial
+        @ _accelerometer_sensor_to_body_matrix()
+        @ np.linalg.inv(clean_sensor_to_output)
+        @ specific_force_sensor_output
+    )
+
+    if reconstructed_inertial[2] <= 0.0:
+        raise RuntimeError(
+            "Synthetic calibration accelerometer vector is not pointing upward in "
+            "the inertial frame. Check rail attitude and sensor orientation transforms."
+        )
+
+    e0, e1, e2, e3 = _rotation_matrix_to_rocketpy_quaternion(body_to_inertial)
+
+    return {
+        "sensor_output_m_s2": tuple(float(component) for component in specific_force_sensor_output),
+        "sensor_clean_m_s2": tuple(float(component) for component in specific_force_sensor_clean),
+        "body_m_s2": tuple(float(component) for component in specific_force_body),
+        "inertial_m_s2": tuple(float(component) for component in specific_force_inertial),
+        "reconstructed_inertial_m_s2": tuple(float(component) for component in reconstructed_inertial),
+        "attitude_quaternion": (e0, e1, e2, e3),
+        "body_to_inertial": body_to_inertial,
+    }
 
 
 # ----------------------------------------------------------------------
@@ -758,23 +966,81 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
     launch_site_latitude_deg = conditions["latitude"]
     launch_site_longitude_deg = conditions["longitude"]
     launch_site_elevation_m = conditions["elevation_m"]
+    launch_site_gravity_m_s2 = conditions["gravity_m_s2"]
 
-    # Stationary on the pad. The sign of the gravity axis may need to match the
-    # FC convention. Keep this single ideal value here, then pass it through the
-    # selected RocketPy accelerometer model below.
-    stationary_accel_x_m_s2 = 0.0
-    stationary_accel_y_m_s2 = 0.0
-    stationary_accel_z_m_s2 = -9.80665
+    flight_args = prepare_rocketpy_kwargs(require_config_section(cfg, "Flight"), CONFIG_DIR)
+    rail_inclination_deg = float(flight_args["inclination"])
+    rail_heading_deg = float(flight_args["heading"])
+
+    calibration_geometry = _stationary_calibration_acceleration_sensor_frame(
+        gravity_m_s2=launch_site_gravity_m_s2,
+        rail_inclination_deg=rail_inclination_deg,
+        rail_heading_deg=rail_heading_deg,
+    )
+
+    stationary_acceleration_sensor_output_m_s2 = calibration_geometry[
+        "sensor_output_m_s2"
+    ]
+    stationary_acceleration_sensor_clean_m_s2 = calibration_geometry[
+        "sensor_clean_m_s2"
+    ]
+    stationary_acceleration_body_m_s2 = calibration_geometry["body_m_s2"]
+    stationary_acceleration_inertial_m_s2 = calibration_geometry["inertial_m_s2"]
+    reconstructed_acceleration_inertial_m_s2 = calibration_geometry[
+        "reconstructed_inertial_m_s2"
+    ]
+    initial_attitude_quaternion = calibration_geometry["attitude_quaternion"]
+
+    (
+        stationary_accel_x_m_s2,
+        stationary_accel_y_m_s2,
+        stationary_accel_z_m_s2,
+    ) = stationary_acceleration_sensor_output_m_s2
+    initial_e0, initial_e1, initial_e2, initial_e3 = initial_attitude_quaternion
 
     print(
         "[CALIBRATION] Sending "
         f"up to {max_samples} stationary samples at {rate_hz} Hz "
         f"(pressure={launch_site_pressure_pa:.2f} Pa, "
         f"temperature={launch_site_temperature_k:.2f} K, "
+        f"g={launch_site_gravity_m_s2:.5f} m/s^2, "
         f"lat={launch_site_latitude_deg:.7f}, "
         f"lon={launch_site_longitude_deg:.7f}, "
         f"alt={launch_site_elevation_m:.2f} m, "
+        f"rail_inclination={rail_inclination_deg:.2f} deg, "
+        f"rail_heading={rail_heading_deg:.2f} deg, "
         f"sensor_profile={selected_sensor_profile_name})"
+    )
+    print(
+        "[CALIBRATION] ideal stationary accelerometer clean sensor components "
+        f"aS_clean=({stationary_acceleration_sensor_clean_m_s2[0]:.6f}, "
+        f"{stationary_acceleration_sensor_clean_m_s2[1]:.6f}, "
+        f"{stationary_acceleration_sensor_clean_m_s2[2]:.6f}) m/s^2 "
+        f"|a|={np.linalg.norm(stationary_acceleration_sensor_clean_m_s2):.6f} m/s^2"
+    )
+    print(
+        "[CALIBRATION] ideal stationary accelerometer payload output "
+        f"aS_out=({stationary_accel_x_m_s2:.6f}, "
+        f"{stationary_accel_y_m_s2:.6f}, "
+        f"{stationary_accel_z_m_s2:.6f}) m/s^2 "
+        f"|a|={np.linalg.norm(stationary_acceleration_sensor_output_m_s2):.6f} m/s^2"
+    )
+    print(
+        "[CALIBRATION] stationary specific force check "
+        f"body=({stationary_acceleration_body_m_s2[0]:.6f}, "
+        f"{stationary_acceleration_body_m_s2[1]:.6f}, "
+        f"{stationary_acceleration_body_m_s2[2]:.6f}) m/s^2, "
+        f"inertial=({stationary_acceleration_inertial_m_s2[0]:.6f}, "
+        f"{stationary_acceleration_inertial_m_s2[1]:.6f}, "
+        f"{stationary_acceleration_inertial_m_s2[2]:.6f}) m/s^2, "
+        f"replay_check=({reconstructed_acceleration_inertial_m_s2[0]:.6f}, "
+        f"{reconstructed_acceleration_inertial_m_s2[1]:.6f}, "
+        f"{reconstructed_acceleration_inertial_m_s2[2]:.6f}) m/s^2"
+    )
+    print(
+        "[CALIBRATION] synthetic rail attitude quaternion "
+        f"e=({initial_e0:.9f}, {initial_e1:.9f}, "
+        f"{initial_e2:.9f}, {initial_e3:.9f})"
     )
 
     sent_samples = 0
@@ -826,9 +1092,11 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
             altitude_m=launch_site_elevation_m,
 
             # Synthetic stationary truth state for pre-Flight calibration.
-            x=0.0, y=0.0, z=0.0,
+            # Use the same rail attitude used to create the synthetic
+            # accelerometer samples so the 3D replay is physically consistent.
+            x=0.0, y=0.0, z=launch_site_elevation_m,
             vx=0.0, vy=0.0, vz=0.0,
-            e0=1.0, e1=0.0, e2=0.0, e3=0.0,
+            e0=initial_e0, e1=initial_e1, e2=initial_e2, e3=initial_e3,
             omega1=0.0, omega2=0.0, omega3=0.0,
         )
 
@@ -955,7 +1223,9 @@ def build_capture_metadata():
             "Pre-flight calibration samples are sent before Flight(...) is created. "
             "Calibration accelerometer/barometer samples reuse the selected RocketPy "
             "sensor objects for noise, drift, bias and quantization. "
-            "The TCP link is closed locally at the end; no final FC reset is sent."
+            "The TCP link is closed locally at the end; no final FC reset is sent. "
+            "Reference frames: I(+X east,+Y north,+Z up), B(body,+Z nose), "
+            "S_clean(orthogonal sensor), S_out(payload after cross-axis mixing)."
         ),
     }
 

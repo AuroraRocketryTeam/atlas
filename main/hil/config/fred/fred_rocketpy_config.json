@@ -115,7 +115,9 @@
     "_profiles": {
       "clean": {
         "Accelerometer": {
-          "name": "Clean Accelerometer"
+          "name": "Clean Accelerometer",
+          "consider_gravity": true,
+          "orientation": [0, 0, 0]
         },
         "Barometer": {
           "name": "Clean Barometer"
