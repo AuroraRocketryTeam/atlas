@@ -38,11 +38,14 @@ from .rocket import (
 ```python
 from rocketpy.rocket.rocket_v2 import RocketV2   # modify this line
 ```
+- Modify the Accelerometer class in `rocketpy/sensors/accelerometer.py`. Patch the `measure()` method with the code present in the `accelerometer_patch.py`.
+
 Bugs:
 - [THIS HAS BEEN FIXED] ~~~change ```RocketPy/rocketpy/simulation/flight.py#L3746```, comment ```tmp_dict[time]._controllers += node._controllers``` (duplicated, adding twice the controllers).~~~
 - Controllers callback are called twice: 
   - [self.__process_sensors_and_controllers_at_current_node(node, phase)](https://github.com/RocketPy-Team/RocketPy/blob/cb15a393ee2d9430cc21c57c98768dc1890a198a/rocketpy/simulation/flight.py#L699-L700)
   - COMMENT THIS ONE OUT in `flight.py#L701`: [for controller in node._controllers:](https://github.com/RocketPy-Team/RocketPy/blob/cb15a393ee2d9430cc21c57c98768dc1890a198a/rocketpy/simulation/flight.py#L701)
+- `accelerometer.py` measure method was giving weird values. Instead of -1g+1g=0g, it was giving -1g-1g=-2g.
 
 ### 4. Install RocketPy from source
 ```bash

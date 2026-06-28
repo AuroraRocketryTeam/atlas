@@ -863,14 +863,14 @@ def _stationary_calibration_acceleration_sensor_frame(
 def _apply_scalar_sensor_pipeline(sensor, value):
     """
     Apply the same scalar sensor post-processing used by RocketPy sensors:
-    temperature drift -> noise/random walk/bias -> quantization.
+    noise/random walk/bias -> temperature drift -> quantization.
 
     This intentionally calls the sensor object's own methods instead of
     duplicating the noise model in HIL code.
     """
     value = float(value)
-    value = sensor.apply_temperature_drift(value)
     value = sensor.apply_noise(value)
+    value = sensor.apply_temperature_drift(value)
     value = sensor.quantize(value)
     return float(value)
 
