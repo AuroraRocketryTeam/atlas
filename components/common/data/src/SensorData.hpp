@@ -20,8 +20,7 @@ public:
      * @param sensorName Name of the sensor.
      */
     SensorData(const char* name) {
-        std::strncpy(sensorName, name, sizeof(sensorName) - 1);
-        sensorName[sizeof(sensorName) - 1] = '\0';
+        std::snprintf(sensorName, sizeof(sensorName), "%s", name);
     }
 
     /**

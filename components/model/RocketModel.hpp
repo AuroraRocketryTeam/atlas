@@ -261,6 +261,13 @@ public:
     float getHeightGainSpeed();
 
     /**
+     * @brief Set the current estimated velocity
+     *
+     * @param heightGainSpeed The current estimated velocity
+     */
+    void setHeightGainSpeed(float heightGainSpeed);
+
+    /**
      * @brief Get the Current Estimated Height
      *
      * @return current estimated height
