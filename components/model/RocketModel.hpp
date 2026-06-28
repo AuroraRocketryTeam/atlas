@@ -22,7 +22,7 @@
 enum class SensorReadStatus {
     OK,
     MUTEX_TIMEOUT,
-    SENSOR_ERROR,   // Sensor is present but the last update() failed
+    NO_DATA,   // Sensor is present but the last update() failed or was never called
     NOT_PRESENT     // Sensor pointer is null (and we aren't injecting HIL data)
 };
 

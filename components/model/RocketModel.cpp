@@ -165,7 +165,16 @@ bool RocketModel::updateBNO055() {
 
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (result) {
-            _bnoData = _bno->getData();    
+            // print all fields of IMUData for debugging
+            IMUData data = _bno->getData();
+            LOG_DEBUG("RocketModel", "IMUData: Accel: (%.2f, %.2f, %.2f), Angular velocity: (%.2f, %.2f, %.2f), Mag: (%.2f, %.2f, %.2f), Orientation: (%.2f, %.2f, %.2f), Temp: %.2f, Calib: (Sys: %d, Gyro: %d, Accel: %d, Mag: %d)",
+                      data.acceleration_x, data.acceleration_y, data.acceleration_z,
+                      data.angular_velocity_x, data.angular_velocity_y, data.angular_velocity_z,
+                      data.magnetometer_x, data.magnetometer_y, data.magnetometer_z,
+                      data.orientation_x, data.orientation_y, data.orientation_z,
+                      data.temperature,
+                      data.calibration_sys, data.calibration_gyro, data.calibration_accel, data.calibration_mag);
+            _bnoData = data  
         }
         _bnoDataValid = result;
         xSemaphoreGive(_imuMutex);
@@ -229,7 +238,7 @@ SensorReadStatus RocketModel::getBNO055Data(IMUData& data) {
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_bnoDataValid) {
             xSemaphoreGive(_imuMutex);
-            return SensorReadStatus::SENSOR_ERROR;
+            return SensorReadStatus::NO_DATA;
         }
         data = _bnoData;
         xSemaphoreGive(_imuMutex);
@@ -246,7 +255,7 @@ SensorReadStatus RocketModel::getLIS3DHTRData(AccelerometerSensorData& data) {
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_lis3dhDataValid) {
             xSemaphoreGive(_imuMutex);
-            return SensorReadStatus::SENSOR_ERROR;
+            return SensorReadStatus::NO_DATA;
         }
         data = _lis3dhData;
         xSemaphoreGive(_imuMutex);
@@ -263,7 +272,7 @@ SensorReadStatus RocketModel::getMS561101BA03Data_1(PressureSensorData& data) {
     if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_ms561101ba03Data_1_Valid) {
             xSemaphoreGive(_baro1Mutex);
-            return SensorReadStatus::SENSOR_ERROR;
+            return SensorReadStatus::NO_DATA;
         }
         data = _ms561101ba03Data_1;
         xSemaphoreGive(_baro1Mutex);
@@ -280,7 +289,7 @@ SensorReadStatus RocketModel::getMS561101BA03Data_2(PressureSensorData& data) {
     if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_ms561101ba03Data_2_Valid) {
             xSemaphoreGive(_baro2Mutex);
-            return SensorReadStatus::SENSOR_ERROR;
+            return SensorReadStatus::NO_DATA;
         }
         data = _ms561101ba03Data_2;
         xSemaphoreGive(_baro2Mutex);
@@ -297,7 +306,7 @@ SensorReadStatus RocketModel::getGPSData(GPSData& data) {
     if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_gpsDataValid) {
             xSemaphoreGive(_gpsMutex);
-            return SensorReadStatus::SENSOR_ERROR;
+            return SensorReadStatus::NO_DATA;
         }
         data = _gpsData;
         xSemaphoreGive(_gpsMutex);
