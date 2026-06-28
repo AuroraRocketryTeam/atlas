@@ -311,14 +311,15 @@ void RocketFSM::deployDrogue()
 
 void RocketFSM::deployApogeeRecovery()
 {
-    if constexpr (RECOVERY_MODE == RecoveryMode::MainOnly)
+    if constexpr (RECOVERY_MODE == RecoveryMode::OneParachuteMode)
     {
-        LOG_INFO("RocketFSM", "APOGEE recovery policy: MAIN_ONLY -> deploy MAIN");
+        LOG_INFO("RocketFSM", "APOGEE recovery policy: OneParachuteMode -> deploy MAIN (and DROGUE)");
         deployMain();
+        deployDrogue(); // the parachute is attached to both main-pin and drogue-pin. so for safety command both.
     }
-    else if constexpr (RECOVERY_MODE == RecoveryMode::DrogueAndMain)
+    else if constexpr (RECOVERY_MODE == RecoveryMode::TwoParachuteMode)
     {
-        LOG_INFO("RocketFSM", "APOGEE recovery policy: DROGUE_AND_MAIN -> deploy DROGUE");
+        LOG_INFO("RocketFSM", "APOGEE recovery policy: TwoParachuteMode -> deploy DROGUE");
         deployDrogue();
     }
 }
@@ -326,14 +327,14 @@ void RocketFSM::deployApogeeRecovery()
 
 void RocketFSM::deployStabilizationExitRecovery()
 {
-    if constexpr (RECOVERY_MODE == RecoveryMode::MainOnly)
+    if constexpr (RECOVERY_MODE == RecoveryMode::OneParachuteMode)
     {
-        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: MAIN_ONLY -> no deployment");
+        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: OneParachuteMode -> no deployment");
         return;
     }
-    else if constexpr (RECOVERY_MODE == RecoveryMode::DrogueAndMain)
+    else if constexpr (RECOVERY_MODE == RecoveryMode::TwoParachuteMode)
     {
-        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: DROGUE_AND_MAIN -> deploy MAIN");
+        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: TwoParachuteMode -> deploy MAIN");
         deployMain();
     }
 }

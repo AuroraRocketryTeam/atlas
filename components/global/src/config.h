@@ -115,10 +115,10 @@ constexpr uint8_t RECEIVER_MAC_ADDRESS[] = { 0x34, 0xCD, 0xB0, 0x3D, 0x97, 0xFC 
 
 enum class RecoveryMode
 {
-    MainOnly,
-    DrogueAndMain,
+    OneParachuteMode,
+    TwoParachuteMode,
 };
-#define AURORA_RECOVERY_MODE RecoveryMode::MainOnly
+#define AURORA_RECOVERY_MODE RecoveryMode::OneParachuteMode
 
 // The firmware has been compiled with the support for HIL
 #if CONFIG_AURORA_HIL_SUPPORT
