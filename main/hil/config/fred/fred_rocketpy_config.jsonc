@@ -157,8 +157,11 @@
   },
   "Sensors": {
     "_default_position": 0,
+
     "_profiles": {
       "clean": {
+        // Ideal profile: no explicit noise/bias/resolution values.
+        // Useful as a baseline and for HIL debugging.
         "Accelerometer": {
           "name": "Clean Accelerometer",
           "consider_gravity": true,
@@ -171,59 +174,104 @@
           "name": "Clean GPS"
         }
       },
+
       "noisy": {
         "_inherits": "clean",
+
         "Accelerometer": {
           "name": "Noisy Accelerometer",
-          "measurement_range": 100,
-          "resolution": 0.01,
-          "noise_density": 0.04,
-          "random_walk_density": 0.004,
-          "constant_bias": 0.05,
+
+          // About ±16 g.
+          "measurement_range": 160.0,
+
+          // Quantization step in m/s².
+          "resolution": 0.005,
+
+          // RocketPy accelerometer noise units are m/s²/√Hz.
+          "noise_density": 0.18,
+
+          // Keep variance fixed across profiles; scale noise with noise_density.
+          "noise_variance": 1.0,
+
+          // Bias random walk in m/s²/√Hz.
+          "random_walk_density": 0.02,
+          "random_walk_variance": 1.0,
+
+          // Constant additive acceleration bias in m/s².
+          "constant_bias": 0.35,
+
+          // Temperature values are in Kelvin, not Celsius.
+          "operating_temperature": 298.15,
+
+          // Temperature drift model: bias in m/s²/K, scale factor in %/K.
           "temperature_bias": 0.002,
-          "operating_temperature": 25,
-          "cross_axis_sensitivity": 0.005
+          "temperature_scale_factor": 0.003,
+
+          // RocketPy interprets this as percent. 0.3 means 0.3%.
+          "cross_axis_sensitivity": 0.3
         },
+
         "Barometer": {
           "name": "Noisy Barometer",
+
+          // Pressure range in Pa.
           "measurement_range": 200000,
+
+          // Quantization step in Pa.
           "resolution": 0.1,
-          "noise_density": 1.5,
-          "noise_variance": 2.25,
-          "random_walk_density": 0.005,
-          "constant_bias": 1.0,
-          "operating_temperature": 25,
-          "temperature_bias": 0.01,
-          "temperature_scale_factor": 0.005
+
+          // RocketPy barometer noise units are Pa/√Hz.
+          "noise_density": 6.0,
+          "noise_variance": 1.0,
+
+          // Slow pressure drift in Pa/√Hz.
+          "random_walk_density": 0.35,
+          "random_walk_variance": 1.0,
+
+          // Constant pressure bias in Pa.
+          "constant_bias": 8.0,
+
+          "operating_temperature": 298.15,
+
+          // Temperature drift model: bias in Pa/K, scale factor in %/K.
+          "temperature_bias": 0.08,
+          "temperature_scale_factor": 0.003
         },
+
         "GnssReceiver": {
           "name": "Noisy GPS",
-          "position_accuracy": 1.5,
-          "altitude_accuracy": 2.5
+
+          // Standard deviation-like accuracy values in meters.
+          "position_accuracy": 2.0,
+          "altitude_accuracy": 3.0
         }
       },
+
       "very_noisy": {
         "_inherits": "noisy",
-        "Accelerometer": {
-          "name": "Very Noisy Accelerometer",
-          "noise_density": 0.2,
-          "random_walk_density": 0.02,
-          "constant_bias": 0.25,
-          "temperature_bias": 0.01,
-          "cross_axis_sensitivity": 0.02
-        },
+
+       "Accelerometer": {
+        "name": "Very Noisy Accelerometer",
+        "noise_density": 0.35,
+        "random_walk_density": 0.05,
+        "constant_bias": 0.75,
+
+        // Slightly worse thermal and cross-axis behavior.
+        "temperature_bias": 0.006,
+        "cross_axis_sensitivity": 1.0
+      },
+
         "Barometer": {
           "name": "Very Noisy Barometer",
-          "noise_density": 8.0,
-          "noise_variance": 64.0,
-          "random_walk_density": 0.02,
-          "constant_bias": 5.0,
-          "temperature_bias": 0.05
+          "noise_density": 25.0,
+          "random_walk_density": 1.5,
+          "constant_bias": 25.0
         },
+
         "GnssReceiver": {
           "name": "Very Noisy GPS",
-          "position_accuracy": 5.0,
-          "altitude_accuracy": 8.0
+          "position_accuracy": 4.0,
+          "altitude_accuracy": 4.0
         }
       }
     }
