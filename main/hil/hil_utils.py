@@ -24,7 +24,6 @@ creating RocketPy inertial sensors. Matrix orientations are forwarded unchanged.
 
 from __future__ import annotations
 
-import copy
 import math
 from typing import Any
 
@@ -36,32 +35,11 @@ import numpy as np
 # ----------------------------------------------------------------------
 
 def numeric_array(value: Any) -> np.ndarray:
-    """Convert config/capture numeric values to a numpy array.
-
-    Normal HIL configs are already resolved by ``hil_config.load_hil_config``.
-    The lazy fallback keeps old captures/config fragments readable when they
-    still contain formula strings such as ``"= pi/3"``.
-    """
+    """Convert resolved config/capture numeric values to a numpy array."""
     try:
         return np.asarray(value, dtype=float)
     except (TypeError, ValueError) as exc:
-        try:
-            from hil_config import resolve_numeric_formulas
-        except ImportError as import_exc:
-            raise ValueError(
-                "Value contains non-numeric entries and hil_config.py is not "
-                "importable to resolve formula strings."
-            ) from import_exc
-
-        try:
-            resolved = resolve_numeric_formulas({"value": copy.deepcopy(value)})[
-                "value"
-            ]
-            return np.asarray(resolved, dtype=float)
-        except Exception as resolved_exc:
-            raise ValueError(
-                f"Could not convert value to a numeric array: {value!r}"
-            ) from resolved_exc
+        raise ValueError(f"Could not convert value to a numeric array: {value!r}") from exc
 
 
 def numeric_scalar(value: Any) -> float:
@@ -229,16 +207,6 @@ def rocketpy_euler313_matrix(orientation_rad: Any) -> np.ndarray:
     return rocketpy_body_to_inertial_matrix(e0, e1, e2, e3)
 
 
-def rocketpy_euler313_matrix_legacy_degrees_bug(orientation_rad: Any) -> np.ndarray:
-    """Return the old accidental interpretation of radian values as degrees.
-
-    This is used only as a replay compatibility fallback for old captures that
-    were generated before HIL converted radian Euler vectors to explicit RocketPy
-    matrices. New captures should not use this path.
-    """
-    return rocketpy_euler313_matrix(np.deg2rad(numeric_array(orientation_rad)))
-
-
 def matrix_like_to_numpy_3x3(matrix_like: Any) -> np.ndarray:
     """Convert RocketPy Matrix/list-like objects to a 3x3 numpy array."""
     for attribute_name in ("components", "matrix", "data", "_components"):
@@ -318,36 +286,18 @@ def accelerometer_sensor_to_body_from_metadata(
 ) -> np.ndarray:
     """Return accelerometer mounting from capture metadata: ``S_clean -> B``."""
     if not metadata:
-        return np.eye(3)
+        raise ValueError("Capture metadata is required for accelerometer orientation")
 
-    sensor_metadata = metadata.get("sensors", {}).get("Accelerometer", {})
+    sensor_metadata = metadata["sensors"]["Accelerometer"]
 
-    # New captures store the exact matrix that was passed to RocketPy.
     effective = sensor_metadata.get("effective_orientation_matrix_sensor_to_body")
-    if effective is not None:
-        return matrix_like_to_numpy_3x3(effective)
+    if effective is None:
+        raise KeyError(
+            "Missing Accelerometer.effective_orientation_matrix_sensor_to_body "
+            "in capture metadata"
+        )
 
-    sensor_args = sensor_metadata.get("args", {})
-    orientation = sensor_args.get("orientation", [0.0, 0.0, 0.0])
-    return accelerometer_sensor_to_body_from_orientation(orientation)
-
-
-def accelerometer_sensor_to_body_from_metadata_legacy_degrees_bug(
-    metadata: dict[str, Any] | None,
-) -> np.ndarray | None:
-    """Return old accidental rad-as-deg metadata interpretation, if possible."""
-    if not metadata:
-        return None
-
-    sensor_metadata = metadata.get("sensors", {}).get("Accelerometer", {})
-    sensor_args = sensor_metadata.get("args", {})
-    orientation = sensor_args.get("orientation", [0.0, 0.0, 0.0])
-    orientation_array = numeric_array(orientation)
-
-    if orientation_array.shape != (3,):
-        return None
-
-    return rocketpy_euler313_matrix_legacy_degrees_bug(orientation_array)
+    return matrix_like_to_numpy_3x3(effective)
 
 
 def accelerometer_cross_axis_matrix(cross_axis_sensitivity: Any = 0.0) -> np.ndarray:
@@ -365,10 +315,9 @@ def accelerometer_cross_axis_matrix_from_metadata(
 ) -> np.ndarray:
     """Return capture metadata cross-axis mixing: ``S_clean -> S_out``."""
     if not metadata:
-        return np.eye(3)
+        raise ValueError("Capture metadata is required for accelerometer cross-axis")
 
-    sensor_metadata = metadata.get("sensors", {}).get("Accelerometer", {})
-    sensor_args = sensor_metadata.get("args", {})
+    sensor_args = metadata["sensors"]["Accelerometer"]["args"]
     return accelerometer_cross_axis_matrix(
         sensor_args.get("cross_axis_sensitivity", 0.0)
     )

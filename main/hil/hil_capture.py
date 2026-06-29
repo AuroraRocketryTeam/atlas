@@ -55,7 +55,6 @@ from matplotlib.animation import FuncAnimation
 from hil_utils import (
     accelerometer_output_to_clean_sensor_matrix_from_metadata as _accelerometer_output_to_clean_sensor_matrix,
     accelerometer_sensor_to_body_from_metadata as _accelerometer_sensor_to_body_matrix,
-    accelerometer_sensor_to_body_from_metadata_legacy_degrees_bug as _accelerometer_sensor_to_body_matrix_legacy_degrees_bug,
     rocketpy_body_to_inertial_matrix as _rocketpy_body_to_inertial_matrix,
 )
 
@@ -174,12 +173,18 @@ def load_hil_capture(
     with filename.open("r", encoding="utf-8") as f:
         capture = json.load(f)
 
-    if "hil_log" not in capture:
-        raise ValueError(f"Invalid capture file: missing 'hil_log': {filename}")
+    required_capture_keys = ("metadata", "hil_log", "hil_events")
+    missing_capture_keys = [
+        key for key in required_capture_keys if key not in capture
+    ]
+    if missing_capture_keys:
+        raise ValueError(
+            f"Invalid capture file: missing keys {missing_capture_keys}: {filename}"
+        )
 
     hil_log = capture["hil_log"]
-    hil_events = capture.get("hil_events", {})
-    metadata = capture.get("metadata", {})
+    hil_events = capture["hil_events"]
+    metadata = capture["metadata"]
 
     print(f"[LOAD] HIL capture loaded from: {filename}")
 
@@ -201,17 +206,6 @@ def _as_array(log: dict[str, list[Any]], key: str) -> np.ndarray:
         raise KeyError(f"Missing key in hil_log: {key}")
 
     return np.asarray(log[key], dtype=float)
-
-
-def _as_optional_array(log: dict[str, list[Any]], key: str, length: int) -> np.ndarray:
-    if key not in log:
-        return np.full(length, np.nan, dtype=float)
-
-    arr = np.asarray(log[key], dtype=float)
-    if len(arr) != length:
-        return np.full(length, np.nan, dtype=float)
-
-    return arr
 
 
 def _lat_lon_to_local_meters(
@@ -265,7 +259,7 @@ def _sanitize_airbrake_events(raw_events: Any) -> list[tuple[float, float]]:
     out: list[tuple[float, float]] = []
 
     for item in raw_events:
-        if isinstance(item, (list, tuple)) and len(item) >= 2:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
             try:
                 out.append((float(item[0]), float(item[1])))
             except (TypeError, ValueError):
@@ -275,29 +269,17 @@ def _sanitize_airbrake_events(raw_events: Any) -> list[tuple[float, float]]:
 
 
 def _sanitize_fsm_events(raw_events: Any) -> list[tuple[float, str]]:
-    """
-    Accept current and likely historical FSM event formats:
-
-      - [(time, "STATE"), ...]
-      - [[time, "STATE"], ...]
-      - [{"time": t, "state": "STATE"}, ...]
-      - [{"t": t, "name": "STATE"}, ...]
-    """
+    """Normalize current FSM event entries: ``[time, state_name]``."""
     if raw_events is None:
         return []
 
     out: list[tuple[float, str]] = []
 
     for item in raw_events:
-        event_t: Any = None
-        state: Any = None
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            continue
 
-        if isinstance(item, dict):
-            event_t = item.get("time", item.get("t", item.get("sim_time")))
-            state = item.get("state", item.get("name", item.get("fsm_state")))
-        elif isinstance(item, (list, tuple)) and len(item) >= 2:
-            event_t = item[0]
-            state = item[1]
+        event_t, state = item
 
         try:
             event_t_f = float(event_t)
@@ -325,10 +307,6 @@ def _event_marker_for_state(state: str) -> str:
     if order is None:
         order = abs(hash(state))
     return FSM_STATE_MARKERS[order % len(FSM_STATE_MARKERS)]
-
-
-# Shared frame/sensor transform helpers live in hil_utils.py and are imported
-# above with the historical local names used by the plotting code.
 
 def _active_fsm_state(
     sim_time_s: float,
@@ -666,26 +644,6 @@ def replay_hil_3d(
         rotations[0] @ accelerometer_sensor_to_body @ first_accel_sensor_clean
     )
 
-    # Compatibility for captures generated before HIL converted radian Euler
-    # orientations to explicit RocketPy matrices. Those old captures may contain
-    # samples produced with RocketPy's accidental rad-as-deg interpretation, while
-    # the metadata still stores radian angles. Prefer the new radian convention,
-    # but use the legacy matrix only when it is the one that reconstructs the
-    # stationary calibration vector upward.
-    legacy_orientation_used = False
-    if first_accel_inertial[2] < 0.0:
-        legacy_sensor_to_body = _accelerometer_sensor_to_body_matrix_legacy_degrees_bug(
-            metadata
-        )
-        if legacy_sensor_to_body is not None:
-            legacy_first_accel_inertial = (
-                rotations[0] @ legacy_sensor_to_body @ first_accel_sensor_clean
-            )
-            if legacy_first_accel_inertial[2] > 0.0:
-                accelerometer_sensor_to_body = legacy_sensor_to_body
-                first_accel_inertial = legacy_first_accel_inertial
-                legacy_orientation_used = True
-
     print(
         "[REPLAY] first accel clean sensor = "
         f"({first_accel_sensor_clean[0] / G0:.3f}, "
@@ -696,12 +654,7 @@ def replay_hil_3d(
         f"{first_accel_inertial[1] / G0:.3f}, "
         f"{first_accel_inertial[2] / G0:.3f}) g"
     )
-    if legacy_orientation_used:
-        print(
-            "[REPLAY COMPAT] using legacy rad-as-deg orientation interpretation "
-            "for this old capture. New captures store/use radians consistently."
-        )
-    elif first_accel_inertial[2] < 0.0:
+    if first_accel_inertial[2] < 0.0:
         print(
             "[REPLAY WARNING] first reconstructed accelerometer vector points "
             "down in inertial Z. For stationary calibration it should point "
@@ -1375,7 +1328,7 @@ def plot_hil_log(
     accel_y_m_s2 = _as_array(hil_log, "accel_y_m_s2")
     accel_z_m_s2 = _as_array(hil_log, "accel_z_m_s2")
     pressure_pa = _as_array(hil_log, "pressure_pa")
-    temperature_k = _as_optional_array(hil_log, "temperature_k", len(sim_time_s))
+    temperature_k = _as_array(hil_log, "temperature_k")
     latitude_deg = _as_array(hil_log, "latitude_deg")
     longitude_deg = _as_array(hil_log, "longitude_deg")
     altitude_m = _as_array(hil_log, "altitude_m")
@@ -1528,20 +1481,19 @@ def plot_hil_log(
     fig_accel.tight_layout()
 
     # ------------------------------------------------------------------
-    # Optional temperature payload
+    # Temperature payload
     # ------------------------------------------------------------------
-    if not np.all(np.isnan(temperature_k)):
-        fig_temp, ax_temp = plt.subplots(figsize=(12, 4))
-        ax_temp.plot(sim_time_s, temperature_k, label="temperature [K]")
-        _mark_event_lines(ax_temp, drogue_times, "OPEN_DROGUE")
-        _mark_event_lines(ax_temp, main_times, "OPEN_MAIN")
-        _mark_fsm_event_lines(ax_temp, fsm_events)
-        ax_temp.set_title("Temperature Payload Sent to FC")
-        ax_temp.set_xlabel("Simulation time [s]")
-        ax_temp.set_ylabel("Temperature [K]")
-        ax_temp.grid(True)
-        _set_legend_if_needed(ax_temp)
-        fig_temp.tight_layout()
+    fig_temp, ax_temp = plt.subplots(figsize=(12, 4))
+    ax_temp.plot(sim_time_s, temperature_k, label="temperature [K]")
+    _mark_event_lines(ax_temp, drogue_times, "OPEN_DROGUE")
+    _mark_event_lines(ax_temp, main_times, "OPEN_MAIN")
+    _mark_fsm_event_lines(ax_temp, fsm_events)
+    ax_temp.set_title("Temperature Payload Sent to FC")
+    ax_temp.set_xlabel("Simulation time [s]")
+    ax_temp.set_ylabel("Temperature [K]")
+    ax_temp.grid(True)
+    _set_legend_if_needed(ax_temp)
+    fig_temp.tight_layout()
 
     # ------------------------------------------------------------------
     # FSM state timeline
