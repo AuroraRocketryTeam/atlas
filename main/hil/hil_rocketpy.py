@@ -1,28 +1,22 @@
-"""RocketPy -> ESP32 HIL launcher.
+"""Run a RocketPy hardware-in-the-loop flight simulation.
 
-Reference-frame convention used by this file:
-
-    I -> B -> S_clean -> S_out
-
-where I is RocketPy inertial (+X east, +Y north, +Z up), B is the RocketPy
-body frame, S_clean is the ideal orthogonal accelerometer frame, and S_out is
-the payload frame after accelerometer cross-axis mixing. During replay the
-inverse path is used: S_out -> S_clean -> B -> I.
+This launcher loads a rocket HIL config, builds the RocketPy environment,
+rocket, sensors, and callbacks, streams calibration and flight sensor packets
+to the flight controller over TCP, accepts controller commands for actuators,
+and saves a replayable HIL capture at the end of the run.
 """
 
 import argparse
 import copy
+import math
 import threading
 from pathlib import Path
-from typing import Any
-
 import numpy as np
 
 from rocketpy import Environment, Flight, SolidMotor, RocketV2
 from rocketpy import Accelerometer
 from rocketpy import Barometer
 from rocketpy import GnssReceiver
-
 
 import hil_communication
 from hil_config import (
@@ -34,11 +28,9 @@ from hil_config import (
 )
 from hil_utils import (
     accelerometer_body_to_clean_sensor_matrix as _utils_accelerometer_body_to_clean_sensor_matrix,
-    accelerometer_body_to_sensor_output_matrix as _utils_accelerometer_body_to_sensor_output_matrix,
     accelerometer_cross_axis_matrix as _utils_accelerometer_cross_axis_matrix,
     matrix_like_to_numpy_3x3 as _matrix_like_to_numpy,
     numeric_array as _numeric_config_array,
-    numeric_scalar as _numeric_config_scalar,
     rail_body_to_inertial_matrix as _rail_body_to_inertial_matrix,
     rocketpy_constructor_orientation_from_config as _rocketpy_constructor_orientation_from_config,
     rocketpy_euler313_matrix as _rocketpy_euler313_matrix,
@@ -70,7 +62,7 @@ command_state = CommandState()
 
 
 # ----------------------------------------------------------------------
-# HIL DATA RECORDER
+# PREPARE SHARED STATE AND DATA RECORDERS
 # ----------------------------------------------------------------------
 hil_events = {
     "open_drogue": [],
@@ -112,7 +104,7 @@ hil_log = {
 
 
 # ----------------------------------------------------------------------
-# BASE PATH + CLI
+# LOAD CLI ARGUMENTS AND ROCKET CONFIGURATION
 # ----------------------------------------------------------------------
 try:
     BASE_DIR = Path(__file__).resolve().parent
@@ -199,7 +191,7 @@ cfg = load_hil_config(CONFIG_PATH)
 
 
 # ----------------------------------------------------------------------
-# ENVIRONMENT
+# BUILD ROCKETPY ENVIRONMENT
 # ----------------------------------------------------------------------
 environment_cfg = require_config_section(cfg, "Environment")
 
@@ -267,7 +259,7 @@ print("Environment... READY")
 
 
 # ----------------------------------------------------------------------
-# PARACHUTE LOGIC
+# DEFINE CONTROLLER-DRIVEN ACTUATOR CALLBACKS
 # ----------------------------------------------------------------------
 def simulator_check_drogue_opening(pressure, height, state_vector):
     with command_state.lock:
@@ -294,7 +286,7 @@ print("Motor... READY")
 
 
 # ----------------------------------------------------------------------
-# ROCKET
+# ROCKET STRUCTURE
 # ----------------------------------------------------------------------
 rocket = RocketV2(**prepare_rocketpy_kwargs(require_config_section(cfg, "RocketV2"), CONFIG_DIR))
 
@@ -389,7 +381,7 @@ for prepared_sensor in prepared_sensor_configs:
 print(f"Sensors... READY ({selected_sensor_profile_name})")
 
 # ----------------------------------------------------------------------
-# STATE LOGGER + COMMUNICATION WITH FLIGHT CONTROLLER
+# COMMAND HANDLERS AND TELEMETRY STREAMING
 # ----------------------------------------------------------------------
 def on_open_main(command_sim_time_s):
     with command_state.lock:
@@ -568,9 +560,7 @@ def enqueue_data(rocketpy_time_s, state, sensors):
             f"rocketpy_time={rocketpy_time_s:.6f}s | seq={seq}"
         )
 
-    # ------------------------------------------------------------------
     # Extract RocketPy truth state: inertial position/velocity + body attitude.
-    # ------------------------------------------------------------------
     x = require_callback_float(state, "x", "state")
     y = require_callback_float(state, "y", "state")
     z = require_callback_float(state, "z", "state")
@@ -588,9 +578,7 @@ def enqueue_data(rocketpy_time_s, state, sensors):
     omega2 = require_callback_float(state, "omega2", "state")
     omega3 = require_callback_float(state, "omega3", "state")
 
-    # ------------------------------------------------------------------
     # Extract sensor payload sent to the FC. Accelerometer is already S_out.
-    # ------------------------------------------------------------------
     accel_x_m_s2 = require_callback_float(sensors, "ax", "sensors")
     accel_y_m_s2 = require_callback_float(sensors, "ay", "sensors")
     accel_z_m_s2 = require_callback_float(sensors, "az", "sensors")
@@ -607,9 +595,7 @@ def enqueue_data(rocketpy_time_s, state, sensors):
     else:
         temperature_k = environment_temperature_at_asl_m(altitude_m)
 
-    # ------------------------------------------------------------------
     # Build and send the payload to the FC
-    # ------------------------------------------------------------------
     payload = hil_communication.build_sim_input_payload(
         sequence_number=seq,
         hil_sim_time_s=hil_sim_time_s,
@@ -624,9 +610,7 @@ def enqueue_data(rocketpy_time_s, state, sensors):
     )
     mailbox.put(payload)
 
-    # ------------------------------------------------------------------
     # Log only packets that were actually queued
-    # ------------------------------------------------------------------
     append_hil_log_sample(
         seq_value=seq, hil_sim_time_s=hil_sim_time_s,
         accel_x_m_s2=accel_x_m_s2,
@@ -719,32 +703,16 @@ def get_launch_site_conditions():
 # CALIBRATION ATTITUDE / ACCELEROMETER GEOMETRY
 # ----------------------------------------------------------------------
 # Shared frame/sensor transform helpers live in hil_utils.py.
-# Keep this tiny alias for old call sites/tests that may still import it.
-def _evaluate_numeric_config_value(value: Any) -> float:
-    """Backward-compatible scalar wrapper around the shared config resolver."""
-    return _numeric_config_scalar(value)
-
-
 def _accelerometer_sensor_to_body_matrix():
     """Return the accelerometer mounting matrix: ``S_clean -> body``.
 
-    Prefer RocketPy's public pure geometry matrix when available. Do not use
-    ``_total_rotation_sensor_to_body`` directly as geometry because it may also
-    include cross-axis output mixing.
+    Prefer RocketPy's public pure geometry matrix when available, otherwise use
+    the resolved orientation metadata stored when the sensor was constructed.
     """
     accel_sensor = selected_sensor_instances.get("Accelerometer")
 
     if accel_sensor is not None and hasattr(accel_sensor, "rotation_sensor_to_body"):
         return _matrix_like_to_numpy(accel_sensor.rotation_sensor_to_body)
-
-    # Fallback for RocketPy versions that only expose the private total matrix.
-    # In RocketPy source this is rotation_sensor_to_body @ cross_axis_matrix, so
-    # remove cross-axis mixing and keep only the geometric S_clean -> B mount.
-    if accel_sensor is not None and hasattr(accel_sensor, "_total_rotation_sensor_to_body"):
-        total_sensor_to_body = _matrix_like_to_numpy(
-            accel_sensor._total_rotation_sensor_to_body
-        )
-        return total_sensor_to_body @ np.linalg.inv(_accelerometer_cross_axis_matrix())
 
     sensor_metadata = selected_sensor_metadata.get("Accelerometer", {})
 
@@ -782,24 +750,6 @@ def _accelerometer_body_to_clean_sensor_matrix():
     return _utils_accelerometer_body_to_clean_sensor_matrix(
         _accelerometer_sensor_to_body_matrix()
     )
-
-
-def _accelerometer_body_to_sensor_output_matrix():
-    """Return the calibration transform: ``body -> S_clean -> S_out``.
-
-    The geometry step gives clean orthogonal sensor-axis components. Cross-axis
-    sensitivity is then applied as output-space mixing, matching the replay path
-    where that mixing is inverted before drawing orthogonal components.
-    """
-    return _utils_accelerometer_body_to_sensor_output_matrix(
-        _accelerometer_sensor_to_body_matrix(),
-        _accelerometer_cross_axis_matrix(),
-    )
-
-
-def _accelerometer_body_to_sensor_matrix():
-    """Backward-compatible alias for body -> sensor payload output."""
-    return _accelerometer_body_to_sensor_output_matrix()
 
 
 def _stationary_calibration_acceleration_sensor_frame(
@@ -892,16 +842,75 @@ def _apply_vector_sensor_pipeline(sensor, values):
     return float(value.x), float(value.y), float(value.z)
 
 
+def _offset_lat_lon(latitude_deg, longitude_deg, east_m, north_m):
+    """Convert local GNSS meter offsets into latitude/longitude coordinates.
+
+    RocketPy's GNSS receiver perturbs local east/north position in meters,
+    computes drift and bearing from that local vector, then projects the result
+    from the launch-site latitude/longitude over the configured earth radius.
+    """
+    earth_radius_m = float(env.earth_radius)
+
+    # Match RocketPy's local-vector convention: x is east, y is north. Bearing
+    # is clockwise from north and then used for the great-circle projection.
+    drift_m = (east_m**2 + north_m**2) ** 0.5
+    bearing_rad = 2 * math.pi - math.atan2(-east_m, north_m)
+
+    latitude_rad = math.radians(float(latitude_deg))
+    longitude_rad = math.radians(float(longitude_deg))
+    angular_distance = drift_m / earth_radius_m
+
+    offset_latitude_rad = math.asin(
+        math.sin(latitude_rad) * math.cos(angular_distance)
+        + math.cos(latitude_rad) * math.sin(angular_distance) * math.cos(bearing_rad)
+    )
+    offset_longitude_rad = longitude_rad + math.atan2(
+        math.sin(bearing_rad) * math.sin(angular_distance) * math.cos(latitude_rad),
+        math.cos(angular_distance)
+        - math.sin(latitude_rad) * math.sin(offset_latitude_rad),
+    )
+
+    offset_longitude_deg = (math.degrees(offset_longitude_rad) + 540.0) % 360.0 - 180.0
+
+    return math.degrees(offset_latitude_rad), offset_longitude_deg
+
+
+def _apply_gnss_sensor_pipeline(sensor, latitude_deg, longitude_deg, altitude_m):
+    """Apply RocketPy's GNSS accuracy model to stationary calibration data."""
+    # NOTE: Mirror RocketPy GnssReceiver.measure(): position_accuracy is applied to
+    # local east/north meter coordinates, altitude_accuracy is applied directly
+    # to altitude, then the noisy local horizontal vector is converted to GPS.
+    east_m = np.random.normal(0.0, sensor.position_accuracy)
+    north_m = np.random.normal(0.0, sensor.position_accuracy)
+    altitude_m = np.random.normal(float(altitude_m), sensor.altitude_accuracy)
+    latitude_deg, longitude_deg = _offset_lat_lon(
+        latitude_deg,
+        longitude_deg,
+        east_m,
+        north_m,
+    )
+
+    return latitude_deg, longitude_deg, altitude_m
+
+
 def _apply_calibration_sensor_models(
     accel_x_m_s2,
     accel_y_m_s2,
     accel_z_m_s2,
     pressure_pa,
     temperature_k,
+    latitude_deg,
+    longitude_deg,
+    altitude_m,
 ):
     """
     Pass manually generated stationary-pad calibration values through the same
     selected RocketPy sensor objects used during Flight(...).
+    
+    NOTE: We intentionally do not call ``sensor.measure()`` during preflight
+    calibration. Calibration runs before ``Flight(...)`` exists, and avoiding
+    ``measure()`` keeps this synthetic stream from mutating or conflicting with
+    the sensors state that RocketPy will use during the actual flight.
 
     Clean profile:
         the same methods are called, but the clean sensor configuration should
@@ -918,9 +927,10 @@ def _apply_calibration_sensor_models(
     try:
         accel_sensor = selected_sensor_instances["Accelerometer"]
         barometer_sensor = selected_sensor_instances["Barometer"]
+        gnss_sensor = selected_sensor_instances["GnssReceiver"]
     except KeyError as exc:
         raise KeyError(
-            "Calibration requires Accelerometer and Barometer sensor profiles"
+            "Calibration requires Accelerometer, Barometer, and GnssReceiver profiles"
         ) from exc
 
     accel_x_m_s2, accel_y_m_s2, accel_z_m_s2 = _apply_vector_sensor_pipeline(
@@ -929,6 +939,12 @@ def _apply_calibration_sensor_models(
     )
 
     pressure_pa = _apply_scalar_sensor_pipeline(barometer_sensor, pressure_pa)
+    latitude_deg, longitude_deg, altitude_m = _apply_gnss_sensor_pipeline(
+        gnss_sensor,
+        latitude_deg,
+        longitude_deg,
+        altitude_m,
+    )
 
     return (
         float(accel_x_m_s2),
@@ -936,6 +952,9 @@ def _apply_calibration_sensor_models(
         float(accel_z_m_s2),
         float(pressure_pa),
         float(temperature_k),
+        float(latitude_deg),
+        float(longitude_deg),
+        float(altitude_m),
     )
 
 
@@ -946,9 +965,9 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
     This lets the FC stay in CALIBRATING and fill its own calibration/filter
     buffers using the normal MSG_TYPE_SIM_INPUT path.
 
-    Calibration accelerometer and barometer values are passed through the same
-    RocketPy sensor objects configured for Flight(...), so clean/noisy behavior
-    comes from the selected Sensors profile and is not duplicated here.
+    Calibration accelerometer, barometer, and GPS values are passed through the
+    same RocketPy sensor objects configured for Flight(...), so clean/noisy
+    behavior comes from the selected Sensors profile and is not duplicated here.
     """
     global seq
     global PREFLIGHT_CALIBRATION_DURATION_S
@@ -1054,6 +1073,9 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
             sample_accel_z_m_s2,
             sample_pressure_pa,
             sample_temperature_k,
+            sample_latitude_deg,
+            sample_longitude_deg,
+            sample_altitude_m,
         ) = (
             _apply_calibration_sensor_models(
                 accel_x_m_s2=stationary_accel_x_m_s2,
@@ -1061,6 +1083,9 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
                 accel_z_m_s2=stationary_accel_z_m_s2,
                 pressure_pa=launch_site_pressure_pa,
                 temperature_k=launch_site_temperature_k,
+                latitude_deg=launch_site_latitude_deg,
+                longitude_deg=launch_site_longitude_deg,
+                altitude_m=launch_site_elevation_m,
             )
         )
 
@@ -1072,9 +1097,9 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
             az_m_s2=sample_accel_z_m_s2,
             pressure_pa=sample_pressure_pa,
             temperature_k=sample_temperature_k,
-            latitude_deg=launch_site_latitude_deg,
-            longitude_deg=launch_site_longitude_deg,
-            altitude_m=launch_site_elevation_m,
+            latitude_deg=sample_latitude_deg,
+            longitude_deg=sample_longitude_deg,
+            altitude_m=sample_altitude_m,
         )
         mailbox.put(payload)
         sent_samples += 1
@@ -1087,9 +1112,9 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
             accel_z_m_s2=sample_accel_z_m_s2,
             pressure_pa=sample_pressure_pa,
             temperature_k=sample_temperature_k,
-            latitude_deg=launch_site_latitude_deg,
-            longitude_deg=launch_site_longitude_deg,
-            altitude_m=launch_site_elevation_m,
+            latitude_deg=sample_latitude_deg,
+            longitude_deg=sample_longitude_deg,
+            altitude_m=sample_altitude_m,
 
             # Synthetic stationary truth state for pre-Flight calibration.
             # Use the same rail attitude used to create the synthetic
@@ -1113,7 +1138,10 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
                 f"p={sample_pressure_pa:.2f}Pa T={sample_temperature_k:.2f}K "
                 f"a=({sample_accel_x_m_s2:.3f},"
                 f"{sample_accel_y_m_s2:.3f},"
-                f"{sample_accel_z_m_s2:.3f})"
+                f"{sample_accel_z_m_s2:.3f}) "
+                f"gps=({sample_latitude_deg:.7f},"
+                f"{sample_longitude_deg:.7f},"
+                f"{sample_altitude_m:.2f})"
             )
 
         seq += 1
@@ -1148,9 +1176,11 @@ handlers_dict = {
 }
 handlers = hil_communication.CommandHandlers(**handlers_dict)
 
+# Connect RocketPy's state/sensor callback to the HIL packet queue.
 state_ctrl = rocket.add_state_and_sensors_logger(callback=enqueue_data, sampling_rate=sampling_rate)
 print("State Logger... READY")
 
+# Let FC commands set the RocketPy airbrake deployment level in real time.
 rocket.add_air_brakes(
     drag_coefficient_curve=airbrakes_drag_function,
     controller_function=airbrakes_controller,
@@ -1168,10 +1198,12 @@ th = hil_communication.tcp_client_thread_start(
     esp_reconnected,
 )
 
+# The simulation waits here until the flight controller TCP server is reachable.
 print("Wait for ESP connection...", end="")
 esp_connected.acquire()
 print("READY")
 
+# Optional startup reset gives the FC a clean state before calibration begins.
 if startup_reset_enabled:
     print("[RESET] Sending startup reset to flight controller...")
     command_state.reset()
@@ -1190,7 +1222,7 @@ else:
     print("[RESET] Startup reset skipped by CLI")
 
 # ----------------------------------------------------------------------
-# CAPTURE METADATA
+# BUILD CAPTURE METADATA
 # ----------------------------------------------------------------------
 def build_capture_metadata():
     flight_args = prepare_rocketpy_kwargs(require_config_section(cfg, "Flight"), CONFIG_DIR)
@@ -1233,7 +1265,7 @@ def build_capture_metadata():
 
 
 # ----------------------------------------------------------------------
-# RUN REAL-TIME SIMULATION
+# RUN CALIBRATION, FLIGHT, CLEANUP, AND CAPTURE OUTPUT
 # ----------------------------------------------------------------------
 capture_file = create_capture_file(BASE_DIR / "hil_captures")
 
