@@ -526,15 +526,21 @@ def _mark_fsm_points_3d(
         first = False
 
 
-def _set_legend_if_needed(ax) -> None:
+def _set_legend_if_needed(ax, **legend_kwargs):
     handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        # De-duplicate labels while preserving order.
-        unique: dict[str, Any] = {}
-        for handle, label in zip(handles, labels):
-            if label and label not in unique:
-                unique[label] = handle
-        ax.legend(unique.values(), unique.keys())
+    if not handles:
+        return None
+
+    # De-duplicate labels while preserving order.
+    unique: dict[str, Any] = {}
+    for handle, label in zip(handles, labels):
+        if label and label not in unique:
+            unique[label] = handle
+
+    if not unique:
+        return None
+
+    return ax.legend(unique.values(), unique.keys(), **legend_kwargs)
 
 
 # ----------------------------------------------------------------------
@@ -934,7 +940,7 @@ def replay_hil_3d(
     ax_accel.set_ylabel("Specific force [g]")
     ax_accel.set_xlim(sim_time_s[0], sim_time_s[-1])
     ax_accel.grid(True, alpha=0.35)
-    _set_legend_if_needed(ax_accel)
+    _set_legend_if_needed(ax_accel, fontsize=8, markerscale=0.8)
 
     # Barometer history. Pressure is shown in hPa for a more readable scale.
     ax_pressure.plot(
@@ -968,7 +974,7 @@ def replay_hil_3d(
     ax_pressure.set_ylabel("Pressure [hPa]")
     ax_pressure.set_xlim(sim_time_s[0], sim_time_s[-1])
     ax_pressure.grid(True, alpha=0.35)
-    _set_legend_if_needed(ax_pressure)
+    _set_legend_if_needed(ax_pressure, fontsize=8, markerscale=0.8)
 
     status_text = ax.text2D(
         0.02,
@@ -982,15 +988,13 @@ def replay_hil_3d(
     help_text = ax.text2D(
         0.02,
         0.02,
-        "Space: pause/resume    R: restart\n"
-        "Black 3D arrow: rocket nose / body +Z\n"
-        "Dashed axes: accelerometer sensor frame at the rocket/sensor origin\n"
-        "Magenta: S_out->S_clean->body->inertial specific-force vector\n"
-        "Dash-dot arrows: S_clean components on sensor axes\n"
-        "1 axis length = 1 g, capped at 2 g per vector/component",
+        "Space: pause/resume    R: restart    L: show/hide 3D legend\n"
+        "Black: rocket nose/body +Z    Dashed: accelerometer axes\n"
+        "Magenta: accel vector    Dash-dot: accel components",
         transform=ax.transAxes,
         va="bottom",
-        fontsize=9,
+        fontsize=8,
+        bbox={"facecolor": "white", "alpha": 0.65, "edgecolor": "none"},
     )
 
     ax.set_title("RocketPy HIL 3D Trajectory and Attitude Replay")
@@ -998,7 +1002,21 @@ def replay_hil_3d(
     ax.set_ylabel("Y north [m]")
     ax.set_zlabel("RocketPy inertial Z [m]")
     ax.view_init(elev=24, azim=-58)
-    _set_legend_if_needed(ax)
+    legend_3d = _set_legend_if_needed(
+        ax,
+        loc="upper left",
+        bbox_to_anchor=(0.01, 0.99),
+        fontsize=7,
+        markerscale=0.65,
+        framealpha=0.60,
+        borderpad=0.25,
+        labelspacing=0.25,
+        handlelength=1.2,
+        handletextpad=0.4,
+    )
+    if legend_3d is not None:
+        legend_3d.set_visible(False)
+
     fig.subplots_adjust(
         left=0.04,
         right=0.98,
@@ -1013,7 +1031,7 @@ def replay_hil_3d(
     )
     interval_ms = max(1.0, 1000.0 * mean_period_s / playback_speed)
 
-    animation_state = {"paused": False}
+    animation_state = {"paused": False, "legend_visible": False}
 
     def update(frame_index: int):
         position = np.asarray(
@@ -1306,6 +1324,10 @@ def replay_hil_3d(
             replay.frame_seq = replay.new_frame_seq()
             replay.event_source.start()
             animation_state["paused"] = False
+        elif key == "l" and legend_3d is not None:
+            animation_state["legend_visible"] = not animation_state["legend_visible"]
+            legend_3d.set_visible(animation_state["legend_visible"])
+            fig.canvas.draw_idle()
 
     fig.canvas.mpl_connect("key_press_event", on_key_press)
 
