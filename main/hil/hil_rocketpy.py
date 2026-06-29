@@ -156,7 +156,7 @@ parser.add_argument(
     "--calibration-samples",
     type=positive_int,
     default=500,
-    help="Number of stationary HIL samples to send before creating Flight. Default: 500.",
+    help="Maximum number of stationary HIL samples to send before creating Flight. Default: 500.",
 )
 parser.add_argument(
     "--calibration-rate",
@@ -190,7 +190,7 @@ startup_reset_enabled = not args.no_startup_reset
 startup_reset_timeout_s = args.startup_reset_timeout
 
 CONFIG_DIR = BASE_DIR / "config" / rocket_model
-CONFIG_PATH = CONFIG_DIR / f"{rocket_model}_rocketpy_config.json"
+CONFIG_PATH = CONFIG_DIR / f"{rocket_model}_rocketpy_config.jsonc"
 
 if not CONFIG_PATH.is_file():
     raise FileNotFoundError(f"Rocket config not found: {CONFIG_PATH}")

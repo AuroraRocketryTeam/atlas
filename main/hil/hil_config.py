@@ -4,6 +4,8 @@ This module owns the mechanical conversion from JSON to Python/RocketPy
 arguments. The launcher should not know about JSON quirks, path resolution,
 formula evaluation, or how clean/noisy sensor profiles are assembled.
 
+NOTE: JSONC is JSON with support for comments
+
 Configuration rules:
 - JSON sections named like RocketPy constructors/methods are forwarded with
   ``**kwargs`` after normalization.
@@ -25,7 +27,7 @@ from __future__ import annotations
 
 import ast
 import copy
-import json
+import jsonc
 import math
 import re
 from dataclasses import dataclass
@@ -129,7 +131,7 @@ class PreparedSensorConfig:
 def load_hil_config(config_path: Path) -> dict[str, Any]:
     """Load a HIL RocketPy JSON config and resolve numeric formulas."""
     with open(config_path, "r", encoding="utf-8") as config_file:
-        config = json.load(config_file)
+        config = jsonc.load(config_file)
 
     if not isinstance(config, dict):
         raise TypeError(f"HIL config root must be a JSON object: {config_path}")

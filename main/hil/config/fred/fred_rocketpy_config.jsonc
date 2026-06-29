@@ -3,36 +3,81 @@
     "latitude": 44.290583,
     "longitude": 12.027111,
     "elevation": 18,
+    "max_expected_height": 200,
     "_calls": [
+      //
+      // [ ISA ]: default, no set_atmospheric_model
       {
         "method": "set_date",
         "kwargs": {
           "date": [2025, 5, 9, 12]
         }
-      },
-      {
-        "method": "set_atmospheric_model",
-        "kwargs": {
-          "type": "Ensemble",
-          "file": "Villafranca_ensemble_5to11may2020to2026.nc",
-          "dictionary": {
-            "ensemble": "number",
-            "time": "valid_time",
-            "latitude": "latitude",
-            "longitude": "longitude",
-            "level": "pressure_level",
-            "temperature": "t",
-            "surface_geopotential_height": null,
-            "geopotential_height": null,
-            "geopotential": "z",
-            "u_wind": "u",
-            "v_wind": "v"
-          }
-        }
       }
+      //
+      // [ ENSEMBLE ]
+      // ,{
+      //   "method": "set_atmospheric_model",
+      //   "kwargs": {
+      //     "type": "Ensemble",
+      //     "file": "Villafranca_ensemble_5to11may2020to2026.nc",
+      //     "dictionary": {
+      //       "ensemble": "number",
+      //       "time": "valid_time",
+      //       "latitude": "latitude",
+      //       "longitude": "longitude",
+      //       "level": "pressure_level",
+      //       "temperature": "t",
+      //       "surface_geopotential_height": null,
+      //       "geopotential_height": null,
+      //       "geopotential": "z",
+      //       "u_wind": "u",
+      //       "v_wind": "v"
+      //     }
+      //   }
+      // }
+      //
+      //
+      // [ WINDY / GFS FORECAST ]
+      // ,{
+      //   "method": "set_atmospheric_model",
+      //   "kwargs": {
+      //     "type": "Windy",
+      //     "file": "GFS"
+      //   }
+      // },
+      //
+      //
+      // [ CUSTOM ATMOSPHERE ]
+      // ,{
+      //   "method": "set_atmospheric_model",
+      //   "kwargs": {
+      //     "type": "custom_atmosphere",
+      //     "_wind_magnitude_ground_m_s": 8.7,
+      //     "_wind_heading_deg": 315,
+      //     "_wind_u_ground": "= $_wind_magnitude_ground_m_s * sin(radians($_wind_heading_deg))",
+      //     "_wind_v_ground": "= $_wind_magnitude_ground_m_s * cos(radians($_wind_heading_deg))",
+      //     "wind_u": [
+      //       [0,   "= 1.00 * $_wind_u_ground"],
+      //       [50,  "= 1.05 * $_wind_u_ground"],
+      //       [100, "= 1.10 * $_wind_u_ground"],
+      //       [150, "= 1.15 * $_wind_u_ground"],
+      //       [200, "= 1.20 * $_wind_u_ground"],
+      //       [250, "= 1.25 * $_wind_u_ground"],
+      //       [300, "= 1.30 * $_wind_u_ground"]
+      //     ],
+      //     "wind_v": [
+      //       [0,   "= 1.00 * $_wind_v_ground"],
+      //       [50,  "= 1.05 * $_wind_v_ground"],
+      //       [100, "= 1.10 * $_wind_v_ground"],
+      //       [150, "= 1.15 * $_wind_v_ground"],
+      //       [200, "= 1.20 * $_wind_v_ground"],
+      //       [250, "= 1.25 * $_wind_v_ground"],
+      //       [300, "= 1.30 * $_wind_v_ground"]
+      //     ]
+      //   }
+      // }
     ]
   },
-  "max_expected_height": 4500,
   "SolidMotor": {
     "thrust_source": "SRAD_thrustcurve_BRICO_45_7mm.csv",
     "dry_mass": 0.7871568876139587,
