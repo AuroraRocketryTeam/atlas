@@ -3,22 +3,11 @@ hil_capture.py
 
 Utilities to save, load, and plot HIL captures produced by hil_rocketpy.py.
 
-Reference-frame convention used by the 3D replay:
-
-    S_out -> S_clean -> B -> I
-
-where S_out is the saved accelerometer payload after cross-axis mixing,
-S_clean is the ideal orthogonal sensor frame, B is the RocketPy body frame,
-and I is the RocketPy inertial frame (+X east, +Y north, +Z up).
-
 Typical usage from hil_rocketpy.py:
 
     from hil_capture import create_capture_file, save_hil_capture, plot_hil_log
-
     capture_file = create_capture_file(BASE_DIR / "hil_captures")
-
     ...
-
     save_hil_capture(
         filename=capture_file,
         hil_log=hil_log,
@@ -28,7 +17,6 @@ Typical usage from hil_rocketpy.py:
             "rocket": rocket_model,
         },
     )
-
     plot_hil_log(hil_log, hil_events)
 
 Typical direct usage:
@@ -215,6 +203,15 @@ def _lat_lon_to_local_meters(
     """
     Convert latitude/longitude to a local tangent-plane approximation.
 
+    The GPS data is stored as geodetic coordinates, but the trajectory plots are
+    easier to read in meters. For the short ranges covered by HIL flights, a
+    first-order local tangent plane is accurate enough:
+
+        north ~= earth_radius * delta_lat
+        east  ~= earth_radius * delta_lon * cos(latitude_at_launch)
+
+    This treats the first GPS sample as the local origin.
+
     Output:
         x = east displacement [m]
         y = north displacement [m]
@@ -308,6 +305,7 @@ def _event_marker_for_state(state: str) -> str:
         order = abs(hash(state))
     return FSM_STATE_MARKERS[order % len(FSM_STATE_MARKERS)]
 
+
 def _active_fsm_state(
     sim_time_s: float,
     fsm_events: list[tuple[float, str]],
@@ -331,7 +329,14 @@ def _set_3d_axes_equal(
     *,
     padding_fraction: float = 0.08,
 ) -> float:
-    """Set equal physical scaling on all three axes and return the plot span."""
+    """Set equal physical scaling on all three axes and return the plot span.
+
+    Matplotlib 3D axes normally scale X/Y/Z independently, which can make a
+    steep climb look shallow or exaggerate lateral drift. Here we compute the
+    bounding box of all finite trajectory points, expand it to a cube, and use
+    that same span on all axes. The returned span is also used to size the body
+    and sensor glyphs relative to the visible flight volume.
+    """
     finite = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
     if not np.any(finite):
         raise ValueError("3D replay contains no finite trajectory samples.")
@@ -524,7 +529,6 @@ def _set_legend_if_needed(ax, **legend_kwargs):
 # ----------------------------------------------------------------------
 # MAIN ANALYSIS / PLOT API
 # ----------------------------------------------------------------------
-
 def replay_hil_3d(
     hil_log: dict[str, list[Any]],
     hil_events: dict[str, list[Any]] | None = None,
@@ -553,6 +557,12 @@ def replay_hil_3d(
     R
         Restart from the first sample.
     """
+    # Reference-frame convention used by the 3D replay:
+    #     S_out -> S_clean -> B -> I
+    # where S_out is the saved accelerometer payload after cross-axis mixing,
+    # S_clean is the ideal orthogonal sensor frame, B is the RocketPy body frame,
+    # and I is the RocketPy inertial frame (+X east, +Y north, +Z up).
+
     if playback_speed <= 0:
         raise ValueError("playback_speed must be greater than zero.")
 
@@ -607,7 +617,14 @@ def replay_hil_3d(
     ) / G0
     pressure_hpa = state["pressure_pa"] / 100.0
 
-    # Per-sample attitude: body -> inertial.
+    # Each RocketPy state stores attitude as a quaternion. Convert every sample
+    # to a rotation matrix whose columns are the body axes expressed in the
+    # inertial frame. Multiplying by this matrix changes coordinates from:
+    #
+    #     B body frame -> I inertial frame
+    #
+    # In other words, ``rotation @ [0, 0, 1]`` is where the rocket nose points
+    # in world/inertial coordinates at that sample.
     rotations = np.asarray(
         [
             _rocketpy_body_to_inertial_matrix(e0, e1, e2, e3)
@@ -619,16 +636,31 @@ def replay_hil_3d(
             )
         ]
     )
-    # Static accelerometer mounting: sensor -> body.
+    # Static accelerometer mounting, saved in capture metadata:
+    #
+    #     S_clean -> B
+    #
+    # ``S_clean`` is the ideal orthogonal sensor frame before cross-axis mixing.
+    # This matrix never changes during flight because the sensor is bolted to
+    # the rocket body.
     accelerometer_sensor_to_body = _accelerometer_sensor_to_body_matrix(
         metadata
     )
-    # Payload de-mixing: S_out -> S_clean.
+    # The transmitted accelerometer payload is ``S_out``: sensor data after
+    # cross-axis output mixing. For geometry/replay we first undo that mixing:
+    #
+    #     S_out -> S_clean
     accelerometer_output_to_clean_sensor = (
         _accelerometer_output_to_clean_sensor_matrix(metadata)
     )
-    # Diagnostic for launchpad/calibration: S_out -> S_clean -> body -> inertial.
-    # A stationary rocket should reconstruct close to +1 g on inertial Z.
+    # Launchpad diagnostic. The first calibration sample is a stationary rocket,
+    # so the accelerometer should measure specific force upward: about +1 g in
+    # inertial Z. Reconstruct it through the full chain:
+    #
+    #     S_out -> S_clean -> B -> I
+    #
+    # If this points downward, the capture metadata and the saved acceleration
+    # payload disagree about sensor orientation or cross-axis mixing.
     first_accel_sensor_output = np.asarray(
         [
             state["accel_x_m_s2"][0],
@@ -1021,7 +1053,10 @@ def replay_hil_3d(
             [pressure_hpa[frame_index]],
         )
 
-        # Matrix columns are body unit axes expressed in inertial coordinates.
+        # Body axes in the 3D view.
+        #
+        # ``rotation`` is B -> I. Its columns are the inertial directions of
+        # body +X, +Y and +Z. Scaling each column gives a visible axis glyph.
         for axis_index, (line, label, name) in enumerate(
             zip(body_axis_lines, body_axis_labels, body_axis_names)
         ):
@@ -1034,7 +1069,11 @@ def replay_hil_3d(
             label.set_position_3d(endpoint)
             label.set_text(f" {name}")
 
-        # Sensor axes: sensor -> body -> inertial. No visual offset.
+        # Sensor axes in the 3D view.
+        #
+        # The sensor mounting matrix is S_clean -> B. Composing it with the
+        # current attitude gives S_clean -> I, so its columns are the displayed
+        # clean sensor axes in inertial coordinates.
         sensor_rotation = rotation @ accelerometer_sensor_to_body
         sensor_axis_origin = position.copy()
         sensor_origin_marker.set_data_3d(
@@ -1099,7 +1138,16 @@ def replay_hil_3d(
             ],
             dtype=float,
         )
-        # Acceleration payload transform: S_out -> S_clean -> body -> inertial.
+        # Reconstruct the accelerometer vector from the actual payload sent to
+        # the FC. The stored packet is in ``S_out`` because RocketPy has already
+        # applied cross-axis output mixing. For physical interpretation:
+        #
+        #     1. undo cross-axis mixing:      S_out -> S_clean
+        #     2. rotate through the mounting: S_clean -> B
+        #     3. rotate by attitude:          B -> I
+        #
+        # The magenta arrow is therefore the measured specific-force vector in
+        # RocketPy inertial coordinates.
         acceleration_sensor_clean = (
             accelerometer_output_to_clean_sensor @ acceleration_sensor_output
         )
@@ -1122,7 +1170,8 @@ def replay_hil_3d(
 
         # Preserve the reconstructed specific-force direction. Arrow length is
         # linear up to 2 g and capped afterwards so the motor peak does not hide
-        # the trajectory.
+        # the trajectory. This means arrow direction is physically meaningful,
+        # while arrow length is a visualization scale, not a raw SI magnitude.
         #
         # In addition to the full inertial-space vector, draw the orthogonal
         # decomposition on the displayed sensor axes. Cross-axis output mixing
