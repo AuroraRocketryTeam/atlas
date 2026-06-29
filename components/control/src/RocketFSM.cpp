@@ -748,43 +748,56 @@ void RocketFSM::checkTransitions()
 
     case RocketState::CALIBRATING:
     {
-        // Gather Barometer samples for zeroing
         PressureSensorData outBaroData;
-        SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outBaroData);
-        if ((baro1Status == SensorReadStatus::OK) && outBaroData.pressure > 0.0f) {
-            _rocketModel->addBarometerSample(outBaroData.pressure);
+        const SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outBaroData);
+        bool useBaroSample = baro1Status == SensorReadStatus::OK;
+
+#if CONFIG_AURORA_HIL_SIMULATION
+        static bool hasLastBaroTimestamp = false;
+        static uint32_t lastBaroTimestamp = 0;
+
+        if (useBaroSample)
+        {
+            useBaroSample = !hasLastBaroTimestamp || (outBaroData.timestamp != lastBaroTimestamp);
+
+            if (useBaroSample)
+            {
+                hasLastBaroTimestamp = true;
+                lastBaroTimestamp = outBaroData.timestamp;
+            }
+        }
+#endif
+
+        if (useBaroSample)
+        {
+            if (outBaroData.pressure > 0.0f)
+            {
+                _rocketModel->addBarometerSample(outBaroData.pressure);
+            }
+
+            _rocketModel->addTemperatureSample(outBaroData.temperature + 273.15f);
         }
 
-        // Gather Temperature samples
-        if (baro1Status == SensorReadStatus::OK) {
-            auto kelvinTemp = outBaroData.temperature + 273.15f;
-            _rocketModel->addTemperatureSample(kelvinTemp);
-        }
+        const bool isBaroReady = _rocketModel->isBarometerZeroed();
+        const bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();
 
-        // Check if both systems are ready
-        bool isBaroReady = _rocketModel->isBarometerZeroed();
-        bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();
+        LOG_INFO("RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d",
+                isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
 
-        LOG_INFO("RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d", 
-                 isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
-        
-        // Evaluate transition
         if (isBaroReady && isBnoReady)
         {
             LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed & IMU calibrated.");
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
-
-        // Fallback timeout: Increased to 10s to ensure we get enough samples if sensor reads are slow
-        else if (Utils::millis() - _stateStartTime > 10000U) 
+        else if (Utils::millis() - _stateStartTime > 10000U)
         {
-            LOG_WARNING("RocketFSM", "Calibration timeout! Forcing completion. Baro Ready: %d, IMU Ready: %d", 
+            LOG_WARNING("RocketFSM", "Calibration timeout! Forcing completion. Baro Ready: %d, IMU Ready: %d",
                         isBaroReady, isBnoReady);
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
+
         break;
     }
-
     case RocketState::READY_FOR_LAUNCH:
         try {
             auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
