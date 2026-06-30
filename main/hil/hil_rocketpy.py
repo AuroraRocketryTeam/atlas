@@ -593,7 +593,7 @@ def enqueue_data(rocketpy_time_s, state, sensors):
     if "temperature" in sensors:
         temperature_k = require_callback_float(sensors, "temperature", "sensors")
     else:
-        temperature_k = environment_temperature_at_asl_m(altitude_m)
+        temperature_k = environment_temperature_at_asl_m(altitude_m) # since altitude_m could be noisy, also the temperature will be noisy.
 
     # Build and send the payload to the FC
     payload = hil_communication.build_sim_input_payload(
@@ -921,8 +921,8 @@ def _apply_calibration_sensor_models(
         and quantization are applied by the RocketPy sensor objects.
 
     Temperature is currently not a RocketPy barometer measurement in RocketV2's
-    callback path. Until a real temperature sensor/channel exists, keep Env
-    temperature deterministic instead of adding a second noise parametrization.
+    callback path. The temperature is derived from the current altitude and the 
+    configured Environment, so it is already noisy if the altitude is noisy.
     """
     try:
         accel_sensor = selected_sensor_instances["Accelerometer"]
@@ -933,28 +933,34 @@ def _apply_calibration_sensor_models(
             "Calibration requires Accelerometer, Barometer, and GnssReceiver profiles"
         ) from exc
 
-    accel_x_m_s2, accel_y_m_s2, accel_z_m_s2 = _apply_vector_sensor_pipeline(
+    noisy_accel_x_m_s2, noisy_accel_y_m_s2, noisy_accel_z_m_s2 = _apply_vector_sensor_pipeline(
         accel_sensor,
         (accel_x_m_s2, accel_y_m_s2, accel_z_m_s2),
     )
 
-    pressure_pa = _apply_scalar_sensor_pipeline(barometer_sensor, pressure_pa)
-    latitude_deg, longitude_deg, altitude_m = _apply_gnss_sensor_pipeline(
+    noisy_pressure_pa = _apply_scalar_sensor_pipeline(barometer_sensor, pressure_pa)
+    
+    # GNSS noise in RocketPy doesn't follow the same pipeline of the others.
+    # It is NOT: temperature_drift -> noise -> quantize
+    noisy_latitude_deg, noisy_longitude_deg, noisy_altitude_m = _apply_gnss_sensor_pipeline(
         gnss_sensor,
         latitude_deg,
         longitude_deg,
         altitude_m,
     )
 
+    # NOTE: this is a fallback for RocketPy versions that do not provide temperature in the callback.
+    noisy_temperature_k = environment_temperature_at_asl_m(noisy_altitude_m)
+
     return (
-        float(accel_x_m_s2),
-        float(accel_y_m_s2),
-        float(accel_z_m_s2),
-        float(pressure_pa),
-        float(temperature_k),
-        float(latitude_deg),
-        float(longitude_deg),
-        float(altitude_m),
+        float(noisy_accel_x_m_s2),
+        float(noisy_accel_y_m_s2),
+        float(noisy_accel_z_m_s2),
+        float(noisy_pressure_pa),
+        float(noisy_temperature_k),
+        float(noisy_latitude_deg),
+        float(noisy_longitude_deg),
+        float(noisy_altitude_m)
     )
 
 
