@@ -57,24 +57,24 @@
 #include <E220LoRaTransmitter.hpp>
 
 // Board hardware instance
-Board board;
+static Board board;
 
 // Create controller instances
-LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
-BuzzerController buzzerController(board.get_buzzer_pin());
-StatusManager statusManager(ledController, buzzerController);
+static LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
+static BuzzerController buzzerController(board.get_buzzer_pin());
+static StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
-std::shared_ptr<RocketModel> rocketModel = nullptr;
+static std::shared_ptr<RocketModel> rocketModel = nullptr;
 
-std::shared_ptr<SD> sdCard = nullptr;
-std::shared_ptr<Flash> flash = nullptr;
+static std::shared_ptr<SD> sdCard = nullptr;
+static std::shared_ptr<Flash> flash = nullptr;
 
 // Define the RocketLogger
-std::shared_ptr<RocketLogger> logger = nullptr;
+static std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
-std::unique_ptr<RocketFSM> rocketFSM;
+static std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
 void printSystemInfo();
@@ -103,7 +103,7 @@ static_assert(
     "CONFIG_AURORA_HIL_WIFI_PASSWORD must be empty or at least 8 characters"
 );
 
-void setup()
+void setupHil()
 {
     // Install driver for blocking reads of Utils::readLine
     // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
@@ -267,7 +267,7 @@ static void resetHilSimulation()
     LOG_INFO("Main", "HIL simulation reset complete");
 }
 
-void loop()
+void loopHil()
 {
     resetHilSimulationIfRequested();
 
@@ -439,18 +439,4 @@ void wifi_softap_init(void)
     LOG_INFO("wifi_softap",
             "SoftAP started. SSID:%s IP:%s NETMASK:%s CHANNEL:%d MAX_STA:%d",
             HIL_WIFI_SSID,HIL_AP_IP_ADDR,HIL_AP_NETMASK,HIL_WIFI_CHANNEL,HIL_MAX_STA_CONN);
-}
-
-// The ESP-IDF entry point, which must be C-linkage
-extern "C" void app_main()
-{
-    // Initialize the Arduino core background tasks
-    initArduino();
-
-    setup();
-
-    while (1)
-    {
-        loop();
-    }
 }
