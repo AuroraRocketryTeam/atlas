@@ -280,6 +280,8 @@ Typical structure:
 
 ## Reference frames
 
+![reference frames](reference_frames.png "Ref")
+
 Frame convention:
 
 | Symbol | Meaning | Axes |
