@@ -13,6 +13,8 @@ import threading
 from pathlib import Path
 import numpy as np
 
+np.random.seed(seed=42)  # For reproducible calibration results
+
 from rocketpy import Environment, Flight, SolidMotor, RocketV2
 from rocketpy import Accelerometer
 from rocketpy import Barometer

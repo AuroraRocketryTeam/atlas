@@ -460,13 +460,12 @@ airbrakes
 fsm_state
 ```
 
-Historical aliases such as `t`, `ax`, `p`, `lat`, and `alt` are intentionally unsupported.
-
 Replot a capture:
 
 ```bash
 python hil_capture.py hil_captures/<capture>.json
 python hil_capture.py hil_captures/<capture>.json --no-show
+python hil_capture.py "hil_captures/$(ls hil_captures/ -t | head -n 1)" --replay-only --replay-speed 5
 ```
 
 Current plots include:
@@ -502,7 +501,8 @@ Currently present behavior:
 - requires consecutive apogee confirmations;
 - commands airbrakes during ascent inside a configured AGL band;
 - supports `single_main_at_apogee` and `drogue_then_main` recovery modes;
-- treats `LANDING` as terminal until reset;
+- progresses through `APOGEE -> STABILIZATION -> DECELERATION -> LANDING -> RECOVERED`;
+- treats `RECOVERED` as terminal until reset;
 - resets and closes the connection on `MSG_TYPE_SIM_RESET`.
 
 ## Fail-fast policy

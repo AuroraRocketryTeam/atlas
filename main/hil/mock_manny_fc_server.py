@@ -63,9 +63,16 @@ class MockConfig:
     # Recovery behavior:
     # - "single_main_at_apogee": for configs like Fred with only a Main chute.
     # - "drogue_then_main": drogue at apogee, main below main_deploy_agl_m.
+    # Mock FSM flow:
+    # CALIBRATING -> READY_FOR_LAUNCH -> LAUNCH -> ACCELERATED_FLIGHT
+    # -> BALLISTIC_FLIGHT -> APOGEE -> STABILIZATION -> DECELERATION
+    # -> LANDING -> RECOVERED.
+    # Thresholds below are AGL. The simulator sends ASL altitude samples; the
+    # mock derives pad altitude during calibration and subtracts it.
     recovery_mode: str = "single_main_at_apogee"
     main_deploy_agl_m: float = 80.0
     landing_agl_m: float = 3.0
+    landing_marker_samples: int = 2
 
     # Logging. Set to 0 to disable periodic status lines.
     verbose_every_samples: int = 20
@@ -232,6 +239,7 @@ class MockMannyState:
         self.apogee_detected = False
         self.apogee_marker_samples_left = 0
         self.apogee_condition_samples = 0
+        self.landing_marker_samples_seen = 0
 
         self.peak_altitude_m = -math.inf
         self.min_pressure_pa = math.inf
@@ -242,6 +250,9 @@ class MockMannyState:
     def update_and_choose_state(self, sample: SimInput) -> int:
         self.samples_seen += 1
 
+        # 1) Pad calibration. While calibrating, collect ASL altitude and
+        # pressure samples; when complete, convert their medians into the pad
+        # reference used for all later AGL checks.
         if not self.ready_for_launch_reported:
             self.calibration_altitudes_m.append(sample.altitude_m)
             self.calibration_pressures_pa.append(sample.pressure_pa)
@@ -256,22 +267,20 @@ class MockMannyState:
 
         altitude_agl_m = self.altitude_agl_m(sample)
 
-        if self.last_fsm_state == FSM_STATE_LANDING:
-            return self._set_state(FSM_STATE_LANDING, sample)
+        # 2) Terminal state. Like RocketFSM, the mock stays recovered until the
+        # launcher sends SIM_RESET.
+        if self.last_fsm_state == FSM_STATE_RECOVERED:
+            return self._set_state(FSM_STATE_RECOVERED, sample)
 
+        # 3) Armed on the pad. Wait for acceleration magnitude to cross the
+        # launch threshold, then emit LAUNCH for a configurable number of
+        # samples so plots/captures can see it.
         if not self.launch_detected:
-            if self._launch_condition(sample):
-                self.launch_detected = True
-                self.launch_sim_time_s = sample.hil_sim_time_s
-                self.launch_marker_samples_left = max(1, self.cfg.launch_marker_samples)
-                self.peak_altitude_m = sample.altitude_m
-                self.min_pressure_pa = sample.pressure_pa
-                self.filtered_altitudes_m.clear()
-                self.filtered_pressures_pa.clear()
-                self.launch_marker_samples_left -= 1
-                return self._set_state(FSM_STATE_LAUNCH, sample)
-            return self._set_state(FSM_STATE_READY_FOR_LAUNCH, sample)
+            return self._pre_launch_state(sample)
 
+        # 4) Powered/ascent flight. After launch, keep tracking the highest
+        # filtered altitude and lowest filtered pressure so apogee can be
+        # detected by either an altitude drop or a pressure rise.
         filtered_altitude_m, filtered_pressure_pa = self._filtered_apogee_inputs(sample)
         self.peak_altitude_m = max(self.peak_altitude_m, filtered_altitude_m)
         self.min_pressure_pa = min(self.min_pressure_pa, filtered_pressure_pa)
@@ -283,6 +292,8 @@ class MockMannyState:
         if self._in_accelerated_flight(sample):
             return self._set_state(FSM_STATE_ACCELERATED_FLIGHT, sample)
 
+        # 5) Ballistic flight until apogee is confirmed. The confirmation
+        # counter prevents one noisy sample from jumping into recovery.
         if not self.apogee_detected:
             if self._apogee_condition(filtered_altitude_m, filtered_pressure_pa):
                 self.apogee_condition_samples += 1
@@ -297,12 +308,53 @@ class MockMannyState:
             self.apogee_marker_samples_left -= 1
             return self._set_state(FSM_STATE_APOGEE, sample)
 
+        # 6) Recovery. This helper mirrors the RocketFSM recovery order without
+        # trying to emulate exact embedded timing:
+        # STABILIZATION -> DECELERATION -> LANDING -> RECOVERED.
         if self.apogee_detected:
-            if altitude_agl_m <= self.cfg.landing_agl_m:
-                return self._set_state(FSM_STATE_LANDING, sample)
-            return self._set_state(FSM_STATE_DECELERATION, sample)
+            return self._recovery_state(sample, altitude_agl_m)
 
         return self._set_state(FSM_STATE_BALLISTIC_FLIGHT, sample)
+
+    def _pre_launch_state(self, sample: SimInput) -> int:
+        if not self._launch_condition(sample):
+            return self._set_state(FSM_STATE_READY_FOR_LAUNCH, sample)
+
+        self.launch_detected = True
+        self.launch_sim_time_s = sample.hil_sim_time_s
+        self.launch_marker_samples_left = max(1, self.cfg.launch_marker_samples) - 1
+        self.peak_altitude_m = sample.altitude_m
+        self.min_pressure_pa = sample.pressure_pa
+        self.filtered_altitudes_m.clear()
+        self.filtered_pressures_pa.clear()
+        return self._set_state(FSM_STATE_LAUNCH, sample)
+
+    def _recovery_state(self, sample: SimInput, altitude_agl_m: float) -> int:
+        # LANDING and RECOVERED are intentionally close in the mock. LANDING is
+        # held briefly so it appears in captures, then RECOVERED is terminal.
+        if self.last_fsm_state == FSM_STATE_LANDING:
+            self.landing_marker_samples_seen += 1
+            if self.landing_marker_samples_seen >= self.cfg.landing_marker_samples:
+                return self._set_state(FSM_STATE_RECOVERED, sample)
+            return self._set_state(FSM_STATE_LANDING, sample)
+
+        # STABILIZATION stands in for the drogue/stabilization phase. Once AGL
+        # reaches main_deploy_agl_m, the mock moves to DECELERATION.
+        if self.last_fsm_state == FSM_STATE_STABILIZATION:
+            if altitude_agl_m <= self.cfg.main_deploy_agl_m:
+                return self._set_state(FSM_STATE_DECELERATION, sample)
+            return self._set_state(FSM_STATE_STABILIZATION, sample)
+
+        # First recovery sample after APOGEE enters STABILIZATION.
+        if self.last_fsm_state != FSM_STATE_DECELERATION:
+            return self._set_state(FSM_STATE_STABILIZATION, sample)
+
+        # DECELERATION continues until near-pad AGL. Touchdown starts LANDING.
+        if altitude_agl_m <= self.cfg.landing_agl_m:
+            self.landing_marker_samples_seen = 1
+            return self._set_state(FSM_STATE_LANDING, sample)
+
+        return self._set_state(FSM_STATE_DECELERATION, sample)
 
     def build_outputs(self, sample: SimInput, fsm_state: int) -> tuple[bool, bool, float]:
         airbrakes = self.airbrakes_deployment(sample)
@@ -495,6 +547,9 @@ def serve(cfg: MockConfig) -> None:
     print(f"  airbrakes_agl_band_m             = {cfg.airbrakes_min_agl_m}..{cfg.airbrakes_max_agl_m}")
     print(f"  airbrakes_level                  = {cfg.airbrakes_level}")
     print(f"  recovery_mode                    = {cfg.recovery_mode}")
+    print(f"  main_deploy_agl_m                = {cfg.main_deploy_agl_m}")
+    print(f"  landing_agl_m                    = {cfg.landing_agl_m}")
+    print(f"  landing_marker_samples           = {cfg.landing_marker_samples}")
     print("")
 
     try:
