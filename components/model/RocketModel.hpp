@@ -182,7 +182,7 @@ public:
      */
     bool storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs = 200);
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if CONFIG_AURORA_HIL_SUPPORT
     // Simulation
      /**
      * @brief Setter of simulation reset flag.
@@ -259,6 +259,13 @@ public:
      * @return height gain speed
      */
     float getHeightGainSpeed();
+
+    /**
+     * @brief Set the current estimated velocity
+     *
+     * @param heightGainSpeed The current estimated velocity
+     */
+    void setHeightGainSpeed(float heightGainSpeed);
 
     /**
      * @brief Get the Current Estimated Height
@@ -402,7 +409,7 @@ private:
     bool _ms561101ba03Data_2_Valid = false;
     bool _gpsDataValid = false;
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if CONFIG_AURORA_HIL_SUPPORT
     bool _reset_simulation;
 #endif
 

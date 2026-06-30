@@ -311,14 +311,15 @@ void RocketFSM::deployDrogue()
 
 void RocketFSM::deployApogeeRecovery()
 {
-    if constexpr (RECOVERY_MODE == RecoveryMode::MainOnly)
+    if constexpr (RECOVERY_MODE == RecoveryMode::OneParachuteMode)
     {
-        LOG_INFO("RocketFSM", "APOGEE recovery policy: MAIN_ONLY -> deploy MAIN");
+        LOG_INFO("RocketFSM", "APOGEE recovery policy: OneParachuteMode -> deploy MAIN (and DROGUE)");
         deployMain();
+        deployDrogue(); // the parachute is attached to both main-pin and drogue-pin. so for safety command both.
     }
-    else if constexpr (RECOVERY_MODE == RecoveryMode::DrogueAndMain)
+    else if constexpr (RECOVERY_MODE == RecoveryMode::TwoParachuteMode)
     {
-        LOG_INFO("RocketFSM", "APOGEE recovery policy: DROGUE_AND_MAIN -> deploy DROGUE");
+        LOG_INFO("RocketFSM", "APOGEE recovery policy: TwoParachuteMode -> deploy DROGUE");
         deployDrogue();
     }
 }
@@ -326,14 +327,14 @@ void RocketFSM::deployApogeeRecovery()
 
 void RocketFSM::deployStabilizationExitRecovery()
 {
-    if constexpr (RECOVERY_MODE == RecoveryMode::MainOnly)
+    if constexpr (RECOVERY_MODE == RecoveryMode::OneParachuteMode)
     {
-        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: MAIN_ONLY -> no deployment");
+        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: OneParachuteMode -> no deployment");
         return;
     }
-    else if constexpr (RECOVERY_MODE == RecoveryMode::DrogueAndMain)
+    else if constexpr (RECOVERY_MODE == RecoveryMode::TwoParachuteMode)
     {
-        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: DROGUE_AND_MAIN -> deploy MAIN");
+        LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: TwoParachuteMode -> deploy MAIN");
         deployMain();
     }
 }
@@ -355,7 +356,7 @@ void RocketFSM::setupStateActions()
         .setExitAction([this]()
                        { LOG_INFO("RocketFSM", "Exiting CALIBRATING"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        // .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_1", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Calib", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -371,7 +372,7 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH"); })
         #if CONFIG_AURORA_HIL_SIMULATION
         // TODO: do not treat HilSimulationTask as a normal fsm task, start in ONCE from rocketfsm.
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ready", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ready", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -388,7 +389,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LAUNCH"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Launch", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Launch", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -403,7 +404,7 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT"); })
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Accel", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "Hil_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Accel", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Accel", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -417,7 +418,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering BALLISTIC_FLIGHT"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "Hil_Ballistic", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ballistic", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ballistic", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ballistic", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -436,7 +437,7 @@ void RocketFSM::setupStateActions()
                             // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
                         })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "Hil_Apogee", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Apogee", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Apogee", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Apogee", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -455,7 +456,7 @@ void RocketFSM::setupStateActions()
                             // tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
                         })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "Hil_Stabilization", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Stabilization", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Stabilization", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Stabilization", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -470,7 +471,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering DECELERATION"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "Hil_Deceleration", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Deceleration", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Deceleration", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Deceleration", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -484,7 +485,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LANDING"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "Hil_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Landing", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Landing", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -498,7 +499,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering RECOVERED"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HilSimulation_10", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Recovered", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Recovered", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Recovered", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -734,6 +735,9 @@ void RocketFSM::checkTransitions()
         accZ = outBno055Data.acceleration_z;
     }
 
+    auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
+    LOG_INFO("RocketFSM", "ax: %.5f ay: %.5f az: %.5f mag: %.5f", accX, accY, accZ, accMag);
+
     // Fast state-based checks
     switch (_currentState)
     {
@@ -744,42 +748,56 @@ void RocketFSM::checkTransitions()
 
     case RocketState::CALIBRATING:
     {
-        // Gather Barometer samples for zeroing
         PressureSensorData outBaroData;
-        SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outBaroData);
-        if ((baro1Status == SensorReadStatus::OK) && outBaroData.pressure > 0.0f) {
-            _rocketModel->addBarometerSample(outBaroData.pressure);
+        const SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outBaroData);
+        bool useBaroSample = baro1Status == SensorReadStatus::OK;
+
+#if CONFIG_AURORA_HIL_SIMULATION
+        static bool hasLastBaroTimestamp = false;
+        static uint32_t lastBaroTimestamp = 0;
+
+        if (useBaroSample)
+        {
+            useBaroSample = !hasLastBaroTimestamp || (outBaroData.timestamp != lastBaroTimestamp);
+
+            if (useBaroSample)
+            {
+                hasLastBaroTimestamp = true;
+                lastBaroTimestamp = outBaroData.timestamp;
+            }
+        }
+#endif
+
+        if (useBaroSample)
+        {
+            if (outBaroData.pressure > 0.0f)
+            {
+                _rocketModel->addBarometerSample(outBaroData.pressure);
+            }
+
+            _rocketModel->addTemperatureSample(outBaroData.temperature + 273.15f);
         }
 
-        // Gather Temperature samples
-        if (baro1Status == SensorReadStatus::OK) {
-            auto kelvinTemp = outBaroData.temperature + 273.15f;
-            _rocketModel->addTemperatureSample(kelvinTemp);
-        }
+        const bool isBaroReady = _rocketModel->isBarometerZeroed();
+        const bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();
 
-        // Check if both systems are ready
-        bool isBaroReady = _rocketModel->isBarometerZeroed();
-        bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();
+        LOG_INFO("RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d",
+                isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
 
-        LOG_INFO("RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d", 
-                 isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
-
-        // Evaluate transition
         if (isBaroReady && isBnoReady)
         {
             LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed & IMU calibrated.");
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
-        // Fallback timeout: Increased to 10s to ensure we get enough samples if sensor reads are slow
-        else if (Utils::millis() - _stateStartTime > 10000U) 
+        else if (Utils::millis() - _stateStartTime > 10000U)
         {
-            LOG_WARNING("RocketFSM", "Calibration timeout! Forcing completion. Baro Ready: %d, IMU Ready: %d", 
+            LOG_WARNING("RocketFSM", "Calibration timeout! Forcing completion. Baro Ready: %d, IMU Ready: %d",
                         isBaroReady, isBnoReady);
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
+
         break;
     }
-
     case RocketState::READY_FOR_LAUNCH:
         try {
             auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
@@ -813,6 +831,7 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::ACCELERATED_FLIGHT:
+        
         if (Utils::millis() - _launchDetectionTime >= LAUNCH_TO_BALLISTIC_THRESHOLD)
         {
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);

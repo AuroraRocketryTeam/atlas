@@ -8,7 +8,7 @@ set(INCLUDE_DIRS
 )
 
 # HIL sources are picked up by GLOB_RECURSE. Keep them only for HIL builds.
-if(CONFIG_AURORA_HIL_SIMULATION)
+if(CONFIG_AURORA_HIL_SUPPORT)
     list(APPEND INCLUDE_DIRS "src/tasks/hil")
 else()
     list(FILTER SRCS EXCLUDE REGEX ".*/src/tasks/hil/.*")

@@ -17,19 +17,18 @@ static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
 /* ===================== PACKETS ===================== */
 
 typedef struct __attribute__((packed)) {
-    uint32_t seq;
-    float sim_time;
-    uint32_t timestamp;
-
-    float ax;
-    float ay;
-    float az;
-    float p;
-    float lat;
-    float lon;
-    float alt;
+    uint32_t seq;           // sequence number
+    float sim_time;         // simulation time
+    uint32_t timestamp;     // rocketpy's host computer timestamp
+    float ax;               // acceleration x
+    float ay;               // acceleration y
+    float az;               // acceleration z
+    float p;                // pressure
+    float t;                // temperature
+    float lat;              // latitude
+    float lon;              // longitude
+    float alt;              // altitude
 } sim_packet_t;
-
 
 /* ===================== SOCKET HELPERS ===================== */
 
@@ -107,10 +106,12 @@ static bool send_all(int _client_sock, const uint8_t *buf, size_t len, const vol
 
 HilSimulationTask::HilSimulationTask(
     std::shared_ptr<RocketModel> rocketModel,
-    std::shared_ptr<RocketLogger> logger)
+    std::shared_ptr<RocketLogger> logger,
+    IStateMachine* fsm)
     : BaseTask("HilSimulationTask"),
       _rocketModel(rocketModel),
-      _logger(logger)
+      _logger(logger),
+      _fsm(fsm)
 {
     // ctor
 }
@@ -233,8 +234,17 @@ void HilSimulationTask::onTaskStop() {
 }
 
 void HilSimulationTask::reset() {
-    _rocketModel->setResetSimulationFlag(true);
-    // LOG_INFO(TAG, "reset: set flag in rocketmodel.");
+    if (_rocketModel) {
+        _rocketModel->setResetSimulationFlag(true);
+    }
+
+    // Force the current client out of lockstep. main_hil.cpp owns the actual
+    // runtime reset and will stop/destroy/recreate this task cleanly.
+    if (_client_sock >= 0) {
+        shutdown(_client_sock, SHUT_RDWR);
+        close(_client_sock);
+        _client_sock = -1;
+    }
 
 }
 
@@ -270,6 +280,10 @@ void HilSimulationTask::taskFunction() {
                 vTaskDelay(1);
                 // LOG_INFO(TAG, "no client yet");
                 continue;   // no client yet
+            }
+            
+            if (!running) {
+                break;
             }
 
             LOG_ERROR(TAG, "accept failed errno=%s", strerror(errno));
@@ -399,9 +413,11 @@ void HilSimulationTask::taskFunction() {
 
             ms1.timestamp = sim_time_ms;
             ms1.pressure = pkt.p;
+            ms1.temperature = pkt.t;
             ms1.setSensorName("MS56_1_SIM");
             ms2.timestamp = sim_time_ms;
             ms2.pressure = pkt.p;
+            ms2.temperature = pkt.t;
             ms2.setSensorName("MS56_2_SIM");
 
             gps.timestamp = sim_time_ms;
@@ -410,8 +426,8 @@ void HilSimulationTask::taskFunction() {
             gps.altitude  = pkt.alt;
             gps.setSensorName("GPS_SIM");
 
-            ESP_LOGI(TAG, "Received sim packet: time=%d ax=%.2f ay=%.2f az=%.2f p=%.2f lat=%.6f lon=%.6f alt=%.2f",
-                sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.lat, pkt.lon, pkt.alt
+            ESP_LOGI(TAG, "Received sim packet: time=%d ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
+                sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt
             );
             
             /* ================= UPDATE MODEL ================= */
@@ -442,12 +458,12 @@ void HilSimulationTask::taskFunction() {
 
             /* ================= PACK + SEND ================= */
 
-            // Convert to wire format (adds sim_time here)
-            FcCommandWire wire = cmd.serialize(pkt.sim_time);
-
+            // Convert to wire format (adds sim_time and fsm state)
+            fc_command_packet_t wire = cmd.serialize(pkt.sim_time, _fsm->getCurrentState());
+            
             memset(&out_msg, 0, sizeof(out_msg));
             out_msg.type = MSG_TYPE_FC_COMMAND;
-            out_msg.len  = sizeof(FcCommandWire);
+            out_msg.len  = sizeof(fc_command_packet_t);
 
             // Copy packed struct into payload
             memcpy(out_msg.payload, &wire, sizeof(wire));

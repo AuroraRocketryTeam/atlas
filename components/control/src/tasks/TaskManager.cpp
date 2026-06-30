@@ -32,13 +32,14 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
     }
 
 
-    // Initialize LoRa transmitter
+    // Initialize and configure LoRa transmitter
     // Serial1 is used by GPS, so LoRa uses Serial2
     _loraTransmitter = std::make_shared<E220LoRaTransmitter>(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN, MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
-    auto loraInit = _loraTransmitter->init();
+
+    auto loraInit = _loraTransmitter->init(E220LoRaTransmitter::defaultConfiguration());
     if (loraInit.getCode() == E220_SUCCESS)
     {
-        LOG_INFO("TaskMgr", "LoRa E220 initialized successfully");
+        LOG_INFO("TaskMgr", "LoRa E220 initialized and configured successfully");
     }
     else
     {
@@ -77,7 +78,8 @@ void TaskManager::initializeTasks()
 #if CONFIG_AURORA_HIL_SIMULATION
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
-        _logger);
+        _logger,
+        _fsm);
 #endif
         
     _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(

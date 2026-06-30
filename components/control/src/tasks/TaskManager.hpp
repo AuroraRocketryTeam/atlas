@@ -10,13 +10,14 @@
 #include "IStorage.hpp"
 #include "RocketModel.hpp"
 #include "IStateMachine.hpp"
+#include "config.h"
 
 #include "SensorTask.hpp"
 #include "AirbrakesTask.hpp"
 #include "StorageLoggingTask.hpp"
 #include "GpsTask.hpp"
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if CONFIG_AURORA_HIL_SUPPORT
 #include "HilSimulationTask.hpp"
 #endif
 

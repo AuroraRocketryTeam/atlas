@@ -21,7 +21,7 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _isRising(false),
     _heightGainSpeed(0.0f),
     _currentHeight(0.0f)
-#if CONFIG_AURORA_HIL_SIMULATION
+#if CONFIG_AURORA_HIL_SUPPORT
     , _reset_simulation(false)
 #endif
     , _storageMutex(xSemaphoreCreateMutex())
@@ -79,7 +79,7 @@ void RocketModel::reset() {
         _currentHeight = 0.0f;
     }
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if CONFIG_AURORA_HIL_SUPPORT
     _reset_simulation = false;
 
     IMUData bnoData;
@@ -148,7 +148,7 @@ void RocketModel::resetCommand()
     _cmd.reset();
 }
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if CONFIG_AURORA_HIL_SUPPORT
 void RocketModel::setResetSimulationFlag(bool value)
 {
     _reset_simulation = value;
@@ -189,11 +189,9 @@ bool RocketModel::updateLIS3DHTR() {
 bool RocketModel::updateMS561101BA03_1() {
     bool result = _ms56_1->updateData();
 
-    if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        if (result) {
-            _ms561101ba03Data_1 = _ms56_1->getData();
-        }
-        _ms561101ba03Data_1_Valid = result;
+    if (result && xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _ms561101ba03Data_1 = _ms56_1->getData();
+        _ms561101ba03Data_1_Valid = true;
         xSemaphoreGive(_baro1Mutex);
     }
     return result;
@@ -202,11 +200,9 @@ bool RocketModel::updateMS561101BA03_1() {
 bool RocketModel::updateMS561101BA03_2() {
     bool result = _ms56_2->updateData();
 
-    if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        if (result) {
-            _ms561101ba03Data_2 = _ms56_2->getData();
-        }
-        _ms561101ba03Data_2_Valid = result;
+    if (result && xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        _ms561101ba03Data_2 = _ms56_2->getData();
+        _ms561101ba03Data_2_Valid = true;
         xSemaphoreGive(_baro2Mutex);
     }
     return result;
@@ -370,6 +366,10 @@ void RocketModel::setIsRising(bool isRising) {
 
 float RocketModel::getHeightGainSpeed() {
     return _heightGainSpeed;
+}
+
+void RocketModel::setHeightGainSpeed(float heightGainSpeed) {
+    _heightGainSpeed = heightGainSpeed;
 }
 
 float RocketModel::getCurrentHeight() {

@@ -76,6 +76,8 @@ void AltitudeTask::taskFunction()
         
         float currentVelocity = apogeeDetector.getVelocity();
 
+        _rocketModel->setHeightGainSpeed(currentVelocity);
+
         LOG_INFO("AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m", 
                  currentAltitude, currentVelocity, _max_altitude_read);
         
