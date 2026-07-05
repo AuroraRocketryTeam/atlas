@@ -96,7 +96,6 @@ void TaskManager::initializeTasks()
     auto telemetryTask = std::make_unique<TelemetryTask>(
         _rocketModel,
         _espNowTransmitter,
-        TELEMETRY_INTERVAL_MS,
         _fsm);
     if (_loraTransmitter)
     {
@@ -106,6 +105,13 @@ void TaskManager::initializeTasks()
 
     _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
         _rocketModel);
+
+    _tasks[TaskType::GROUND_SERVICES] = std::make_unique<GroundServicesTask>(
+        _rocketModel,
+        _logger,
+        _board,
+        _fsm,
+        _testRunner);
 
     LOG_INFO("TaskManager", "Created %d task instances", _tasks.size());
 }

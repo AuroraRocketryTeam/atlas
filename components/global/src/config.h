@@ -124,7 +124,7 @@ enum class RecoveryMode
 #if CONFIG_AURORA_HIL_SUPPORT
 
 // Activate the HIL simulation?
-#define CONFIG_AURORA_HIL_SIMULATION 1
+// #define CONFIG_AURORA_HIL_SIMULATION 1
 
 #endif
 

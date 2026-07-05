@@ -246,6 +246,7 @@ FlightPhase RocketFSM::getCurrentPhase()
     switch (state)
     {
     case RocketState::INACTIVE:
+    case RocketState::GROUND_SERVICES:
     case RocketState::CALIBRATING:
     case RocketState::READY_FOR_LAUNCH:
         return FlightPhase::PRE_FLIGHT;
@@ -352,6 +353,33 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::INACTIVE] = std::make_unique<StateAction>(RocketState::INACTIVE);
     _stateActions[RocketState::INACTIVE]->setEntryAction([this]()
                                                         { LOG_INFO("RocketFSM", "Entering INACTIVE"); });
+
+    // GROUND_SERVICES state
+    _stateActions[RocketState::GROUND_SERVICES] = std::make_unique<StateAction>(RocketState::GROUND_SERVICES);
+    _stateActions[RocketState::GROUND_SERVICES]
+        ->setEntryAction([this]() {
+            LOG_INFO("RocketFSM", "Entering GROUND_SERVICES");
+            // TODO: move startWifiStaForEspNow() here?
+        })
+        .setExitAction([this]() {
+            LOG_INFO("RocketFSM", "Exiting GROUND_SERVICES");
+            // TODO: move stopWifiStaForEspNow() here?
+        })
+        .addTask(TaskConfig(TaskType::GROUND_SERVICES, "GroundServices", 8192, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
+        /*
+         * Keep Ground Services lean on ESP32-S3-WROOM-1-N16.
+         * HTTPS/TLS needs contiguous internal RAM per connection, so sensor,
+         * GPS, and telemetry tasks are intentionally stopped in this state.
+         */
+        /*
+        #if CONFIG_AURORA_HIL_SIMULATION
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ground", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        #else
+        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ground", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::GPS, "Gps_Ground", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        #endif
+        .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Ground", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
+        */
 
     // CALIBRATING state
     _stateActions[RocketState::CALIBRATING] = std::make_unique<StateAction>(RocketState::CALIBRATING);
@@ -527,8 +555,13 @@ void RocketFSM::setupTransitions()
 
     _transitionManager->addTransition(Transition(
         RocketState::CALIBRATING,
-        RocketState::READY_FOR_LAUNCH,
+        RocketState::GROUND_SERVICES,
         FSMEvent::CALIBRATION_COMPLETE));
+
+    _transitionManager->addTransition(Transition(
+        RocketState::GROUND_SERVICES,
+        RocketState::READY_FOR_LAUNCH,
+        FSMEvent::START_READY_FOR_LAUNCH));
 
     _transitionManager->addTransition(Transition(
         RocketState::READY_FOR_LAUNCH,
@@ -702,6 +735,16 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
         return;
     }
 
+    if (_currentState == RocketState::GROUND_SERVICES && eventData.event == FSMEvent::START_READY_FOR_LAUNCH && !runtime_config_is_locked())
+    {
+        char reason[128] = {};
+        if (runtime_config_lock_for_flight(reason, sizeof(reason)) != ESP_OK)
+        {
+            LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: config lock failed: %s", reason);
+            return;
+        }
+    }
+
     // Find valid transition
     auto newState = _transitionManager->findTransition(_currentState, eventData.event);
     if (newState.has_value())
@@ -747,6 +790,10 @@ void RocketFSM::checkTransitions()
     {
     case RocketState::INACTIVE:
         sendEvent(FSMEvent::START_CALIBRATION);
+        break;
+
+    case RocketState::GROUND_SERVICES:
+        // Wait for an explicit authenticated dashboard or operator event.
         break;
 
     case RocketState::CALIBRATING:
