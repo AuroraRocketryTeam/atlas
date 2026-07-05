@@ -97,6 +97,7 @@ private:
     IBoardHardware* _board;
     IStateMachine* _fsm;
     httpd_handle_t _server;
+    bool _softApAcquired;
     SemaphoreHandle_t _otaMutex;
     SemaphoreHandle_t _authMutex;
     OtaStatus _otaStatus;

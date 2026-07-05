@@ -5,6 +5,7 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <esp_mac.h>
+#include <IBoardHardware.hpp>
 #include <vector>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -25,9 +26,10 @@ public:
      * @brief Construct a new ESP-NOW Transmitter.
      * 
      * @param peerMacAddress The MAC address of the peer receiver (6 bytes).
+     * @param board Board networking manager used to acquire/release WiFi.
      * @param wifiChannel The WiFi channel to use (1-13, default 1).
      */
-    EspNowTransmitter(const uint8_t peerMacAddress[6], uint8_t wifiChannel = 1);
+    EspNowTransmitter(IBoardHardware* board, const uint8_t peerMacAddress[6], uint8_t wifiChannel = 1);
     
     /**
      * @brief Destroy the ESP-NOW Transmitter and cleanup resources.
@@ -37,7 +39,8 @@ public:
     /**
      * @brief Initialize the ESP-NOW transmitter.
      * 
-     * Sets up WiFi in STA mode, initializes ESP-NOW, and registers the peer.
+     * Acquires board-managed WiFi STA mode, initializes ESP-NOW, and registers
+     * the peer on WIFI_IF_STA.
      * 
      * @return ResponseStatusContainer Success (code 0) or error with description.
      */
@@ -73,6 +76,8 @@ private:
     uint8_t peerMac[6];
     uint8_t channel;
     bool initialized;
+    bool wifiAcquired;
+    IBoardHardware* board;
     
     // Statistics
     uint32_t packetsSent;

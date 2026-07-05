@@ -107,10 +107,12 @@ static bool send_all(int _client_sock, const uint8_t *buf, size_t len, const vol
 HilSimulationTask::HilSimulationTask(
     std::shared_ptr<RocketModel> rocketModel,
     std::shared_ptr<RocketLogger> logger,
+    IBoardHardware* board,
     IStateMachine* fsm)
     : BaseTask("HilSimulationTask"),
       _rocketModel(rocketModel),
       _logger(logger),
+      _board(board),
       _fsm(fsm)
 {
     // ctor
@@ -125,6 +127,16 @@ HilSimulationTask::~HilSimulationTask() {
 
 void HilSimulationTask::onTaskStart() {
     // LOG_INFO(TAG, "onTaskStart");
+
+    if (_board != nullptr) {
+        if (!_board->startWifiSoftAp()) {
+            LOG_ERROR(TAG, "Failed to acquire HIL SoftAP");
+            running = false;
+            return;
+        }
+        _softApAcquired = true;
+        LOG_INFO(TAG, "HIL SoftAP ready at %s", _board->getWifiIpAddress());
+    }
 
     const int MAX_RETRY = 5;
     const TickType_t RETRY_DELAY = 200 / portTICK_PERIOD_MS;
@@ -202,6 +214,7 @@ void HilSimulationTask::onTaskStart() {
 
     LOG_ERROR(TAG, "Failed to initialize TCP server after %d attempts", MAX_RETRY);
     _listen_sock = -1;
+    running = false;
 }
 
 void HilSimulationTask::onTaskStop() {
@@ -229,6 +242,13 @@ void HilSimulationTask::onTaskStop() {
         }
 
         _listen_sock = -1;
+    }
+
+    if (_softApAcquired) {
+        if (_board != nullptr && !_board->stopWifi()) {
+            LOG_ERROR(TAG, "Failed to release HIL SoftAP");
+        }
+        _softApAcquired = false;
     }
 
 }

@@ -51,6 +51,7 @@ MannyBoard::MannyBoard()
       nvs_initialized(false),
       networking_initialized(false),
       wifi_started(false),
+      wifi_softap_users(0),
       sta_netif(nullptr),
       ap_netif(nullptr),
       wifi_ip_address{},
@@ -306,12 +307,25 @@ bool MannyBoard::initNetworking() {
         LOG_INFO(TAG, "WiFi already initialized");
     }
 
+    // ret = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+    // if (ret != ESP_OK) {
+    //     LOG_ERROR(TAG, "esp_wifi_set_storage failed: %s", esp_err_to_name(ret));
+    //     return false;
+    // }
+
     networking_initialized = true;
     return true;
 }
 
 bool MannyBoard::startWifiSta() {
     if (!initNetworking()) {
+        return false;
+    }
+
+    if (wifi_started && wifi_softap_users > 0) {
+        LOG_ERROR(TAG, "Cannot start WiFi STA while SoftAP has %lu active user(s)",
+                  static_cast<unsigned long>(wifi_softap_users));
+        LOG_INFO(TAG, "WiFi APSTA could be a viable solution but it's currently not supported by MannyBoard");
         return false;
     }
 
@@ -350,6 +364,18 @@ bool MannyBoard::startWifiSta() {
 
 bool MannyBoard::startWifiSoftAp() {
     if (!initNetworking()) {
+        return false;
+    }
+
+    if (wifi_started && wifi_softap_users > 0) {
+        wifi_softap_users++;
+        LOG_INFO(TAG, "SoftAP already active, users=%lu ip=%s",
+                 static_cast<unsigned long>(wifi_softap_users), wifi_ip_address);
+        return true;
+    }
+
+    if (wifi_started) {
+        LOG_ERROR(TAG, "Cannot start SoftAP while WiFi is active in another mode");
         return false;
     }
 
@@ -421,14 +447,16 @@ bool MannyBoard::startWifiSoftAp() {
     }
 
     wifi_started = true;
+    wifi_softap_users = 1;
     snprintf(wifi_ip_address, sizeof(wifi_ip_address), "%s", cfg.ip);
     uint8_t mac[6] = {};
     if (esp_wifi_get_mac(WIFI_IF_AP, mac) == ESP_OK) {
         snprintf(wifi_mac_address, sizeof(wifi_mac_address), "%02x:%02x:%02x:%02x:%02x:%02x",
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     }
-    LOG_INFO(TAG, "SoftAP started: ssid=%s ip=%s channel=%u max_sta=%u",
-             cfg.ssid, cfg.ip, cfg.channel, cfg.max_connections);
+    LOG_INFO(TAG, "SoftAP started: ssid=%s ip=%s channel=%u max_sta=%u users=%lu",
+             cfg.ssid, cfg.ip, cfg.channel, cfg.max_connections,
+             static_cast<unsigned long>(wifi_softap_users));
     return true;
 }
 
@@ -436,12 +464,21 @@ bool MannyBoard::stopWifi() {
     if (!networking_initialized || !wifi_started) {
         return true;
     }
+
+    if (wifi_softap_users > 1) {
+        wifi_softap_users--;
+        LOG_INFO(TAG, "SoftAP still active, users=%lu",
+                 static_cast<unsigned long>(wifi_softap_users));
+        return true;
+    }
+
     esp_err_t ret = esp_wifi_stop();
     if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT) {
         LOG_ERROR(TAG, "esp_wifi_stop failed: %s", esp_err_to_name(ret));
         return false;
     }
     wifi_started = false;
+    wifi_softap_users = 0;
     wifi_ip_address[0] = '\0';
     return true;
 }

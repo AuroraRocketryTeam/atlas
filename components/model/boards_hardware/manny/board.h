@@ -2,6 +2,7 @@
 
 #include "boards_hardware/IBoardHardware.hpp"
 #include "esp_netif.h"
+#include <cstdint>
 
 // Manny board hardware map
 static constexpr gpio_num_t MANNY_I2C_SDA_PIN = GPIO_NUM_11;
@@ -65,6 +66,7 @@ private:
     bool nvs_initialized;
     bool networking_initialized;
     bool wifi_started;
+    uint32_t wifi_softap_users;
     esp_netif_t* sta_netif;
     esp_netif_t* ap_netif;
     char wifi_ip_address[16];
@@ -141,12 +143,15 @@ public:
     bool startWifiSta() override;
 
     /**
-     * @brief Start Manny WiFi in SoftAP mode using sdkconfig values.
+     * @brief Acquire Manny WiFi SoftAP using sdkconfig values.
+     *
+     * SoftAP users are reference counted so HIL and Ground Services can overlap
+     * without one task stopping WiFi while the other still needs it.
      */
     bool startWifiSoftAp() override;
 
     /**
-     * @brief Stop Manny WiFi if it is active.
+     * @brief Release one Manny WiFi user and stop WiFi when unused.
      */
     bool stopWifi() override;
 

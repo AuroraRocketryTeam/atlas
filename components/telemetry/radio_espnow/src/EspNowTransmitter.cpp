@@ -6,8 +6,15 @@
 // Static instance pointer for callbacks
 EspNowTransmitter* EspNowTransmitter::instance = nullptr;
 
-EspNowTransmitter::EspNowTransmitter(const uint8_t peerMacAddress[6], uint8_t wifiChannel)
-    : channel(wifiChannel), initialized(false), packetsSent(0), packetsFailed(0), lastRSSI(0), sendSuccess(false)
+EspNowTransmitter::EspNowTransmitter(IBoardHardware* board, const uint8_t peerMacAddress[6], uint8_t wifiChannel)
+    : channel(wifiChannel),
+      initialized(false),
+      wifiAcquired(false),
+      board(board),
+      packetsSent(0),
+      packetsFailed(0),
+      lastRSSI(0),
+      sendSuccess(false)
 {
     std::memcpy(peerMac, peerMacAddress, 6);
     
@@ -27,9 +34,15 @@ EspNowTransmitter::~EspNowTransmitter()
     if (initialized)
     {
         esp_now_deinit();
-#ifndef CONFIG_AURORA_HIL_SIMULATION // still using the Wifi AP.
-        esp_wifi_stop();
-#endif
+        initialized = false;
+    }
+
+    if (wifiAcquired)
+    {
+        if (board != nullptr && !board->stopWifi()) {
+            LOG_ERROR("EspNow", "Failed to release board WiFi STA");
+        }
+        wifiAcquired = false;
     }
     
     if (sendMutex)
@@ -57,24 +70,26 @@ ResponseStatusContainer EspNowTransmitter::init()
     
     LOG_INFO("EspNow", "Initializing ESP-NOW transmitter...");
 
-#ifndef CONFIG_AURORA_HIL_SIMULATION // main_hil already initialize it as WiFi AP.
-    // Initialize WiFi
-    esp_netif_init();
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_wifi_init(&cfg);
-    esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    esp_wifi_start();
-    
-    // Wait for WiFi to initialize
-    vTaskDelay(pdMS_TO_TICKS(100));
-#endif
+    if (board == nullptr)
+    {
+        LOG_ERROR("EspNow", "Board hardware is required for WiFi STA setup");
+        return ResponseStatusContainer(-1, "Board hardware is required");
+    }
+
+    if (!board->startWifiSta())
+    {
+        LOG_ERROR("EspNow", "Failed to acquire board WiFi STA");
+        return ResponseStatusContainer(-2, "WiFi STA setup failed");
+    }
+    wifiAcquired = true;
 
     // Initialize ESP-NOW
     if (esp_now_init() != ESP_OK)
     {
         LOG_ERROR("EspNow", "Failed to initialize ESP-NOW");
-        return ResponseStatusContainer(-1, "ESP-NOW init failed");
+        board->stopWifi();
+        wifiAcquired = false;
+        return ResponseStatusContainer(-3, "ESP-NOW init failed");
     }
     
     // Register send callback
@@ -83,7 +98,9 @@ ResponseStatusContainer EspNowTransmitter::init()
     {
         LOG_ERROR("EspNow", "Failed to register send callback");
         esp_now_deinit();
-        return ResponseStatusContainer(-2, "Failed to register callback");
+        board->stopWifi();
+        wifiAcquired = false;
+        return ResponseStatusContainer(-4, "Failed to register callback");
     }
     
     // Add peer
@@ -91,7 +108,9 @@ ResponseStatusContainer EspNowTransmitter::init()
     {
         LOG_ERROR("EspNow", "Failed to add peer");
         esp_now_deinit();
-        return ResponseStatusContainer(-3, "Failed to add peer");
+        board->stopWifi();
+        wifiAcquired = false;
+        return ResponseStatusContainer(-5, "Failed to add peer");
     }
     
     initialized = true;

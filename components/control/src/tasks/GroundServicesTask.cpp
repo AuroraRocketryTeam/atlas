@@ -65,6 +65,7 @@ GroundServicesTask::GroundServicesTask(std::shared_ptr<RocketModel> rocketModel,
       _board(board),
       _fsm(fsm),
       _server(nullptr),
+      _softApAcquired(false),
       _otaMutex(nullptr),
       _authMutex(nullptr)
 {
@@ -409,6 +410,7 @@ void GroundServicesTask::onTaskStart()
             LOG_ERROR(TAG, "Failed to start Ground Services SoftAP");
             return;
         }
+        _softApAcquired = true;
     }
 
     esp_err_t err = startServer();
@@ -420,6 +422,12 @@ void GroundServicesTask::onTaskStart()
 void GroundServicesTask::onTaskStop()
 {
     stopServer();
+    if (_softApAcquired) {
+        if (_board != nullptr && !_board->stopWifi()) {
+            LOG_ERROR(TAG, "Failed to release Ground Services SoftAP");
+        }
+        _softApAcquired = false;
+    }
     if (_otaMutex != nullptr) {
         vSemaphoreDelete(_otaMutex);
         _otaMutex = nullptr;

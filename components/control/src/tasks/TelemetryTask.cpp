@@ -84,16 +84,21 @@ void TelemetryTask::taskFunction()
 
                 LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
 
-                // Transmit via ESP-NOW
-                if (transmitMessage(message))
+                _messagesCreated++;
+
+                // Transmit via ESP-NOW when the transmitter is available. HIL
+                // builds intentionally skip it because HIL owns the SoftAP.
+                if (_transmitter)
                 {
-                    _messagesCreated++;
-                    LOG_INFO("Telemetry", "Packet %lu transmitted via ESP-NOW", _messagesCreated);
-                }
-                else
-                {
-                    _transmitErrors++;
-                    LOG_WARNING("Telemetry", "Failed to transmit packet via ESP-NOW (errors: %lu)", _transmitErrors);
+                    if (transmitMessage(message))
+                    {
+                        LOG_INFO("Telemetry", "Packet %lu transmitted via ESP-NOW", _messagesCreated);
+                    }
+                    else
+                    {
+                        _transmitErrors++;
+                        LOG_WARNING("Telemetry", "Failed to transmit packet via ESP-NOW (errors: %lu)", _transmitErrors);
+                    }
                 }
 
                 // Transmit via LoRa

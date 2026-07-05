@@ -89,12 +89,17 @@ public:
     virtual bool startWifiSta() = 0;
 
     /**
-     * @brief Start WiFi in SoftAP mode using the board's configured defaults.
+     * @brief Acquire WiFi SoftAP service using the board's configured defaults.
+     *
+     * Calls are reference counted by the board implementation. Multiple tasks
+     * may acquire the same SoftAP lifetime; each successful call must be paired
+     * with stopWifi(). The physical WiFi driver is stopped only after the last
+     * SoftAP user releases it.
      */
     virtual bool startWifiSoftAp() = 0;
 
     /**
-     * @brief Stop WiFi if it is currently running.
+     * @brief Release one board-managed WiFi user and stop WiFi when unused.
      */
     virtual bool stopWifi() = 0;
 
