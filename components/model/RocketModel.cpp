@@ -18,6 +18,8 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _ms56_1(ms56_1),
     _ms56_2(ms56_2),
     _gps(gps),
+    _sd(sd),
+    _flash(flash),
     _isRising(false),
     _heightGainSpeed(0.0f),
     _currentHeight(0.0f)
@@ -387,6 +389,14 @@ bool RocketModel::isStorageInitialized(uint32_t timeoutMs) const {
         return initialized;
     }
     return false;
+}
+
+bool RocketModel::isExternalFlashInitialized() const {
+    return _flash && _flash->isInitialized();
+}
+
+bool RocketModel::isSdInitialized() const {
+    return _sd && _sd->isInitialized();
 }
 
 bool RocketModel::storageFileExists(const char* filename, uint32_t timeoutMs) {
