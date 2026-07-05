@@ -2,12 +2,14 @@
 #include <cmath>
 #include <config.h>
 #include <SerialLogger.hpp>
+#include "RuntimeConfig.hpp"
 
 void AltitudeTask::taskFunction()
 {
     LOG_INFO("AltitudeTask", "Starting Altitude task pipeline...");
 
     uint32_t lastTimestamp = 0;
+    const RuntimeConfig &flightConfig = runtime_config_get_flight_snapshot();
     
     // Baseline for the slew rate limiter
     static float lastValidPressure = -1.0f; 
@@ -58,11 +60,13 @@ void AltitudeTask::taskFunction()
         }
         
         // Altitude Calculation
-        float pressureRef = _rocketModel->isBarometerZeroed() ? 
-                            _rocketModel->getLaunchpadBasePressure() : 
-                            101325.0f;
-
-        float currentAltitude = calculateAltitude(filteredPressure, pressureRef);
+        float currentAltitude = 0.0f;
+        if (_rocketModel->isBarometerZeroed()) {
+            currentAltitude = calculateAltitude(filteredPressure, _rocketModel->getLaunchpadBasePressure());
+        } else {
+            const float seaLevelPressurePa = flightConfig.sea_level_pressure_hpa * 100.0f;
+            currentAltitude = calculateAltitude(filteredPressure, seaLevelPressurePa) - flightConfig.launch_site_altitude_m;
+        }
 
         // Apogee & Trend Detection
         updateRisingTrend(currentAltitude);

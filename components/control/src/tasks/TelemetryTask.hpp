@@ -68,7 +68,7 @@ struct TelemetryPacket
  * This task reads from SharedSensorData, serializes it to binary format,
  * divides it into Packet chunks, and transmits them using EspNowTransmitter.
  *
- * Transmission rate is configurable via constructor.
+ * Transmission rate is read from the locked RuntimeConfig snapshot.
  */
 class TelemetryTask : public BaseTask
 {
@@ -78,7 +78,6 @@ private:
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
     IStateMachine* _fsm;
 
-    uint32_t _transmitIntervalMs;
     uint32_t _lastTransmitTime;
 
     uint8_t _lastAckCommandId;
@@ -95,11 +94,9 @@ public:
      * @param sensorData Shared sensor data to read from.
      * @param mutex Mutex protecting sensor data access.
      * @param espNowTransmitter ESP-NOW transmitter instance.
-     * @param intervalMs Interval between transmissions in milliseconds (default 1000ms = 1Hz).
      */
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
                   std::shared_ptr<EspNowTransmitter> espNowTransmitter,
-                  uint32_t intervalMs = 1000,
                   IStateMachine* fsm = nullptr);
 
     /**

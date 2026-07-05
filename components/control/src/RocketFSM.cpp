@@ -1,4 +1,5 @@
 #include "RocketFSM.hpp"
+#include "tasks/RuntimeConfig.hpp"
 #include "esp_task_wdt.h"
 #include <utils.h>
 #include <algorithm>
@@ -735,14 +736,12 @@ void RocketFSM::checkTransitions()
         accZ = outBno055Data.acceleration_z;
     }
 
-    auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
-    LOG_INFO("RocketFSM", "ax: %.5f ay: %.5f az: %.5f mag: %.5f", accX, accY, accZ, accMag);
+    const RuntimeConfig &runtimeCfg = runtime_config_get_flight_snapshot();
 
     // Fast state-based checks
     switch (_currentState)
     {
     case RocketState::INACTIVE:
-        // Kick off calibration immediately
         sendEvent(FSMEvent::START_CALIBRATION);
         break;
 
@@ -802,13 +801,13 @@ void RocketFSM::checkTransitions()
         try {
             auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
 
-            if (accMag > LIFTOFF_ACCELERATION_THRESHOLD)
+            if (accMag > runtimeCfg.liftoff_accel_threshold_mps2)
             {
                 if (launchHighSince == 0)
                 {
                     launchHighSince = Utils::millis();
                 }
-                else if (Utils::millis() - launchHighSince >= static_cast<uint32_t>(LIFTOFF_TIMEOUT_MS))
+                else if (Utils::millis() - launchHighSince >= runtimeCfg.liftoff_timeout_ms)
                 {
                     _launchDetectionTime = Utils::millis();
                     sendEvent(FSMEvent::LAUNCH_DETECTED);
@@ -832,7 +831,7 @@ void RocketFSM::checkTransitions()
 
     case RocketState::ACCELERATED_FLIGHT:
         
-        if (Utils::millis() - _launchDetectionTime >= LAUNCH_TO_BALLISTIC_THRESHOLD)
+        if (Utils::millis() - _launchDetectionTime >= runtimeCfg.launch_to_ballistic_threshold_ms)
         {
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);
         }
@@ -843,16 +842,16 @@ void RocketFSM::checkTransitions()
         auto elapsed = Utils::millis() - _launchDetectionTime;
         
         // Ignore all sensor apogee logic until the initial chaotic burn phase ends
-        if (elapsed > APOGEE_LOCKOUT_MS) 
+        if (elapsed > runtimeCfg.apogee_lockout_ms)
         {
-            if (!_rocketModel->getIsRising() || (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD))
+            if (!_rocketModel->getIsRising() || (elapsed >= runtimeCfg.launch_to_apogee_threshold_ms))
             {
                 LOG_INFO("RocketFSM", "Apogee detected! Elapsed: %lu ms", elapsed);
                 sendEvent(FSMEvent::APOGEE_REACHED);
             }
         } 
         // If we somehow haven't hit the lockout but the max time elapsed, trigger anyway
-        else if (elapsed >= LAUNCH_TO_APOGEE_THRESHOLD) 
+        else if (elapsed >= runtimeCfg.launch_to_apogee_threshold_ms)
         {
             LOG_WARNING("RocketFSM", "Apogee Lockout bypassed due to absolute max time limit!");
             sendEvent(FSMEvent::APOGEE_REACHED);
@@ -863,7 +862,7 @@ void RocketFSM::checkTransitions()
 
     case RocketState::APOGEE:
         LOG_INFO("RocketFSM", "Drogue Opened! %d", Utils::millis()-_launchDetectionTime);
-        if (Utils::millis() - _stateStartTime >= DROGUE_APOGEE_TIMEOUT)
+        if (Utils::millis() - _stateStartTime >= runtimeCfg.drogue_apogee_timeout_ms)
         {
             sendEvent(FSMEvent::DROGUE_READY);
         }
@@ -875,7 +874,7 @@ void RocketFSM::checkTransitions()
         
         LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight);
         
-        if (currentHeight < MAIN_ALTITUDE_THRESHOLD)
+        if (currentHeight < runtimeCfg.main_altitude_threshold_m)
         {
             LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", currentHeight, Utils::millis() - _stateStartTime);
             sendEvent(FSMEvent::STABILIZATION_COMPLETE);
@@ -888,8 +887,11 @@ void RocketFSM::checkTransitions()
     {
         // In DECELERATION state, vertical velocity in heightGainSpeed will still be tracked, but it should be negative (falling)
         // !!! choose if chenge the control to be with negative values or to invert the value here
+        const float currentHeight = _rocketModel->getCurrentHeight();
+        const float verticalSpeedAbs = std::fabs(_rocketModel->getHeightGainSpeed());
 
-        if (_rocketModel->getCurrentHeight() < TOUCHDOWN_ALTITUDE_THRESHOLD)
+        if (currentHeight < runtimeCfg.touchdown_altitude_threshold_m)
+        // && verticalSpeedAbs <= runtimeCfg.touchdown_velocity_threshold_mps)
         {
             sendEvent(FSMEvent::DECELERATION_COMPLETE);
         }
