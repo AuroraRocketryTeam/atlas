@@ -97,6 +97,18 @@ SPIBus* MannyBoard::get_spi_bus() {
     return &_spi_bus;
 }
 
+const char* MannyBoard::get_board_name() const {
+    return BOARD_NAME;
+}
+
+gpio_num_t MannyBoard::get_i2c_sda_pin() const {
+    return MANNY_I2C_SDA_PIN;
+}
+
+gpio_num_t MannyBoard::get_i2c_scl_pin() const {
+    return MANNY_I2C_SCL_PIN;
+}
+
 gpio_num_t MannyBoard::get_barometer2_cs_pin() const {
     return MANNY_BAROMETER2_CS_PIN;
 }

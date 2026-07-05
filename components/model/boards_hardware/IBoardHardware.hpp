@@ -23,6 +23,10 @@ public:
      */
     virtual void init() = 0;
 
+    virtual const char* get_board_name() const = 0;
+    virtual gpio_num_t get_i2c_sda_pin() const = 0;
+    virtual gpio_num_t get_i2c_scl_pin() const = 0;
+
     virtual gpio_num_t get_gps_tx_pin() const = 0;
     virtual gpio_num_t get_gps_rx_pin() const = 0;
     virtual gpio_num_t get_arming_pin() const = 0;

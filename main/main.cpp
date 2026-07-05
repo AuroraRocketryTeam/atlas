@@ -180,12 +180,9 @@ void setupFlight()
 
 void loopFlight()
 {
-    auto currentState = rocketFSM->getCurrentState();
-    LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-    LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
-
-    unsigned long lastHeartbeat = 0;
-    bool ledState = false;
+    static unsigned long lastHeartbeat = 0;
+    static bool ledState = false;
+    static RocketState lastLoggedState = RocketState::INACTIVE;
 
     // Heartbeat every 2 seconds
     if (Utils::millis() - lastHeartbeat > 2000)
@@ -194,6 +191,8 @@ void loopFlight()
         lastHeartbeat = Utils::millis();
         ledState = !ledState;
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
+
+        LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -209,7 +208,6 @@ void loopFlight()
         }
 
         // Optional: Print current state periodically
-        RocketState lastLoggedState = RocketState::INACTIVE;
         RocketState currentState = rocketFSM->getCurrentState();
 
         if (currentState != lastLoggedState)

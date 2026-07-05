@@ -79,6 +79,10 @@ public:
 
     void init() override;
 
+    const char* get_board_name() const override;
+    gpio_num_t get_i2c_sda_pin() const override;
+    gpio_num_t get_i2c_scl_pin() const override;
+
     gpio_num_t get_gps_tx_pin() const override;
     gpio_num_t get_gps_rx_pin() const override;
     gpio_num_t get_arming_pin() const override;

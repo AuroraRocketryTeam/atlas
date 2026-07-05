@@ -250,19 +250,11 @@ void loopHil()
     static bool ledState = false;
     static RocketState lastLoggedState = RocketState::INACTIVE;
 
-    if (!rocketFSM)
-    {
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-        return;
-    }
-
     // Heartbeat every 2 seconds
     if (Utils::realMillis() - lastHeartbeat > 2000)
     {
-        lastHeartbeat = Utils::realMillis();
-
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
-
+        lastHeartbeat = Utils::realMillis();
         ledState = !ledState;
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
@@ -284,11 +276,12 @@ void loopHil()
         // Optional: Print current state periodically
         RocketState currentState = rocketFSM->getCurrentState();
 
-        // if (currentState != lastLoggedState)
-        // {
-        LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-            // lastLoggedState = currentState;
-        // }
+        if (currentState != lastLoggedState)
+        {
+            LOG_INFO("Main", "Current FSM State: %s",
+                     rocketFSM->getStateString(currentState));
+            lastLoggedState = currentState;
+        }
     }
 
     // Small delay to prevent watchdog issues
