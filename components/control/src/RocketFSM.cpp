@@ -3,6 +3,7 @@
 #include "esp_task_wdt.h"
 #include <utils.h>
 #include <algorithm>
+#include <cmath>
 
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
@@ -11,11 +12,12 @@ static constexpr RecoveryMode RECOVERY_MODE = AURORA_RECOVERY_MODE;
 RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
                      std::shared_ptr<SD> sd,
                      std::shared_ptr<RocketLogger> logger,
-                     IBoardHardware* board)
+                     IBoardHardware* board,
+                     std::shared_ptr<IGroundTestRunner> testRunner)
     : _fsmTaskHandle(nullptr), _eventQueue(nullptr), _stateMutex(nullptr),
       _currentState(RocketState::INACTIVE), _previousState(RocketState::INACTIVE),
       _stateStartTime(0), _isRunning(false), _isTransitioning(false),
-      _rocketModel(rocketModel), _logger(logger), _sd(sd), _board(board)
+      _rocketModel(rocketModel), _logger(logger), _testRunner(testRunner), _sd(sd), _board(board)
 {
     LOG_INFO("FSM", "Constructor called");
     LOG_INFO("FSM", "Variables check: model=%s, SD=%s, Logger=%s",
@@ -81,7 +83,9 @@ void RocketFSM::init()
         _rocketModel,
         _sd,
         _logger,
-        this
+        _board,
+        this,
+        _testRunner
     );
     LOG_INFO("RocketFSM", "INITIALIZING TASKS...");
     _taskManager->initializeTasks();

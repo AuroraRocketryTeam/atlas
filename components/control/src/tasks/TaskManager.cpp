@@ -8,11 +8,15 @@
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
-                         IStateMachine* fsm) :
+                         IBoardHardware* board,
+                         IStateMachine* fsm,
+                         std::shared_ptr<IGroundTestRunner> testRunner) :
                          _rocketModel(rocketModel),
                          _logger(logger),
                          _sd(sd),
-                         _fsm(fsm)
+                         _fsm(fsm),
+                         _board(board),
+                         _testRunner(testRunner)
 {
     LOG_INFO("TaskMgr", "Initialized with model");
 

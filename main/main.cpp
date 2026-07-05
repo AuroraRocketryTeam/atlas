@@ -56,7 +56,7 @@
  *
  */
 #define CALIBRATE_SENSORS
-#define ENABLE_TEST_ROUTINE
+// #define ENABLE_TEST_ROUTINE
 
 // Board hardware instance
 static Board board;
@@ -77,6 +77,7 @@ static std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
 static std::unique_ptr<RocketFSM> rocketFSM;
+static std::shared_ptr<TestRoutine> testRoutine = nullptr;
 
 // Utility functions
 void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
@@ -134,11 +135,19 @@ void setupFlight()
     rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
     LOG_INFO("Main", "RocketModel system model created");
 
+    testRoutine = std::make_shared<TestRoutine>(
+        board,
+        rocketModel,
+        sdCard,
+        flash,
+        statusManager,
+        ledController,
+        buzzerController);
+
 #ifdef ENABLE_TEST_ROUTINE
     vTaskDelay(5000 / portTICK_PERIOD_MS);
     LOG_INFO("Main", "=== TEST MODE ENABLED ===");
-    TestRoutine tests(board, rocketModel, sdCard, flash, statusManager, ledController, buzzerController);
-    tests.run();
+    testRoutine->run();
 #endif
 
 #ifdef CALIBRATE_SENSORS
@@ -153,7 +162,7 @@ void setupFlight()
     // Initialize and start FSM
     LOG_INFO("Main", "=== System initialization complete ===");
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
-    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board, testRoutine);
     rocketFSM->init();
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 

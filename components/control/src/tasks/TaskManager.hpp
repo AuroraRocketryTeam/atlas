@@ -23,8 +23,12 @@
 
 #include "TelemetryTask.hpp"
 #include "AltitudeTask.hpp"
+#include "GroundServicesTask.hpp"
 #include <EspNowTransmitter.hpp>
 #include <E220LoRaTransmitter.hpp>
+#include <IBoardHardware.hpp>
+
+class IGroundTestRunner;
 
 /**
  * @brief Class to manage tasks in the system.
@@ -42,7 +46,9 @@ public:
     TaskManager(std::shared_ptr<RocketModel> rocketModel,
             std::shared_ptr<SD> sd,
             std::shared_ptr<RocketLogger> logger,
-            IStateMachine* fsm = nullptr);
+            IBoardHardware* board,
+            IStateMachine* fsm = nullptr,
+            std::shared_ptr<IGroundTestRunner> testRunner = nullptr);
     
     /**
      * @brief Destroy the Task Manager object
@@ -121,4 +127,6 @@ private:
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
 
     IStateMachine* _fsm;
+    IBoardHardware* _board;
+    std::shared_ptr<IGroundTestRunner> _testRunner;
 };
