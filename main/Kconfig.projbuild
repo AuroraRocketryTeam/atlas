@@ -35,6 +35,72 @@ menu "Atlas Configuration"
 
 endmenu
 
+menu "Ground Services Configuration"
+
+    config GROUND_SERVICES_AUTH_TOKEN
+        string "Ground Services bearer token"
+        default "CHANGE_ME_GROUND_SERVICES_TOKEN"
+        help
+            Bearer token required for Ground Services API requests.
+            Do not commit real tokens. Set the private value with
+            idf.py menuconfig; ESP-IDF writes it to sdkconfig, which is ignored.
+
+endmenu
+
+menu "Rocket Access Point Configuration"
+
+    config ROCKET_AP_SSID
+        string "Rocket SoftAP SSID"
+        default "Aurora AP"
+        help
+            SoftAP network name advertised by the board.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
+
+    config ROCKET_AP_PASSWORD
+        string "Rocket SoftAP password"
+        default "CHANGE_ME_ROCKET_AP_PASSWORD"
+        help
+            Leave empty for an open AP. Non-empty passwords must be at least 8 characters.
+            Do not commit real passwords. Set the private value with
+            idf.py menuconfig; ESP-IDF writes it to sdkconfig, which is ignored.
+
+    config ROCKET_AP_CHANNEL
+        int "Rocket SoftAP channel"
+        default 1
+        range 1 13
+        help
+            WiFi channel used by the board SoftAP.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
+
+    config ROCKET_AP_MAX_CONNECTIONS
+        int "Rocket SoftAP maximum station connections"
+        default 4
+        range 1 4
+        help
+            Maximum number of stations allowed to connect to the board SoftAP.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
+
+    config ROCKET_AP_IP_ADDR
+        string "Rocket SoftAP static IP address"
+        default "192.168.4.1"
+        help
+            Static IPv4 address assigned to the board SoftAP interface.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
+
+    config ROCKET_AP_NETMASK
+        string "Rocket SoftAP netmask"
+        default "255.255.255.0"
+        help
+            IPv4 netmask used by the board SoftAP interface.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
+
+endmenu
+
 menu "Aurora Hil Configuration"
     # config AURORA_HIL_SIMULATION
     #     bool "Enable Hardware-in-the-Loop simulation mode"
@@ -51,46 +117,6 @@ menu "Aurora Hil Configuration"
             Add support for the Hardware-In-the-Loop simulation.
 
     if AURORA_HIL_SUPPORT
-
-    config AURORA_HIL_WIFI_SSID
-        string "HIL SoftAP SSID"
-        default "Aurora-HIL"
-        help
-            SSID used by the ESP32 SoftAP when HIL simulation mode is enabled.
-
-    config AURORA_HIL_WIFI_PASSWORD
-        string "HIL SoftAP password"
-        default "aurorahil"
-        help
-            Password used by the ESP32 SoftAP when HIL simulation mode is enabled.
-            Leave empty to create an open AP. If non-empty, it must be at least
-            8 characters for WPA/WPA2/WPA3 modes.
-
-    config AURORA_HIL_WIFI_CHANNEL
-        int "HIL SoftAP WiFi channel"
-        default 1
-        range 1 13
-        help
-            WiFi channel used by the HIL SoftAP.
-
-    config AURORA_HIL_MAX_STA_CONN
-        int "HIL SoftAP maximum station connections"
-        default 1
-        range 1 4
-        help
-            Maximum number of clients that can connect to the HIL SoftAP.
-
-    config AURORA_HIL_AP_IP_ADDR
-        string "HIL SoftAP static IP address"
-        default "192.168.42.1"
-        help
-            Static IPv4 address assigned to the ESP32 SoftAP interface in HIL mode.
-
-    config AURORA_HIL_AP_NETMASK
-        string "HIL SoftAP netmask"
-        default "255.255.255.0"
-        help
-            IPv4 netmask for the ESP32 SoftAP interface in HIL mode.
 
     config AURORA_HIL_SERVER_PORT
         int "HIL TCP server port"

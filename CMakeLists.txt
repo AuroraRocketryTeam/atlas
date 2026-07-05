@@ -56,6 +56,8 @@ if(NOT EXISTS "${CMAKE_BINARY_DIR}/Kconfig")
     file(WRITE "${CMAKE_BINARY_DIR}/Kconfig" "# Auto-generated placeholder for project Kconfig\n")
 endif()
 
+set(SDKCONFIG_DEFAULTS "${CMAKE_SOURCE_DIR}/sdkconfig.defaults")
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # This registers all the components in the specified directory, so IT IS IMPORTANT to put all the EXTRA_COMPONENT_DIRS before this

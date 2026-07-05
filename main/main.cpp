@@ -10,11 +10,7 @@
 
 // WiFi and communication
 #include <esp_now.h>
-#include <esp_wifi.h>
-#include <esp_event.h>
-#include <esp_netif.h>
 #include <esp_err.h>
-#include <nvs_flash.h>
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -230,69 +226,7 @@ void loopFlight()
 
 static bool initializeWifiStaForEspNow()
 {
-    static bool initialized = false;
-    if (initialized) {
-        return true;
-    }
-
-    // NVS init (required by Wi-Fi)
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ret = nvs_flash_erase();
-        if (ret != ESP_OK) {
-            LOG_ERROR("WiFi", "nvs_flash_erase failed: %s", esp_err_to_name(ret));
-            return false;
-        }
-        ret = nvs_flash_init();
-    }
-    if (ret != ESP_OK) {
-        LOG_ERROR("WiFi", "nvs_flash_init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    // init network stack and event loop
-    ret = esp_netif_init();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        LOG_ERROR("WiFi", "esp_netif_init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    ret = esp_event_loop_create_default();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        LOG_ERROR("WiFi", "esp_event_loop_create_default failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    (void)esp_netif_create_default_wifi_sta();
-
-    // init wifi drivers
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ret = esp_wifi_init(&cfg);
-    if (ret != ESP_OK && ret != ESP_ERR_WIFI_INIT_STATE) {
-        LOG_ERROR("WiFi", "esp_wifi_init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    ret = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (ret != ESP_OK) {
-        LOG_ERROR("WiFi", "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    ret = esp_wifi_start();
-    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_STOPPED) {
-        LOG_ERROR("WiFi", "esp_wifi_start failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    // disconnect wifi
-    ret = esp_wifi_disconnect();
-    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT && ret != ESP_ERR_WIFI_CONN) {
-        LOG_WARNING("WiFi", "esp_wifi_disconnect returned: %s", esp_err_to_name(ret));
-    }
-
-    initialized = true;
-    return true;
+    return board.startWifiSta();
 }
 
 void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
