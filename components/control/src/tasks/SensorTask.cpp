@@ -29,7 +29,6 @@ void SensorTask::taskFunction()
     {
         // CRITICAL: Reset the watchdog every loop (watchdog created in BaseTask)
         esp_task_wdt_reset();
-        LOG_INFO("SensorTask", "READING SENSORS");
         
         // Check running flag early to exit quickly during shutdown
         if (!running || !rocketModel) break;
@@ -39,13 +38,11 @@ void SensorTask::taskFunction()
         rocketModel->updateMS561101BA03_1();
         rocketModel->updateMS561101BA03_2();
         rocketModel->updateLIS3DHTR();
-
-        LOG_DEBUG("Sensor", "Updated all sensors");
         
         if (!running) break;
 
-        // Log memory usage every 10 loops
-        if (loopCount % 10 == 0)
+        // Log memory usage
+        if (loopCount % 250 == 0)
         {
             uint32_t freeHeap = ESP.getFreeHeap();
             LOG_INFO("Sensor", "L%lu: Stack HwM:%u, Heap=%u, Memory=%u",
@@ -91,7 +88,7 @@ void SensorTask::taskFunction()
             }
 
             // Log current RocketLogger memory usage for monitoring
-            LOG_INFO("Sensor", "RocketLogger entries logged");
+            // LOG_INFO("Sensor", "RocketLogger entries logged");
         }
 #endif
 
