@@ -1,3 +1,16 @@
+"""TCP framing and lockstep transport for RocketPy HIL.
+
+The producer thread queues one simulator payload into ``OneSlotMailbox``. The
+TCP thread takes that payload, sends it as ``MSG_TYPE_SIM_INPUT``, waits for one
+``MSG_TYPE_FC_COMMAND`` response, and then updates the command handlers before
+taking another payload. This one-packet exchange prevents RocketPy/preflight
+code from running ahead of the flight controller.
+
+Recoverable socket errors are handled by closing the socket and reconnecting.
+Protocol/data errors are printed separately because they indicate a simulator/FC
+contract mismatch rather than a normal reset or reconnect.
+"""
+
 from __future__ import annotations
 
 import os
@@ -8,7 +21,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-ESP_IP = os.getenv("HIL_FC_HOST", "192.168.42.1")
+ESP_IP = os.getenv("HIL_FC_HOST", "192.168.4.1")
 PORT = int(os.getenv("HIL_FC_PORT", "5000"))
 
 MAGIC = 0xA5A55A5A
@@ -31,19 +44,21 @@ COMMAND_SIZE = struct.calcsize(COMMAND_FMT)
 # Do not keep a separate HIL-specific FSM enum.
 FSM_STATE_INACTIVE = 0
 FSM_STATE_CALIBRATING = 1
-FSM_STATE_READY_FOR_LAUNCH = 2
-FSM_STATE_LAUNCH = 3
-FSM_STATE_ACCELERATED_FLIGHT = 4
-FSM_STATE_BALLISTIC_FLIGHT = 5
-FSM_STATE_APOGEE = 6
-FSM_STATE_STABILIZATION = 7
-FSM_STATE_DECELERATION = 8
-FSM_STATE_LANDING = 9
-FSM_STATE_RECOVERED = 10
+FSM_STATE_GROUND_SERVICES = 2
+FSM_STATE_READY_FOR_LAUNCH = 3
+FSM_STATE_LAUNCH = 4
+FSM_STATE_ACCELERATED_FLIGHT = 5
+FSM_STATE_BALLISTIC_FLIGHT = 6
+FSM_STATE_APOGEE = 7
+FSM_STATE_STABILIZATION = 8
+FSM_STATE_DECELERATION = 9
+FSM_STATE_LANDING = 10
+FSM_STATE_RECOVERED = 11
 
 FSM_STATE_NAMES = {
     FSM_STATE_INACTIVE: "INACTIVE",
     FSM_STATE_CALIBRATING: "CALIBRATING",
+    FSM_STATE_GROUND_SERVICES: "GROUND_SERVICES",
     FSM_STATE_READY_FOR_LAUNCH: "READY_FOR_LAUNCH",
     FSM_STATE_LAUNCH: "LAUNCH",
     FSM_STATE_ACCELERATED_FLIGHT: "ACCELERATED_FLIGHT",
@@ -74,6 +89,28 @@ class PeerClosedConnection(ConnectionError):
     """
 
     pass
+
+
+TRANSPORT_ERRORS = (
+    PeerClosedConnection,
+    BrokenPipeError,
+    ConnectionResetError,
+    ConnectionAbortedError,
+    ConnectionRefusedError,
+    socket.timeout,
+    OSError,
+)
+
+
+def _transport_error_message(error: BaseException, phase: str) -> str:
+    """Return a short reconnect-oriented description for socket failures."""
+    if isinstance(error, PeerClosedConnection):
+        return f"FC closed TCP connection: {error}"
+    if isinstance(error, ConnectionRefusedError):
+        return f"FC TCP server not ready at {ESP_IP}:{PORT}: {error}"
+    if isinstance(error, socket.timeout):
+        return f"FC TCP {phase} timed out for {ESP_IP}:{PORT}: {error}"
+    return f"{type(error).__name__}: {error}"
 
 
 # ---------------------------------------------------------
@@ -255,6 +292,13 @@ class OneSlotMailbox:
 
             return value
 
+    def clear(self):
+        """Drop the queued value, if any, and unblock a producer waiting to retry."""
+        with self._cv:
+            self._value = None
+            self._full = False
+            self._cv.notify_all()
+
 
 # ---------------------------------------------------------
 # Main loop
@@ -279,6 +323,7 @@ def tcp_client(
 
     while not stop_requested:
         sock = None
+        socket_phase = "connect"
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -315,10 +360,13 @@ def tcp_client(
 
                 # ===== ENCODE + SEND SIMULATION INPUT =====
                 frame = encode_msg(MSG_TYPE_SIM_INPUT, payload)
+                socket_phase = "send"
                 sock.sendall(frame)
 
                 # ===== RECEIVE FC COMMAND =====
+                socket_phase = "receive"
                 msg_type, rx_payload = recv_msg(sock)
+                socket_phase = "idle"
 
                 # ===== VALIDATE =====
                 if msg_type != MSG_TYPE_FC_COMMAND:
@@ -351,41 +399,19 @@ def tcp_client(
                 if handlers.on_fsm_state:
                     handlers.on_fsm_state(command_sim_time_s, fsm_state)
 
-        # Expected during startup reset, and still tolerated as a recoverable transport event.
-        except (
-            PeerClosedConnection,
-            BrokenPipeError,
-            ConnectionResetError,
-            ConnectionAbortedError,
-        ) as e:
-            if not stop_requested:
-                print(
-                    f"[INFO] FC closed TCP connection, reconnecting: "
-                    f"{type(e).__name__}: {e}"
-                )
-
-        # Expected during reconnect:
-        # The FC closed the old server/task, but the new one is not listening yet.
-        except ConnectionRefusedError as e:
-            if not stop_requested:
-                print(f"[INFO] FC TCP server not ready yet, retrying: {e}")
-
-        # Not treated as normal FSM shutdown:
-        # The socket stayed open, but the FC did not answer in time.
-        except socket.timeout as e:
-            if not stop_requested:
-                print(f"[TIMEOUT] FC did not answer in time: {e}")
-
         # Protocol/data errors:
         # These should not be hidden as normal reconnects.
         except (ValueError, RuntimeError, struct.error) as e:
-            print(f"[PROTOCOL ERROR] {type(e).__name__}: {e}")
+            message = f"{type(e).__name__}: {e}"
+            print(f"[PROTOCOL ERROR] {message}")
 
-        # Other OS-level socket errors:
-        # Keep visible because these may indicate real network/configuration bugs.
-        except OSError as e:
+        # Recoverable transport errors. Startup reset and FC task restarts can
+        # close the socket; reconnect and let the producer resend/tolerate the
+        # missed response through its normal timeout path.
+        except TRANSPORT_ERRORS as e:
             if not stop_requested:
-                print(f"[SOCKET ERROR] errno={e.errno}: {type(e).__name__}: {e}")
+                message = _transport_error_message(e, socket_phase)
+                print(f"[TCP] {message}; reconnecting")
 
         # Actual programming bugs:
         # Do not hide them, otherwise debugging becomes impossible.

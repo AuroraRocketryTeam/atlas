@@ -3,6 +3,26 @@ hil_capture.py
 
 Utilities to save, load, and plot HIL captures produced by hil_rocketpy.py.
 
+Captures store two parallel structures:
+
+    hil_log["sim_time_s"]
+        The compact capture time axis used by plots and replay.
+
+    hil_events["time_eclipses"]
+        Optional markers for time spans that were sent to the FC but collapsed
+        out of the capture. Example:
+
+            {
+                "label": "GROUND_SERVICES",
+                "time_s": 3.0,
+                "omitted_duration_s": 17.5,
+                "omitted_samples": 350
+            }
+
+        This means capture time jumps from calibration directly to launch at
+        t=3.0 s, while the FC actually received another 17.5 s of stationary
+        Ground Services samples before READY_FOR_LAUNCH.
+
 Typical usage from hil_rocketpy.py:
 
     from hil_capture import create_capture_file, save_hil_capture, plot_hil_log
@@ -39,6 +59,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
+from matplotlib.widgets import Slider
 
 from hil_utils import (
     accelerometer_output_to_clean_sensor_matrix_from_metadata as _accelerometer_output_to_clean_sensor_matrix,
@@ -58,18 +79,19 @@ G0 = 9.80665
 FSM_STATE_ORDER = {
     "INACTIVE": 0,
     "CALIBRATING": 1,
-    "READY_FOR_LAUNCH": 2,
-    "LAUNCH": 3,
-    "ACCELERATED_FLIGHT": 4,
-    "BALLISTIC_FLIGHT": 5,
-    "APOGEE": 6,
-    "STABILIZATION": 7,
-    "DECELERATION": 8,
-    "LANDING": 9,
-    "RECOVERED": 10,
+    "GROUND_SERVICES": 2,
+    "READY_FOR_LAUNCH": 3,
+    "LAUNCH": 4,
+    "ACCELERATED_FLIGHT": 5,
+    "BALLISTIC_FLIGHT": 6,
+    "APOGEE": 7,
+    "STABILIZATION": 8,
+    "DECELERATION": 9,
+    "LANDING": 10,
+    "RECOVERED": 11,
 }
 
-FSM_STATE_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">"]
+FSM_STATE_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">", "p"]
 
 
 # ----------------------------------------------------------------------
@@ -265,6 +287,50 @@ def _sanitize_airbrake_events(raw_events: Any) -> list[tuple[float, float]]:
     return out
 
 
+def _sanitize_time_eclipses(raw_events: Any) -> list[dict[str, Any]]:
+    """Normalize capture time-eclipse markers.
+
+    A time eclipse is an omitted interval in the saved capture time axis. The
+    simulator may still have sent those samples to the FC; the plot marker only
+    tells the reader that the displayed time was compacted at ``time_s``.
+    """
+    if raw_events is None:
+        return []
+
+    out: list[dict[str, Any]] = []
+
+    for item in raw_events:
+        if not isinstance(item, dict):
+            continue
+
+        try:
+            time_s = float(item["time_s"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        try:
+            omitted_duration_s = float(item.get("omitted_duration_s", 0.0))
+        except (TypeError, ValueError):
+            omitted_duration_s = 0.0
+
+        try:
+            omitted_samples = int(item.get("omitted_samples", 0))
+        except (TypeError, ValueError):
+            omitted_samples = 0
+
+        out.append(
+            {
+                "time_s": time_s,
+                "label": str(item.get("label", "omitted")),
+                "omitted_duration_s": max(0.0, omitted_duration_s),
+                "omitted_samples": max(0, omitted_samples),
+            }
+        )
+
+    out.sort(key=lambda x: x["time_s"])
+    return out
+
+
 def _sanitize_fsm_events(raw_events: Any) -> list[tuple[float, str]]:
     """Normalize current FSM event entries: ``[time, state_name]``."""
     if raw_events is None:
@@ -390,6 +456,57 @@ def _mark_fsm_event_lines(ax, fsm_events: list[tuple[float, str]]) -> None:
             alpha=0.7,
             label="FSM transition" if first else None,
         )
+        first = False
+
+
+def _mark_time_eclipses(
+    ax,
+    eclipses: list[dict[str, Any]],
+    sim_time_s: np.ndarray,
+) -> None:
+    """Draw compacted-time markers on a time-series axis."""
+    if not eclipses or len(sim_time_s) == 0:
+        return
+
+    x_min = float(sim_time_s[0])
+    x_max = float(sim_time_s[-1])
+    span = max(x_max - x_min, 1.0)
+    half_width = max(span * 0.003, 0.01)
+    first = True
+
+    for eclipse in eclipses:
+        time_s = float(eclipse["time_s"])
+        if time_s < x_min - half_width or time_s > x_max + half_width:
+            continue
+
+        label = (
+            "Ground Services omitted"
+            if first
+            else None
+        )
+        ax.axvspan(
+            time_s - half_width,
+            time_s + half_width,
+            color="0.5",
+            alpha=0.16,
+            label=label,
+            zorder=0,
+        )
+        ax.axvline(time_s, color="0.35", linestyle="--", linewidth=1.2)
+
+        omitted_duration_s = float(eclipse.get("omitted_duration_s", 0.0))
+        if omitted_duration_s > 0.0:
+            ax.annotate(
+                f"{eclipse.get('label', 'omitted')}\nomitted {omitted_duration_s:.1f}s",
+                xy=(time_s, 1.0),
+                xycoords=("data", "axes fraction"),
+                xytext=(4, -4),
+                textcoords="offset points",
+                va="top",
+                fontsize=8,
+                color="0.25",
+            )
+
         first = False
 
 
@@ -552,6 +669,9 @@ def replay_hil_3d(
 
     Controls
     --------
+    Time slider
+        Jump to a specific simulation time. This pauses the replay and resumes
+        from the selected sample when Space is pressed.
     Space
         Pause or resume.
     R
@@ -696,6 +816,7 @@ def replay_hil_3d(
     drogue_times = _sanitize_event_times(hil_events.get("open_drogue", []))
     main_times = _sanitize_event_times(hil_events.get("open_main", []))
     fsm_events = _sanitize_fsm_events(hil_events.get("fsm_state", []))
+    time_eclipses = _sanitize_time_eclipses(hil_events.get("time_eclipses", []))
 
     # Keep the trajectory large while leaving two synchronized telemetry plots
     # visible throughout the replay.
@@ -921,6 +1042,7 @@ def replay_hil_3d(
     _mark_event_lines(ax_accel, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_accel, main_times, "OPEN_MAIN")
     _mark_fsm_event_lines(ax_accel, fsm_events)
+    _mark_time_eclipses(ax_accel, time_eclipses, sim_time_s)
     ax_accel.set_title("Accelerometer payload")
     ax_accel.set_ylabel("Specific force [g]")
     ax_accel.set_xlim(sim_time_s[0], sim_time_s[-1])
@@ -954,6 +1076,7 @@ def replay_hil_3d(
     _mark_event_lines(ax_pressure, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_pressure, main_times, "OPEN_MAIN")
     _mark_fsm_event_lines(ax_pressure, fsm_events)
+    _mark_time_eclipses(ax_pressure, time_eclipses, sim_time_s)
     ax_pressure.set_title("Barometer payload")
     ax_pressure.set_xlabel("Simulation time [s]")
     ax_pressure.set_ylabel("Pressure [hPa]")
@@ -974,6 +1097,7 @@ def replay_hil_3d(
         0.02,
         0.02,
         "Space: pause/resume    R: restart    L: show/hide 3D legend\n"
+        "Replay time slider: jump to a saved sample\n"
         "Black: rocket nose/body +Z    Dashed: accelerometer axes\n"
         "Magenta: accel vector    Dash-dot: accel components",
         transform=ax.transAxes,
@@ -1005,8 +1129,18 @@ def replay_hil_3d(
     fig.subplots_adjust(
         left=0.04,
         right=0.98,
-        bottom=0.08,
+        bottom=0.15,
         top=0.94,
+    )
+
+    slider_ax = fig.add_axes([0.12, 0.055, 0.72, 0.03])
+    time_slider = Slider(
+        slider_ax,
+        "Replay time [s]",
+        float(sim_time_s[0]),
+        float(sim_time_s[-1]),
+        valinit=float(sim_time_s[0]),
+        valfmt="%.3f",
     )
 
     positive_periods = np.diff(sim_time_s)
@@ -1016,7 +1150,14 @@ def replay_hil_3d(
     )
     interval_ms = max(1.0, 1000.0 * mean_period_s / playback_speed)
 
-    animation_state = {"paused": False, "legend_visible": False}
+    animation_state = {
+        "paused": False,
+        "legend_visible": False,
+        "updating_slider": False,
+    }
+
+    def frame_sequence_from(frame_index: int):
+        return iter(range(frame_index, expected_length))
 
     def update(frame_index: int):
         position = np.asarray(
@@ -1025,6 +1166,10 @@ def replay_hil_3d(
         )
         rotation = rotations[frame_index]
         current_time_s = sim_time_s[frame_index]
+
+        animation_state["updating_slider"] = True
+        time_slider.set_val(float(current_time_s))
+        animation_state["updating_slider"] = False
 
         trail.set_data_3d(
             x[: frame_index + 1],
@@ -1313,6 +1458,21 @@ def replay_hil_3d(
         blit=False,
     )
 
+    def jump_to_time(target_time_s: float) -> None:
+        frame_index = _nearest_sample_index(sim_time_s, target_time_s)
+        replay.event_source.stop()
+        animation_state["paused"] = True
+        replay.frame_seq = frame_sequence_from(frame_index)
+        update(frame_index)
+        fig.canvas.draw_idle()
+
+    def on_slider_changed(target_time_s: float) -> None:
+        if animation_state["updating_slider"]:
+            return
+        jump_to_time(float(target_time_s))
+
+    time_slider.on_changed(on_slider_changed)
+
     def on_key_press(event) -> None:
         key = (event.key or "").lower()
 
@@ -1323,7 +1483,7 @@ def replay_hil_3d(
                 replay.event_source.stop()
             animation_state["paused"] = not animation_state["paused"]
         elif key == "r":
-            replay.frame_seq = replay.new_frame_seq()
+            replay.frame_seq = frame_sequence_from(0)
             replay.event_source.start()
             animation_state["paused"] = False
         elif key == "l" and legend_3d is not None:
@@ -1360,7 +1520,8 @@ def plot_hil_log(
       - airbrakes command, when present
 
     FSM events are expected in hil_events["fsm_state"] as (time, state_name),
-    matching hil_rocketpy.py's current capture format.
+    matching hil_rocketpy.py's current capture format. ``time_eclipses`` events
+    are shown as narrow shaded markers at the compacted timestamp.
     """
     if hil_events is None:
         hil_events = {}
@@ -1393,6 +1554,7 @@ def plot_hil_log(
     main_times = _sanitize_event_times(hil_events.get("open_main", []))
     airbrake_events = _sanitize_airbrake_events(hil_events.get("airbrakes", []))
     fsm_events = _sanitize_fsm_events(hil_events.get("fsm_state", []))
+    time_eclipses = _sanitize_time_eclipses(hil_events.get("time_eclipses", []))
 
     apogee_idx = int(np.argmax(altitude_m))
     sample_periods_s = np.diff(sim_time_s)
@@ -1416,6 +1578,7 @@ def plot_hil_log(
     print(f"Main events:         {main_times}")
     print(f"Airbrake changes:    {airbrake_events}")
     print(f"FSM transitions:     {fsm_events}")
+    print(f"Time eclipses:       {time_eclipses}")
     print("======================================\n")
 
     # ------------------------------------------------------------------
@@ -1474,6 +1637,7 @@ def plot_hil_log(
     _mark_event_lines(ax_alt, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_alt, main_times, "OPEN_MAIN")
     _mark_fsm_event_lines(ax_alt, fsm_events)
+    _mark_time_eclipses(ax_alt, time_eclipses, sim_time_s)
     _mark_fsm_points_2d(ax_alt, sim_time_s, sim_time_s, altitude_m, fsm_events, annotate=True)
 
     ax_alt.set_title("Altitude and Barometer Pressure Sent to FC")
@@ -1522,6 +1686,7 @@ def plot_hil_log(
     _mark_event_lines(ax_acc, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_acc, main_times, "OPEN_MAIN")
     _mark_fsm_event_lines(ax_acc, fsm_events)
+    _mark_time_eclipses(ax_acc, time_eclipses, sim_time_s)
     ax_acc.set_title("Accelerometer Payload Sent to FC")
     ax_acc.set_xlabel("Simulation time [s]")
     ax_acc.set_ylabel("Acceleration [g]")
@@ -1537,6 +1702,7 @@ def plot_hil_log(
     _mark_event_lines(ax_temp, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_temp, main_times, "OPEN_MAIN")
     _mark_fsm_event_lines(ax_temp, fsm_events)
+    _mark_time_eclipses(ax_temp, time_eclipses, sim_time_s)
     ax_temp.set_title("Temperature Payload Sent to FC")
     ax_temp.set_xlabel("Simulation time [s]")
     ax_temp.set_ylabel("Temperature [K]")
@@ -1575,6 +1741,7 @@ def plot_hil_log(
 
         ax_fsm.step(step_t, step_y, where="post", label="FSM state")
         ax_fsm.scatter(event_t_values, event_y_values, s=65, marker="o", label="FSM transition")
+        _mark_time_eclipses(ax_fsm, time_eclipses, sim_time_s)
 
         for event_t, state, y_value in zip(event_t_values, [s for _, s in fsm_events], event_y_values):
             ax_fsm.annotate(
@@ -1614,6 +1781,7 @@ def plot_hil_log(
         fig_air, ax_air = plt.subplots(figsize=(12, 4))
         ax_air.step(air_t, air_lvl, where="post")
         _mark_fsm_event_lines(ax_air, fsm_events)
+        _mark_time_eclipses(ax_air, time_eclipses, sim_time_s)
         ax_air.set_title("Airbrakes Command Received from FC")
         ax_air.set_xlabel("Simulation time [s]")
         ax_air.set_ylabel("Deployment level")
