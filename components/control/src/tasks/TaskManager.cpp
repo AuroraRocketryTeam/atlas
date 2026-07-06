@@ -20,6 +20,9 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
 {
     LOG_INFO("TaskMgr", "Initialized with model");
 
+#if CONFIG_AURORA_HIL_SIMULATION
+    LOG_INFO("TaskMgr", "HIL Simulation enabled, skipping ESP-NOW initialization");
+#else
     // Initialize ESP-NOW transmitter. ESP-NOW uses board-managed WiFi STA mode.
     uint8_t peerMac[] = ESPNOW_PEER_MAC;
     _espNowTransmitter = std::make_shared<EspNowTransmitter>(_board, peerMac, ESPNOW_CHANNEL);
@@ -35,6 +38,7 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
     {
         LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
     }
+#endif
 
     // Initialize and configure LoRa transmitter
     // Serial1 is used by GPS, so LoRa uses Serial2

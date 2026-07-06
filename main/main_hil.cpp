@@ -71,7 +71,6 @@ static std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
 void printSystemInfo();
-void wifi_softap_init(void);
 
 // HIL lifecycle helpers
 static void createAndStartFSM();
@@ -107,9 +106,6 @@ void setupHil()
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
 
     LOG_INFO("Main", "Initializing system...");
-
-    wifi_softap_init();
-    LOG_INFO("Main", "WiFi soft AP ready...");
 
     // Initialize components
     // LOG_INFO("Main", "Initializing sensors...");
@@ -304,15 +300,4 @@ void printSystemInfo()
     printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
     printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
     printf("--- End System Information ---\n");
-}
-
-void wifi_softap_init(void)
-{
-    if (!board.startWifiSoftAp())
-    {
-        LOG_ERROR("wifi_softap", "Failed to start board SoftAP");
-        return;
-    }
-
-    LOG_INFO("wifi_softap", "SoftAP ready at %s", board.getWifiIpAddress());
 }

@@ -123,8 +123,8 @@ private:
 
     std::shared_ptr<SD> _sd;
     // Telemetry
-    std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
-    std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
+    std::shared_ptr<EspNowTransmitter> _espNowTransmitter = nullptr;
+    std::shared_ptr<E220LoRaTransmitter> _loraTransmitter = nullptr;
 
     IStateMachine* _fsm;
     IBoardHardware* _board;
