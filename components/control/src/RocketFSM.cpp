@@ -353,34 +353,6 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::INACTIVE] = std::make_unique<StateAction>(RocketState::INACTIVE);
     _stateActions[RocketState::INACTIVE]->setEntryAction([this]()
                                                         { LOG_INFO("RocketFSM", "Entering INACTIVE"); });
-
-    // GROUND_SERVICES state
-    _stateActions[RocketState::GROUND_SERVICES] = std::make_unique<StateAction>(RocketState::GROUND_SERVICES);
-    _stateActions[RocketState::GROUND_SERVICES]
-        ->setEntryAction([this]() {
-            LOG_INFO("RocketFSM", "Entering GROUND_SERVICES");
-            // TODO: move startWifiStaForEspNow() here?
-        })
-        .setExitAction([this]() {
-            LOG_INFO("RocketFSM", "Exiting GROUND_SERVICES");
-            // TODO: move stopWifiStaForEspNow() here?
-        })
-        .addTask(TaskConfig(TaskType::GROUND_SERVICES, "GroundServices", 8192, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
-        /*
-         * Keep Ground Services lean on ESP32-S3-WROOM-1-N16.
-         * HTTPS/TLS needs contiguous internal RAM per connection, so sensor,
-         * GPS, and telemetry tasks are intentionally stopped in this state.
-         */
-        /*
-        #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ground", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        #else
-        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ground", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::GPS, "Gps_Ground", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
-        #endif
-        .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Ground", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
-        */
-
     // CALIBRATING state
     _stateActions[RocketState::CALIBRATING] = std::make_unique<StateAction>(RocketState::CALIBRATING);
     _stateActions[RocketState::CALIBRATING]
@@ -397,6 +369,31 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Calib", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         //.addTask(TaskConfig(TaskType::STORAGE, "Storage_Calib", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        ;
+    // GROUND_SERVICES state
+    _stateActions[RocketState::GROUND_SERVICES] = std::make_unique<StateAction>(RocketState::GROUND_SERVICES);
+    _stateActions[RocketState::GROUND_SERVICES]
+        ->setEntryAction([this]() {
+            LOG_INFO("RocketFSM", "Entering GROUND_SERVICES");
+            // TODO: move startWifiStaForEspNow() here?
+        })
+        .setExitAction([this]() {
+            LOG_INFO("RocketFSM", "Exiting GROUND_SERVICES");
+            // TODO: move stopWifiStaForEspNow() here?
+        })
+        /*
+         * Keep Ground Services lean on ESP32-S3-WROOM-1-N16.
+         * HTTPS/TLS needs contiguous internal RAM per connection, so sensor,
+         * GPS, and telemetry tasks are intentionally stopped in this state.
+         */
+        .addTask(TaskConfig(TaskType::GROUND_SERVICES, "GroundServices", 8192, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
+        #if CONFIG_AURORA_HIL_SIMULATION
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ground", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        #else
+        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ground", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::GPS, "Gps_Ground", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        #endif
+        .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Ground", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
         ;
     // READY_FOR_LAUNCH state
     _stateActions[RocketState::READY_FOR_LAUNCH] = std::make_unique<StateAction>(RocketState::READY_FOR_LAUNCH);
