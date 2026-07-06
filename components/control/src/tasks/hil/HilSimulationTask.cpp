@@ -475,7 +475,7 @@ void HilSimulationTask::taskFunction() {
             Utils::setSimMillis(sim_time_ms);
 
             // yield in order to let the other task to set the command
-            vTaskDelay(pdMS_TO_TICKS(20));
+            vTaskDelay(pdMS_TO_TICKS(20)); // 20ms -> 50Hz, because Python runs at default --sampling-rate=50Hz (WARNING: mixing real and simulated time)
             if(!running) break;
 
             /* ================= READ COMMAND FROM MODEL ================= */
@@ -507,17 +507,6 @@ void HilSimulationTask::taskFunction() {
                 LOG_WARNING(TAG, "closing: send_all failed");
                 break;
             }
-
-            /* ================= LOG ================= */
-
-            // LOG_INFO(TAG,
-            //     "t=%.2f | acc=[%.2f %.2f %.2f] | alt=%.2f",
-            //     pkt.sim_time,
-            //     pkt.ax, pkt.ay, pkt.az,
-            //     pkt.alt
-            // );
-
-            //vTaskDelay(pdMS_TO_TICKS(20)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
         }
 
         if (_client_sock >= 0) {

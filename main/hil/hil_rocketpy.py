@@ -174,8 +174,8 @@ parser.add_argument(
 parser.add_argument(
     "--sampling-rate",
     type=positive_int,
-    default=20,
-    help="Sampling rate in Hz for sensors, logger, airbrakes and parachutes. Default: 20 Hz.",
+    default=50,
+    help="Sampling rate in Hz for sensors, logger, airbrakes and parachutes. Default: 50 Hz.",
 )
 parser.add_argument(
     "--sensor-profile",

@@ -4,6 +4,7 @@
 #include <MS561101BA03.hpp>
 #include <SerialLogger.hpp>
 #include <RocketModel.hpp>
+#include <utils.h>
 #include <config.h>
 #include <array>
 #include <algorithm>
