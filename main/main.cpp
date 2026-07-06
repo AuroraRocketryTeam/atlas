@@ -8,8 +8,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// WiFi and communication
-#include <esp_now.h>
+// ESP-IDF helpers
 #include <esp_err.h>
 
 // Configuration and pins
@@ -231,11 +230,6 @@ void loopFlight()
     vTaskDelay(100 / portTICK_PERIOD_MS);
 }
 
-static bool initializeWifiStaForEspNow()
-{
-    return board.startWifiSta();
-}
-
 void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
                           std::shared_ptr<LIS3DHTRSensor>& accl,
                           std::shared_ptr<MS561101BA03>& baro1,
@@ -333,37 +327,6 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     else
     {
         LOG_ERROR("Init", "Failed to initialize external flash");
-    }
-
-    // Initializa ESP-NOW connection for telemetry
-    LOG_INFO("Init", "Initializing ESP-NOW for telemetry...");
-    if (initializeWifiStaForEspNow())
-    {
-        if (esp_now_init() == ESP_OK)
-        {
-            LOG_INFO("Init", "ESP-NOW initialized");
-            esp_now_peer_info_t peerInfo = {};
-            memcpy(peerInfo.peer_addr, RECEIVER_MAC_ADDRESS, 6);
-            peerInfo.channel = 0;
-            peerInfo.encrypt = false;
-
-            if (esp_now_add_peer(&peerInfo) == ESP_OK)
-            {
-                LOG_INFO("Init", "ESP-NOW peer added");
-            }
-            else
-            {
-                LOG_ERROR("Init", "Failed to add ESP-NOW peer");
-            }
-        }
-        else
-        {
-            LOG_ERROR("Init", "Failed to initialize ESP-NOW");
-        }
-    }
-    else
-    {
-        LOG_ERROR("Init", "Failed to initialize Wi-Fi");
     }
 
     LOG_INFO("Init", "Status indicators initialized");
