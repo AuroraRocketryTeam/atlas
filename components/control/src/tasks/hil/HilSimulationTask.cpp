@@ -1,6 +1,7 @@
 #include "HilSimulationTask.hpp"
 #include "protocol.hpp"
 
+#include <inttypes.h>
 #include <cstring>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -13,6 +14,7 @@
 static const char *TAG = "HilSimulationTask";
 
 static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
+static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 1000;
 
 /* ===================== PACKETS ===================== */
 
@@ -324,6 +326,7 @@ void HilSimulationTask::taskFunction() {
         
 
         LOG_INFO(TAG, "Client connected");
+        uint32_t last_packet_log_ms = Utils::realMillis() - HIL_PACKET_LOG_PERIOD_MS;
 
         /* ================= CONNECTION LOOP ================= */
 
@@ -446,9 +449,12 @@ void HilSimulationTask::taskFunction() {
             gps.altitude  = pkt.alt;
             gps.setSensorName("GPS_SIM");
 
-            ESP_LOGI(TAG, "Received sim packet: time=%d ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
-                sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt
-            );
+            const uint32_t now_ms = Utils::realMillis();
+            if (now_ms - last_packet_log_ms >= HIL_PACKET_LOG_PERIOD_MS) {
+                LOG_INFO(TAG, "Received sim packet: time=%" PRIu32 " ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
+                         sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt);
+                last_packet_log_ms = now_ms;
+            }
             
             /* ================= UPDATE MODEL ================= */
 

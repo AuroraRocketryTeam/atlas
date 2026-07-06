@@ -4,11 +4,15 @@
 #include <SerialLogger.hpp>
 #include "RuntimeConfig.hpp"
 
+static constexpr uint32_t ALTITUDE_LOG_PERIOD_MS = 1000;
+
 void AltitudeTask::taskFunction()
 {
     LOG_INFO("AltitudeTask", "Starting Altitude task pipeline...");
 
     uint32_t lastTimestamp = 0;
+    uint32_t last_packet_log_ms = Utils::realMillis() - ALTITUDE_LOG_PERIOD_MS;
+    
     const RuntimeConfig &flightConfig = runtime_config_get_flight_snapshot();
     
     // Baseline for the slew rate limiter
@@ -82,8 +86,12 @@ void AltitudeTask::taskFunction()
 
         _rocketModel->setHeightGainSpeed(currentVelocity);
 
-        LOG_INFO("AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m", 
+        const uint32_t now_ms = Utils::realMillis();
+        if (now_ms - last_packet_log_ms >= ALTITUDE_LOG_PERIOD_MS) {
+            LOG_INFO("AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m", 
                  currentAltitude, currentVelocity, _max_altitude_read);
+            last_packet_log_ms = now_ms;
+        }
         
         vTaskDelay(pdMS_TO_TICKS(20));
     }

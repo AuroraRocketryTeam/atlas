@@ -831,8 +831,11 @@ void RocketFSM::checkTransitions()
         const bool isBaroReady = _rocketModel->isBarometerZeroed();
         const bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();
 
-        LOG_INFO("RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d",
-                isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
+        if (useBaroSample)
+        {
+            LOG_INFO("RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d",
+                    isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
+        }
 
         if (isBaroReady && isBnoReady)
         {
@@ -923,7 +926,7 @@ void RocketFSM::checkTransitions()
     {
         auto currentHeight = _rocketModel->getCurrentHeight();
         
-        LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight);
+        // LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight);
         
         if (currentHeight < runtimeCfg.main_altitude_threshold_m)
         {
