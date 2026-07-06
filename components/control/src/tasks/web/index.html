@@ -2,8 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Atlas Ground Services</title>
+  <script>
+    if (window.location.protocol === 'https:') {
+      window.location.replace(`http://${window.location.host}${window.location.pathname}${window.location.search}${window.location.hash}`);
+    }
+  </script>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>

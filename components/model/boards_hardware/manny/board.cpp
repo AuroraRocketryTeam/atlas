@@ -4,6 +4,7 @@
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_event.h"
+#include "esp_mac.h"
 #include "SerialLogger.hpp"
 #include "esp_netif.h"
 #include "esp_partition.h"
@@ -12,6 +13,35 @@
 #include <cstring>
 
 static const char *TAG = "MannyBoard";
+static uint32_t s_softap_station_count = 0;
+
+static void wifiEventHandler(void *, esp_event_base_t event_base, int32_t event_id, void *event_data)
+{
+    if (event_base != WIFI_EVENT) {
+        return;
+    }
+
+    if (event_id == WIFI_EVENT_AP_STACONNECTED) {
+        auto *event = static_cast<wifi_event_ap_staconnected_t *>(event_data);
+        s_softap_station_count++;
+        LOG_INFO(TAG, "SoftAP station connected: mac=" MACSTR " aid=%u stations=%lu/%u",
+                 MAC2STR(event->mac),
+                 static_cast<unsigned>(event->aid),
+                 static_cast<unsigned long>(s_softap_station_count),
+                 static_cast<unsigned>(CONFIG_ROCKET_AP_MAX_CONNECTIONS));
+    } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+        auto *event = static_cast<wifi_event_ap_stadisconnected_t *>(event_data);
+        if (s_softap_station_count > 0) {
+            s_softap_station_count--;
+        }
+        LOG_INFO(TAG, "SoftAP station disconnected: mac=" MACSTR " aid=%u reason=%u stations=%lu/%u",
+                 MAC2STR(event->mac),
+                 static_cast<unsigned>(event->aid),
+                 static_cast<unsigned>(event->reason),
+                 static_cast<unsigned long>(s_softap_station_count),
+                 static_cast<unsigned>(CONFIG_ROCKET_AP_MAX_CONNECTIONS));
+    }
+}
 
 /**
  * @brief SoftAP values read from sdkconfig.
@@ -297,6 +327,11 @@ bool MannyBoard::initNetworking() {
         LOG_INFO(TAG, "default event loop already exists");
     }
 
+    ret = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifiEventHandler, nullptr);
+    if (ret != ESP_OK) {
+        LOG_WARNING(TAG, "esp_event_handler_register WIFI_EVENT failed: %s", esp_err_to_name(ret));
+    }
+
     wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT();
     ret = esp_wifi_init(&wifi_init_config);
     if (ret != ESP_OK && ret != ESP_ERR_WIFI_INIT_STATE) {
@@ -397,7 +432,8 @@ bool MannyBoard::startWifiSoftAp() {
     wifi_config.ap.ssid_len = strlen(cfg.ssid);
     wifi_config.ap.channel = cfg.channel;
     wifi_config.ap.max_connection = cfg.max_connections;
-    wifi_config.ap.authmode = strlen(cfg.password) == 0 ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_WPA3_PSK;
+    wifi_config.ap.authmode = strlen(cfg.password) == 0 ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+    wifi_config.ap.pmf_cfg.required = false;
 
     esp_err_t ret = esp_wifi_set_mode(WIFI_MODE_AP);
     if (ret != ESP_OK) {
@@ -448,14 +484,16 @@ bool MannyBoard::startWifiSoftAp() {
 
     wifi_started = true;
     wifi_softap_users = 1;
+    s_softap_station_count = 0;
     snprintf(wifi_ip_address, sizeof(wifi_ip_address), "%s", cfg.ip);
     uint8_t mac[6] = {};
     if (esp_wifi_get_mac(WIFI_IF_AP, mac) == ESP_OK) {
         snprintf(wifi_mac_address, sizeof(wifi_mac_address), "%02x:%02x:%02x:%02x:%02x:%02x",
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     }
-    LOG_INFO(TAG, "SoftAP started: ssid=%s ip=%s channel=%u max_sta=%u users=%lu",
+    LOG_INFO(TAG, "SoftAP started: ssid=%s ip=%s channel=%u max_sta=%u auth=%s users=%lu",
              cfg.ssid, cfg.ip, cfg.channel, cfg.max_connections,
+             wifi_config.ap.authmode == WIFI_AUTH_OPEN ? "open" : "wpa2-psk",
              static_cast<unsigned long>(wifi_softap_users));
     return true;
 }
@@ -479,6 +517,7 @@ bool MannyBoard::stopWifi() {
     }
     wifi_started = false;
     wifi_softap_users = 0;
+    s_softap_station_count = 0;
     wifi_ip_address[0] = '\0';
     return true;
 }

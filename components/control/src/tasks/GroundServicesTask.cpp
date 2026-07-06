@@ -201,7 +201,8 @@ static esp_err_t sendJson(httpd_req_t *req, const char *status, const char *json
     httpd_resp_set_status(req, status);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_sendstr(req, json);
+    (void)httpd_resp_sendstr(req, json);
+    return ESP_OK;
 }
 
 static esp_err_t sendErrorJson(httpd_req_t *req, const char *status, const char *error, esp_err_t err = ESP_OK)
@@ -384,7 +385,8 @@ static esp_err_t sendAsset(httpd_req_t *req, const unsigned char *start, const u
     if (len > 0 && start[len - 1] == '\0') len--;
     httpd_resp_set_type(req, content_type);
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    return httpd_resp_send(req, reinterpret_cast<const char *>(start), len);
+    (void)httpd_resp_send(req, reinterpret_cast<const char *>(start), len);
+    return ESP_OK;
 }
 
 void GroundServicesTask::onTaskStart()
@@ -453,11 +455,12 @@ esp_err_t GroundServicesTask::startServer()
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = 30;
     config.stack_size = 12288;
-    config.max_open_sockets = 4;
-    config.backlog_conn = 2;
-    config.recv_wait_timeout = 10;
-    config.send_wait_timeout = 10;
+    config.max_open_sockets = 7;
+    config.backlog_conn = 4;
+    config.recv_wait_timeout = 20;
+    config.send_wait_timeout = 20;
     config.lru_purge_enable = true;
+    config.uri_match_fn = httpd_uri_match_wildcard;
 
     esp_err_t err = httpd_start(&_server, &config);
     if (err != ESP_OK) return err;
@@ -516,6 +519,7 @@ void GroundServicesTask::registerHandlers()
     add("/api/ota/status", HTTP_GET, otaStatusGetHandler);
     add("/api/ota/upload", HTTP_POST, otaUploadPostHandler);
     add("/api/ota/reboot", HTTP_POST, otaRebootPostHandler);
+    add("/*", HTTP_GET, redirectToRootHandler);
 }
 
 void GroundServicesTask::setOtaStatus(OtaState state, size_t written, size_t total, esp_err_t err, const char *message, const char *sha256)
@@ -635,7 +639,22 @@ bool GroundServicesTask::authenticateRequest(httpd_req_t *req)
 esp_err_t GroundServicesTask::rootGetHandler(httpd_req_t *req) { return sendAsset(req, ground_index_html_start, ground_index_html_end, "text/html"); }
 esp_err_t GroundServicesTask::styleGetHandler(httpd_req_t *req) { return sendAsset(req, ground_style_css_start, ground_style_css_end, "text/css"); }
 esp_err_t GroundServicesTask::appJsGetHandler(httpd_req_t *req) { return sendAsset(req, ground_app_js_start, ground_app_js_end, "application/javascript"); }
-esp_err_t GroundServicesTask::faviconGetHandler(httpd_req_t *req) { httpd_resp_set_status(req, "204 No Content"); return httpd_resp_send(req, nullptr, 0); }
+esp_err_t GroundServicesTask::faviconGetHandler(httpd_req_t *req) { httpd_resp_set_status(req, "204 No Content"); (void)httpd_resp_send(req, nullptr, 0); return ESP_OK; }
+
+esp_err_t GroundServicesTask::redirectToRootHandler(httpd_req_t *req)
+{
+    char host[96] = {};
+    const bool has_host = getHeader(req, "Host", host, sizeof(host));
+    char location[128];
+    snprintf(location, sizeof(location), "http://%s/",
+             has_host && host[0] != '\0' ? host : "192.168.4.1");
+
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", location);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    (void)httpd_resp_sendstr(req, "Redirecting to Ground Services dashboard.");
+    return ESP_OK;
+}
 
 esp_err_t GroundServicesTask::authNonceGetHandler(httpd_req_t *req)
 {
@@ -844,7 +863,8 @@ esp_err_t GroundServicesTask::logsGetHandler(httpd_req_t *req)
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "X-Log-Latest-Seq", latest_header);
-    return httpd_resp_sendstr(req, s_logResponseBuffer);
+    (void)httpd_resp_sendstr(req, s_logResponseBuffer);
+    return ESP_OK;
 }
 
 esp_err_t GroundServicesTask::runtimeConfigGetHandler(httpd_req_t *req)

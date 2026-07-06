@@ -68,6 +68,7 @@ private:
     static esp_err_t styleGetHandler(httpd_req_t *req);
     static esp_err_t appJsGetHandler(httpd_req_t *req);
     static esp_err_t faviconGetHandler(httpd_req_t *req);
+    static esp_err_t redirectToRootHandler(httpd_req_t *req);
     static esp_err_t authNonceGetHandler(httpd_req_t *req);
     static esp_err_t statusGetHandler(httpd_req_t *req);
     static esp_err_t healthGetHandler(httpd_req_t *req);
