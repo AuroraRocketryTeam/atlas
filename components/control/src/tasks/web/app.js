@@ -25,8 +25,17 @@ let latestStatus = null;
 let sdkconfigText = null;
 let sdkconfigLoading = false;
 let logsPaused = false;
+let otaUploadActive = false;
 let lastLogSeq = 0;
 let logLines = [];
+let authQueue = Promise.resolve();
+const pollBusy = {
+  status: false,
+  live: false,
+  ota: false,
+  tests: false,
+  logs: false,
+};
 const MAX_CLIENT_LOG_LINES = 1000;
 
 token.value = localStorage.getItem('atlas_ground_token') || '';
@@ -145,7 +154,13 @@ async function getNonce() {
   return body.nonce;
 }
 
-async function signedHeaders(path, method, bodySha256, extra = {}) {
+function enqueueAuth(work) {
+  const run = authQueue.catch(() => {}).then(work);
+  authQueue = run.catch(() => {});
+  return run;
+}
+
+async function buildSignedHeaders(path, method, bodySha256, extra = {}) {
   const secret = token.value.trim();
   if (!secret) throw new Error('Missing HMAC shared secret');
   const nonce = await getNonce();
@@ -160,12 +175,18 @@ async function signedHeaders(path, method, bodySha256, extra = {}) {
   };
 }
 
+async function signedHeaders(path, method, bodySha256, extra = {}) {
+  return enqueueAuth(() => buildSignedHeaders(path, method, bodySha256, extra));
+}
+
 async function authFetch(path, options = {}) {
-  const method = (options.method || 'GET').toUpperCase();
-  const body = options.body || '';
-  const bodySha256 = await sha256Hex(body);
-  const signed = await signedHeaders(path, method, bodySha256, options.headers || {});
-  return fetch(path, { ...options, method, headers: signed });
+  return enqueueAuth(async () => {
+    const method = (options.method || 'GET').toUpperCase();
+    const body = options.body || '';
+    const bodySha256 = await sha256Hex(body);
+    const signed = await buildSignedHeaders(path, method, bodySha256, options.headers || {});
+    return fetch(path, { ...options, method, headers: signed, cache: 'no-store' });
+  });
 }
 
 async function api(path, options = {}) {
@@ -227,6 +248,15 @@ function show(page) {
   if (page === 'live') loadLive();
   if (page === 'ota') refreshOta();
   if (page === 'logs') loadLogs();
+}
+
+function runPoll(name, visible, work) {
+  if (!visible || pollBusy[name]) return;
+  pollBusy[name] = true;
+  Promise.resolve()
+    .then(work)
+    .catch(() => {})
+    .finally(() => { pollBusy[name] = false; });
 }
 
 function row(label, value) {
@@ -297,8 +327,16 @@ function updateFsmBar(status) {
 }
 
 async function pollStatus() {
-  const s = await api('/api/status');
-  if (!s.ok) return;
+  if (otaUploadActive) return;
+  if (pollBusy.status) return;
+  pollBusy.status = true;
+  let s;
+  try {
+    s = await api('/api/status');
+  } finally {
+    pollBusy.status = false;
+  }
+  if (!s || !s.ok) return;
 
   updateFsmBar(s);
 
@@ -483,8 +521,13 @@ function renderLogs(output = logOutput, options = {}) {
 }
 
 async function loadLogs(options = {}) {
+  if (pollBusy.logs && !options.force) return;
+  pollBusy.logs = true;
   const output = options.output || logOutput;
-  if (logsPaused && output === logOutput && !options.force) return;
+  if (logsPaused && output === logOutput && !options.force) {
+    pollBusy.logs = false;
+    return;
+  }
   try {
     const path = `/api/logs?since=${lastLogSeq}`;
     const res = await authFetch(path);
@@ -504,6 +547,8 @@ async function loadLogs(options = {}) {
     renderLogs(output, { forceBottom: options.forceBottom });
   } catch (err) {
     output.textContent = err.message || String(err);
+  } finally {
+    pollBusy.logs = false;
   }
 }
 
@@ -788,17 +833,25 @@ async function uploadFirmware() {
   }
 
   const xhr = new XMLHttpRequest();
+  otaUploadActive = true;
   xhr.open('POST', '/api/ota/upload', true);
   Object.entries(signed).forEach(([key, value]) => xhr.setRequestHeader(key, value));
   xhr.upload.onprogress = event => {
     if (event.lengthComputable) progress.value = Math.round((event.loaded / event.total) * 100);
   };
   xhr.onload = () => {
+    otaUploadActive = false;
     try { otaStatus.textContent = JSON.stringify(JSON.parse(xhr.responseText), null, 2); }
     catch { otaStatus.textContent = xhr.responseText; }
     refreshOta();
   };
-  xhr.onerror = () => { otaStatus.textContent = 'Upload failed'; refreshOta(); };
+  xhr.onerror = () => {
+    otaUploadActive = false;
+    otaStatus.textContent = 'Upload failed';
+    refreshOta();
+  };
+  xhr.onabort = xhr.onerror;
+  xhr.ontimeout = xhr.onerror;
   xhr.send(file);
 }
 
@@ -893,11 +946,11 @@ document.getElementById('saveConfig').addEventListener('click', saveConfig);
 document.getElementById('resetConfig').addEventListener('click', resetConfig);
 document.getElementById('unlockConfig').addEventListener('click', unlockConfig);
 
-setInterval(() => { if (!document.getElementById('live').classList.contains('hidden')) loadLive(); }, 500);
-setInterval(() => { if (!document.getElementById('ota').classList.contains('hidden')) refreshOta(); }, 1500);
-setInterval(() => { if (!document.getElementById('tests').classList.contains('hidden')) refreshTests(); }, 1000);
-setInterval(() => { if (!document.getElementById('logs').classList.contains('hidden')) loadLogs(); }, 1000);
-setInterval(pollStatus, 4000);
+setInterval(() => runPoll('live', !otaUploadActive && !document.getElementById('live').classList.contains('hidden'), loadLive), 1000);
+setInterval(() => runPoll('ota', !otaUploadActive && !document.getElementById('ota').classList.contains('hidden'), refreshOta), 2000);
+setInterval(() => runPoll('tests', !otaUploadActive && !document.getElementById('tests').classList.contains('hidden'), refreshTests), 1500);
+setInterval(() => { if (!otaUploadActive && !document.getElementById('logs').classList.contains('hidden')) loadLogs(); }, 1500);
+setInterval(pollStatus, 5000);
 document.getElementById('refreshLogs').addEventListener('click', loadLogs);
 pauseLogsButton.addEventListener('click', () => {
   logsPaused = !logsPaused;
