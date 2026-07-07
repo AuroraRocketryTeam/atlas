@@ -146,13 +146,20 @@ nav button.active, nav button:hover {
   background: rgba(255, 255, 255, 0.94);
   border-bottom: 1px solid var(--line);
 }
+.top-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
 .eyebrow {
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
 }
-.state-pill {
+.state-pill,
+.mode-pill {
   display: inline-flex;
   align-items: center;
   min-height: 30px;
@@ -168,6 +175,39 @@ nav button.active, nav button:hover {
 .state-ready_for_launch { background: var(--green); }
 .state-calibrating { background: var(--amber); }
 .state-launch, .state-accelerated_flight, .state-ballistic_flight { background: #7c3aed; }
+.mode-flight {
+  color: #064e3b;
+  background: #a7f3d0;
+  box-shadow: inset 0 0 0 1px #34d399;
+}
+.mode-hil-ready {
+  color: #0f172a;
+  background: #bfdbfe;
+  box-shadow: inset 0 0 0 1px #60a5fa;
+}
+.mode-simulation {
+  color: #fff;
+  background: #b91c1c;
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.28);
+}
+.mode-unknown {
+  background: #4b5563;
+}
+.simulation-warning {
+  position: sticky;
+  top: 66px;
+  z-index: 2;
+  padding: 10px 24px;
+  color: #fff;
+  background: #991b1b;
+  border-bottom: 1px solid #7f1d1d;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+.simulation-warning strong {
+  margin-right: 6px;
+}
 
 main {
   padding: 24px;
@@ -665,14 +705,27 @@ pre {
     padding: 8px;
     gap: 6px;
   }
+  .top-status {
+    gap: 6px;
+    overflow: hidden;
+  }
   .eyebrow {
     font-size: 10px;
   }
-  .state-pill {
+  .state-pill,
+  .mode-pill {
     min-height: 24px;
     margin-top: 2px;
     padding: 3px 8px;
     font-size: 12px;
+    white-space: normal;
+    line-height: 1.1;
+  }
+  .simulation-warning {
+    position: static;
+    padding: 7px 8px;
+    font-size: 12px;
+    line-height: 1.25;
   }
   #fsmAdvance {
     width: auto;
@@ -816,6 +869,18 @@ pre {
     height: 48px;
     padding: 6px;
     gap: 5px;
+  }
+  .top-status {
+    gap: 5px;
+  }
+  .state-pill,
+  .mode-pill {
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+  .simulation-warning {
+    padding: 6px;
+    font-size: 11px;
   }
   #fsmAdvance {
     max-width: 44vw;

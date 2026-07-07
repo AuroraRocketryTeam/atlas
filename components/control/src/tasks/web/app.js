@@ -8,7 +8,9 @@ const drop = document.getElementById('drop');
 const firmware = document.getElementById('firmware');
 const fileName = document.getElementById('fileName');
 const fsmState = document.getElementById('fsmState');
+const hilMode = document.getElementById('hilMode');
 const fsmAdvance = document.getElementById('fsmAdvance');
+const simulationWarning = document.getElementById('simulationWarning');
 const logOutput = document.getElementById('logOutput');
 const testLogOutput = document.getElementById('testLogOutput');
 const logFilter = document.getElementById('logFilter');
@@ -269,6 +271,21 @@ function updateFsmBar(status) {
   fsmState.textContent = state;
   fsmState.className = `state-pill state-${state.toLowerCase()}`;
 
+  const hil = (status && status.hil) || {};
+  const hasHilMode = typeof hil.simulation === 'boolean';
+  if (hasHilMode) {
+    const simulation = hil.simulation === true;
+    const support = hil.support === true;
+    const modeLabel = simulation ? 'SIMULATION MODE' : 'FLIGHT MODE';
+    hilMode.textContent = support && !simulation ? `${modeLabel} / HIL READY` : modeLabel;
+    hilMode.className = `mode-pill ${simulation ? 'mode-simulation' : 'mode-flight'}${support && !simulation ? ' mode-hil-ready' : ''}`;
+    simulationWarning.classList.toggle('hidden', !simulation);
+  } else {
+    hilMode.textContent = 'UNKNOWN';
+    hilMode.className = 'mode-pill mode-unknown';
+    simulationWarning.classList.add('hidden');
+  }
+
   if (state === 'GROUND_SERVICES') {
     fsmAdvance.textContent = 'Go To Ready For Launch';
     fsmAdvance.classList.remove('hidden');
@@ -528,7 +545,7 @@ async function loadLive() {
     document.getElementById('liveContent').innerHTML = panel('Live Data', `<p class="bad">Unauthorized or unavailable.</p>`);
     return;
   }
-  fsmState.textContent = s.fsm_state || 'UNKNOWN';
+  updateFsmBar({ ...(latestStatus || {}), fsm_state: s.fsm_state || 'UNKNOWN' });
   const flight = s.flight || {};
   const calibration = s.calibration || {};
   const sensors = s.sensors || {};

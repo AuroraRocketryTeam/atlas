@@ -38,12 +38,21 @@
 
   <div class="shell">
     <header class="topline">
-      <div>
-        <div class="eyebrow">FSM State</div>
-        <div id="fsmState" class="state-pill">UNKNOWN</div>
+      <div class="top-status">
+        <div>
+          <div class="eyebrow">FSM State</div>
+          <div id="fsmState" class="state-pill">UNKNOWN</div>
+        </div>
+        <div>
+          <div class="eyebrow">Firmware Mode</div>
+          <div id="hilMode" class="mode-pill mode-unknown">UNKNOWN</div>
+        </div>
       </div>
       <button id="fsmAdvance" class="primary hidden">Advance</button>
     </header>
+    <div id="simulationWarning" class="simulation-warning hidden">
+      <strong>SIMULATION MODE ACTIVE.</strong> Real e-matches and actuators attached to this flight computer WILL work.
+    </div>
     <pre id="actionStatus" class="action-status hidden"></pre>
 
     <main>
