@@ -12,14 +12,10 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_SOURCE_DIR}/components/status
 
     # sensors
-    ${CMAKE_SOURCE_DIR}/components/sensors/BME680
     ${CMAKE_SOURCE_DIR}/components/sensors/BNO055
     ${CMAKE_SOURCE_DIR}/components/sensors/GPS
     ${CMAKE_SOURCE_DIR}/components/sensors/LIS3DHTR
-    ${CMAKE_SOURCE_DIR}/components/sensors/MPRLS
     ${CMAKE_SOURCE_DIR}/components/sensors/MS561101BA03
-    ${CMAKE_SOURCE_DIR}/components/sensors/Termoresistenze
-    ${CMAKE_SOURCE_DIR}/components/sensors/filters_kalman
 
     # telemetry
     ${CMAKE_SOURCE_DIR}/components/telemetry/protocol
@@ -27,10 +23,11 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_SOURCE_DIR}/components/telemetry/radio_lora
 
     # logger
-    ${CMAKE_SOURCE_DIR}/components/logger/core
-    ${CMAKE_SOURCE_DIR}/components/logger/implementation
+    ${CMAKE_SOURCE_DIR}/components/logger/rocket_logger
+    ${CMAKE_SOURCE_DIR}/components/logger/serializations
 
     # persistence
+    ${CMAKE_SOURCE_DIR}/components/persistence/storage
     ${CMAKE_SOURCE_DIR}/components/persistence/SD
     ${CMAKE_SOURCE_DIR}/components/persistence/flash
 
@@ -46,9 +43,7 @@ set(EXTRA_COMPONENT_DIRS
     ${CMAKE_SOURCE_DIR}/components/third_party/SdFat
     ${CMAKE_SOURCE_DIR}/components/third_party/lis3dh_pid
     ${CMAKE_SOURCE_DIR}/components/third_party/TinyEKF-master
-    ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_MPRLS
     ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_BusIO
-    ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_BME680
     ${CMAKE_SOURCE_DIR}/components/third_party/Adafruit_Sensor
     ${CMAKE_SOURCE_DIR}/components/third_party/EByte_LoRa_E220_Series_Library
     ${CMAKE_SOURCE_DIR}/components/third_party/SX126x-Arduino

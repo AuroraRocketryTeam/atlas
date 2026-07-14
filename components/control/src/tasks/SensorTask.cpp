@@ -2,14 +2,10 @@
 #include "esp_task_wdt.h"
 
 SensorTask::SensorTask(std::shared_ptr<RocketModel> rocketModel,
-                       SemaphoreHandle_t modelMutex,
-                       std::shared_ptr<RocketLogger> logger, 
-                       SemaphoreHandle_t loggerMutex)
+                        std::shared_ptr<RocketLogger> logger)
     : BaseTask("SensorTask"), 
-      rocketModel(rocketModel), 
-      modelMutex(modelMutex),
-      logger(logger), 
-      loggerMutex(loggerMutex)
+      rocketModel(rocketModel),
+      logger(logger)
 {
     LOG_INFO("Sensor", "SensorTask constructor initialized");
 }
@@ -36,23 +32,15 @@ void SensorTask::taskFunction()
         LOG_INFO("SensorTask", "READING SENSORS");
         
         // Check running flag early to exit quickly during shutdown
-        if (!running) break;
+        if (!running || !rocketModel) break;
         
         // Update sensors through the model with mutex protection
-        if (rocketModel && xSemaphoreTake(modelMutex, pdMS_TO_TICKS(10)) == pdTRUE)
-        {
-            rocketModel->updateBNO055();
-            rocketModel->updateMS561101BA03_1();
-            rocketModel->updateMS561101BA03_2();
-            rocketModel->updateLIS3DHTR();
-            
-            xSemaphoreGive(modelMutex);
-            LOG_DEBUG("Sensor", "Updated all sensors");
-        }
-        else
-        {
-            LOG_WARNING("Sensor", "Failed to take model mutex");
-        }
+        rocketModel->updateBNO055();
+        rocketModel->updateMS561101BA03_1();
+        rocketModel->updateMS561101BA03_2();
+        rocketModel->updateLIS3DHTR();
+
+        LOG_DEBUG("Sensor", "Updated all sensors");
         
         if (!running) break;
 
@@ -70,36 +58,42 @@ void SensorTask::taskFunction()
             }
         }
 
+#ifndef CONFIG_AURORA_HIL_SIMULATION
         // Log sensor data every 3 loops if logger is available
-        if (logger && loopCount % 3 == 0 && xSemaphoreTake(loggerMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+        if (logger)
         {
             // Log sensor data through the model
             if (rocketModel)
             {
-                auto bnoData = rocketModel->getBNO055Data();
-                auto ms56Data1 = rocketModel->getMS561101BA03Data_1();
-                auto ms56Data2 = rocketModel->getMS561101BA03Data_2();
-                auto lis3dhData = rocketModel->getLIS3DHTRData();
-                
-                if (bnoData) {
-                    logger->logSensorData(bnoData);
+                IMUData outBnoData;
+                SensorReadStatus bnoStatus = rocketModel->getBNO055Data(outBnoData);
+                if (bnoStatus == SensorReadStatus::OK) {
+                    logger->logSensorData(outBnoData);
                 }
-                if (ms56Data1) {
-                    logger->logSensorData(ms56Data1);
+
+                PressureSensorData outMs56Data1;
+                SensorReadStatus baro1Status = rocketModel->getMS561101BA03Data_1(outMs56Data1);
+                if (baro1Status == SensorReadStatus::OK) {
+                    logger->logSensorData(outMs56Data1);
                 }
-                if (ms56Data2) {
-                    logger->logSensorData(ms56Data2);
+
+                PressureSensorData outMs56Data2;
+                SensorReadStatus baro2Status = rocketModel->getMS561101BA03Data_2(outMs56Data2);
+                if (baro2Status == SensorReadStatus::OK) {
+                    logger->logSensorData(outMs56Data2);
                 }
-                if (lis3dhData) {
-                    logger->logSensorData(lis3dhData);
+
+                AccelerometerSensorData outLis3dhData;
+                SensorReadStatus accelStatus = rocketModel->getLIS3DHTRData(outLis3dhData);
+                if (accelStatus == SensorReadStatus::OK) {
+                    logger->logSensorData(outLis3dhData);
                 }
             }
-            
-            xSemaphoreGive(loggerMutex);
-            
+
             // Log current RocketLogger memory usage for monitoring
             LOG_INFO("Sensor", "RocketLogger entries logged");
         }
+#endif
 
         loopCount++;
         

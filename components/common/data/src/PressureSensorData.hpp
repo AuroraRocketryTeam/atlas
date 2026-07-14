@@ -1,6 +1,5 @@
 #pragma once
 #include <SensorData.hpp>
-#include <string.h>
 
 /**
  * @brief Data structure for Pressure sensor readings
@@ -9,28 +8,19 @@
 class PressureSensorData : public SensorData
 {
 public:
-    PressureSensorData(std::string sensorName) : SensorData(sensorName) {}
-
+    PressureSensorData() = default;
     // Pressure (hPa)
-    float pressure;
+    float pressure = 0.0f;
 
     // Temperature (°C)
-    float temperature;
+    float temperature = 0.0f;
 
     // Metadata
-    uint32_t timestamp;
+    uint32_t timestamp = 0;
 
-    json toJSON() const override {
-        json j;
-        j["source"] = getSensorName();
-
-        json sensorDataJson;
-        sensorDataJson["pressure"] = pressure;
-        sensorDataJson["temperature"] = temperature;
-        sensorDataJson["timestamp"] = timestamp;
-
-        j["sensorData"] = sensorDataJson;
-
-        return j;
+    size_t serializeJson(char* buffer, size_t maxLength) const {
+        return snprintf(buffer, maxLength, 
+            "{\"source\":\"%s\",\"sensorData\":{\"pressure\":%f,\"temperature\":%f,\"timestamp\":%lu}}\n",
+            getSensorName(), pressure, temperature, (unsigned long)timestamp);
     }
 };

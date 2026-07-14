@@ -1,0 +1,112 @@
+{
+  "Environment": {
+    "latitude": 39.3901806,
+    "longitude": -8.289189,
+    "elevation": 160
+  },
+
+  "set_date": [2025, 10, 13, 16],
+  "max_expected_height": 4500,
+
+  "set_atmospheric_model": {
+    "type": "custom_atmosphere",
+    "wind_u": [
+      [0, 0],
+      [4500, 0]
+    ],
+    "wind_v": [
+      [0, 0],
+      [4500, 0]
+    ]
+  },
+
+  "SolidMotor": {
+    "thrust_source": "Cesaroni_8187M1545_P.csv",
+    "dry_mass": 0,
+    "dry_inertia": [0, 0, 0],
+    "nozzle_radius": 0.029,
+    "grain_number": 6,
+    "grain_density": 1758.7,
+    "grain_outer_radius": 0.0359,
+    "grain_initial_inner_radius": 0.0181,
+    "grain_initial_height": 0.15617,
+    "grain_separation": 0.003,
+    "grains_center_of_mass_position": -0.7343,
+    "center_of_dry_mass_position": 0,
+    "nozzle_position": -1.296,
+    "burn_time": 5.3,
+    "throat_radius": 0.02,
+    "coordinate_system_orientation": "nozzle_to_combustion_chamber"
+  },
+
+  "RocketV2": {
+    "radius": 0.075,
+    "mass": 22.74,
+    "inertia": [14.304, 14.304, 0.078],
+    "power_off_drag": "Nemesis150_v4.0_RAS_CDMACH_pwrOFF.csv",
+    "power_on_drag": "Nemesis150_v4.0_RAS_CDMACH_pwrON.csv",
+    "center_of_mass_without_motor": 0,
+    "coordinate_system_orientation": "tail_to_nose"
+  },
+
+  "set_rail_buttons": {
+    "upper_button_position": 0.98,
+    "lower_button_position": -0.239,
+    "angular_position": 0
+  },
+
+  "add_motor": {
+    "position": 0
+  },
+
+  "add_nose": {
+    "length": 0.45,
+    "kind": "vonKarman",
+    "position": 1.635
+  },
+
+  "add_trapezoidal_fins": {
+    "n": 3,
+    "root_chord": 0.3,
+    "tip_chord": 0.093,
+    "span": 0.16,
+    "position": -0.855,
+    "cant_angle": 0,
+    "sweep_angle": 58
+  },
+
+  "add_tail": {
+    "top_radius": 0.075,
+    "bottom_radius": 0.046,
+    "length": 0.116,
+    "position": -1.155
+  },
+
+  "add_parachute": [
+    {
+      "name": "Main",
+      "_trigger": "main",
+      "_cd": 0.97,
+      "_area": 10.5070863,
+      "cd_s": "= $_cd * $_area",
+      "lag": 1.73,
+      "noise": [0, 6.5, 0.3]
+    },
+    {
+      "name": "Drogue",
+      "_trigger": "drogue",
+      "_cd": 0.97,
+      "_area": 0.6566929,
+      "cd_s": "= $_cd * $_area",
+      "lag": 1.73,
+      "noise": [0, 6.5, 0.3]
+    }
+  ],
+
+  "Flight": {
+    "rail_length": 12,
+    "inclination": 84,
+    "heading": 144,
+    "time_overshoot": false
+  }
+}

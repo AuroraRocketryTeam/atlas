@@ -7,13 +7,12 @@ idf_component_register(
         global
         data
         model
-        core
-        implementation
+        rocket_logger
         control
         status
         SD
         flash
         I2C
         radio_lora
-    REQUIRES espressif__arduino-esp32
+        espressif__arduino-esp32
 )

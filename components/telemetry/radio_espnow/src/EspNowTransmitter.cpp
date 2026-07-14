@@ -1,6 +1,6 @@
 #include "EspNowTransmitter.hpp"
 #include <PacketManager.hpp>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 #include <cstring>
 
 // Static instance pointer for callbacks
@@ -27,7 +27,9 @@ EspNowTransmitter::~EspNowTransmitter()
     if (initialized)
     {
         esp_now_deinit();
+#ifndef CONFIG_AURORA_HIL_SIMULATION // still using the Wifi AP.
         esp_wifi_stop();
+#endif
     }
     
     if (sendMutex)
@@ -54,7 +56,8 @@ ResponseStatusContainer EspNowTransmitter::init()
     }
     
     LOG_INFO("EspNow", "Initializing ESP-NOW transmitter...");
-    
+
+#ifndef CONFIG_AURORA_HIL_SIMULATION // main_hil already initialize it as WiFi AP.
     // Initialize WiFi
     esp_netif_init();
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -65,7 +68,8 @@ ResponseStatusContainer EspNowTransmitter::init()
     
     // Wait for WiFi to initialize
     vTaskDelay(pdMS_TO_TICKS(100));
-    
+#endif
+
     // Initialize ESP-NOW
     if (esp_now_init() != ESP_OK)
     {

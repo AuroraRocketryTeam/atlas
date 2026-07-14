@@ -10,24 +10,27 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <driver/i2c_master.h>
-#include <Arduino.h>
+#include <driver/gpio.h>
+#include <esp_system.h>
 
 #include <config.h>
 #include <board.h>
 #include <utils.h>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 #include <E220LoRaTransmitter.hpp>
 #include <I2CBus.hpp>
 
 TestRoutine::TestRoutine(IBoardHardware& board,
                          std::shared_ptr<RocketModel> model,
                          std::shared_ptr<SD> sdCard,
+                         std::shared_ptr<Flash> flash,
                          StatusManager& statusManager,
                          LEDController& ledController,
                          BuzzerController& buzzerController)
     : _board(board),
       _model(model),
       _sdCard(sdCard),
+      _flash(flash),
       _statusManager(statusManager),
       _ledController(ledController),
       _buzzerController(buzzerController)
@@ -74,7 +77,7 @@ bool TestRoutine::waitForUserInput(const char* message)
 
             if (confirm == "REBOOT" || confirm == "R") {
                 LOG_WARNING("Test", "Rebooting system...");
-                ESP.restart();
+                esp_restart();
             } else {
                 LOG_INFO("Test", "Reboot cancelled.");
             }
@@ -100,7 +103,9 @@ void TestRoutine::showTestPattern(int testNumber)
     case 7:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
     case 8:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
     case 9:  _statusManager.playBlockingPattern(TEST_SD,        1000); break;
-    case 10: _statusManager.playBlockingPattern(TEST_ALL,       2000); break;
+    case 10: _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
+    // 11-13 (flash utilities, IMU calibration) have no pattern
+    case 14: _statusManager.playBlockingPattern(TEST_ALL,       2000); break;
     default: break;
     }
 }
@@ -123,40 +128,62 @@ bool TestRoutine::testPowerAndLEDs()
 bool TestRoutine::testSensors()
 {
     LOG_INFO("Test", "\n[STEP 2] Test sensori");
-    bool imu_ok   = _model->updateBNO055();
-    bool baro1_ok = _model->updateMS561101BA03_1();
-    bool baro2_ok = _model->updateMS561101BA03_2();
-    bool accl_ok  = _model->updateLIS3DHTR();
 
     _board.init_sensor_test_pins();
 
-    if (!imu_ok) {
+    _model->updateBNO055();
+
+    IMUData imuData;
+    SensorReadStatus imuStatus = _model->getBNO055Data(imuData);
+    if (imuStatus != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: IMU non inizializzata.");
+        LOG_ERROR("Test", "Errore: IMU non inizializzata o errore nella lettura. Read status: %d", static_cast<int>(imuStatus));
     } else {
-        auto bnoData = _model->getBNO055Data();
         LOG_INFO("Test", "IMU Accelerometer: x=%.2f, y=%.2f, z=%.2f m/s^2",
-                 (double)bnoData->acceleration_x,
-                 (double)bnoData->acceleration_y,
-                 (double)bnoData->acceleration_z);
+                 (double)imuData.acceleration_x,
+                 (double)imuData.acceleration_y,
+                 (double)imuData.acceleration_z);
     }
-    if (!baro1_ok) {
+
+
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+    delay(20);
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+    delay(20);
+    
+    _model->updateMS561101BA03_1();
+    _model->updateMS561101BA03_2();
+
+    PressureSensorData baro1Data;
+    SensorReadStatus baro1Status = _model->getMS561101BA03Data_1(baro1Data);
+    if (baro1Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO1_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
+        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato. Read status: %d", static_cast<int>(baro1Status));
     } else {
         LOG_INFO("Test", "Barometer 1 Pressure: %.2f Pa",
-                 (double)_model->getMS561101BA03Data_1()->pressure);
+                 (double)baro1Data.pressure);
     }
-    if (!baro2_ok) {
+
+
+    PressureSensorData baro2Data;
+    SensorReadStatus baro2Status = _model->getMS561101BA03Data_2(baro2Data);
+    if (baro2Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO2_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
+        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato. Read status: %d", static_cast<int>(baro2Status));
     } else {
         LOG_INFO("Test", "Barometer 2 Pressure: %.2f Pa",
-                 (double)_model->getMS561101BA03Data_2()->pressure);
+                 (double)baro2Data.pressure);
     }
-    if (!accl_ok) {
+
+    _model->updateLIS3DHTR();
+
+    AccelerometerSensorData acclData;
+    SensorReadStatus acclStatus  = _model->getLIS3DHTRData(acclData);
+    if (acclStatus != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
+        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato. Read status: %d", static_cast<int>(acclStatus));
     } else {
         _board.signal_sensor_ok(IBoardHardware::Sensor::ACC);
     }
@@ -195,12 +222,17 @@ bool TestRoutine::testSDCard()
 
     if (_sdCard->openFile(TEST_FILE)) {
         std::string content = "SD card write test successful! Timestamp: " + std::to_string(Utils::millis()) + " ms\n";
-        if (_sdCard->writeFile(TEST_FILE, content)) {
+        const uint8_t* data = reinterpret_cast<const uint8_t*>(content.c_str());
+        size_t length = content.length();
+        if (_sdCard->writeFile(TEST_FILE, data, length)) {
             LOG_INFO("Test", "SD card write test successful");
-            char* readContent = _sdCard->readFile(TEST_FILE);
-            if (readContent)
-                LOG_INFO("Test", "Read from SD card: %s", readContent);
-            else {
+            std::string readContent = _sdCard->readFile(TEST_FILE);
+            if (!readContent.empty())
+            {
+                LOG_INFO("Test", "Read from SD card: %s", readContent.c_str());
+            }
+            else
+            {
                 _statusManager.playBlockingPattern(SD_READ_FAIL, 2000);
                 LOG_ERROR("Test", "Failed to read back from SD card");
             }
@@ -214,84 +246,256 @@ bool TestRoutine::testSDCard()
         LOG_ERROR("Test", "Failed to open test file on SD card");
     }
 
-    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    return waitForUserInput("Type PASSED to continue or FAILED to repeat");
 }
 
 bool TestRoutine::testFlashMemory()
 {
-    LOG_INFO("Test", "[STEP 5] Test Flash memory");
 
-    _flash = std::make_shared<Flash>();
-    const uint32_t t0 = Utils::millis();
+    // Print _board.get_spi_bus(), _board.get_flash_cs_pin(), _board.get_flash_hold_pin(), _board.get_flash_wp_pin()
+    LOG_INFO("Test", "SPI Bus: %d", _board.get_spi_bus());
+    LOG_INFO("Test", "Flash CS Pin: %d", _board.get_flash_cs_pin());
+    LOG_INFO("Test", "Flash Hold Pin: %d", _board.get_flash_hold_pin());
+    LOG_INFO("Test", "Flash WP Pin: %d", _board.get_flash_wp_pin());
 
-    if (_flash && _flash->init(_board.get_spi_bus(), _board.get_flash_cs_pin(),
-                               _board.get_flash_hold_pin(), _board.get_flash_wp_pin()))
-        LOG_INFO("Test", "External Flash initialized");
-    else
-        LOG_ERROR("Test", "Failed to initialize External Flash");
+
+    LOG_INFO("Test", "[STEP 5] Flash memory test");
 
     if (!_flash)
-        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    {
+        _flash = std::make_shared<Flash>();
+    }
 
-    if (!_flash->init()) {
-        LOG_ERROR("Test", "Flash init failed: verify external SPI flash wiring.");
+    const uint32_t t0 = Utils::millis();
+
+    if (!_flash) {
+        LOG_ERROR("Test", "Flash pointer is null! Initialization failed in setup.");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    if (!_flash->isInitialized())
+    {
+        if (!_flash->init(_board.get_spi_bus(), _board.get_flash_cs_pin(), _board.get_flash_hold_pin(), _board.get_flash_wp_pin()))
+        {
+            LOG_ERROR("Init", "Failed to initialize External Flash");
+            return waitForUserInput("Type PASSED to continue or FAILED to retry");
+        }
+        LOG_INFO("Init", "External Flash initialized");
+    }
+    else
+    {
+        LOG_INFO("Init", "External Flash already initialized, reusing instance");
+    }
+
+    LOG_INFO("Test", "Flash: verifying readiness...");
+    if (!_flash->isInitialized())
+    {
+        LOG_ERROR("Test", "Flash init failed: verify external SPI flash wiring and availability.");
         return waitForUserInput("Type PASSED to continue or FAILED to retry");
     }
     LOG_INFO("Test", "Flash: init OK (%lu ms)", (unsigned long)(Utils::millis() - t0));
 
-    const std::string testFile    = "test.txt";
+    const std::string testFile = "test.txt";
     const std::string missingFile = "ghost.txt";
 
-    char* readData = _flash->readFile(missingFile);
-    if (readData != nullptr) {
+    LOG_INFO("Test", "Flash: read missing file '%s' (expected empty)", missingFile.c_str());
+    std::string readData = _flash->readFile(missingFile.c_str());
+    if (!readData.empty())
+    {
         LOG_ERROR("Test", "Unexpected data returned for missing file.");
-        delete[] readData;
-    } else {
+    }
+    else
+    {
         LOG_INFO("Test", "Flash: missing file check OK");
     }
 
-    if (!_flash->writeFile(testFile, "Hello, ESP32 Flash Storage!\n"))
+    LOG_INFO("Test", "Flash: write '%s'", testFile.c_str());
+    const char* writeMsg = "Hello, ESP32 Flash Storage!\n";
+    if (!_flash->writeFile(testFile.c_str(), 
+                       reinterpret_cast<const uint8_t*>(writeMsg), 
+                       strlen(writeMsg)))
+    {
         LOG_ERROR("Test", "Flash write failed.");
+    }
     else
+    {
         LOG_INFO("Test", "Flash: write OK");
-
-    readData = _flash->readFile(testFile);
-    if (readData == nullptr)
-        LOG_ERROR("Test", "Flash read failed after write.");
-    else {
-        LOG_INFO("Test", "Flash read content: %s", readData);
-        delete[] readData;
     }
 
-    if (!_flash->appendFile(testFile, "Appended line.\n"))
-        LOG_ERROR("Test", "Flash append failed.");
+    LOG_INFO("Test", "Flash: read '%s'", testFile.c_str());
+    readData = _flash->readFile(testFile.c_str());
+    if (readData.empty())
+    {
+        LOG_ERROR("Test", "Flash read failed after write.");
+    }
     else
-        LOG_INFO("Test", "Flash: append OK");
+    {
+        LOG_INFO("Test", "Flash read content: %s", readData.c_str());
+    }
 
-    readData = _flash->readFile(testFile);
-    if (readData != nullptr) {
-        LOG_INFO("Test", "Flash read after append: %s", readData);
-        delete[] readData;
-    } else {
+    LOG_INFO("Test", "Flash: append to '%s'", testFile.c_str());
+    const char* appendMsg = "Appended line.\n";
+    if (!_flash->appendFile(testFile.c_str(), 
+                        reinterpret_cast<const uint8_t*>(appendMsg), 
+                        strlen(appendMsg)))
+    {
+        LOG_ERROR("Test", "Flash append failed.");
+    }
+    else
+    {
+        LOG_INFO("Test", "Flash: append OK");
+    }
+
+    LOG_INFO("Test", "Flash: read back after append");
+    readData = _flash->readFile(testFile.c_str());
+    if (!readData.empty())
+    {
+        LOG_INFO("Test", "Flash read after append: %s", readData.c_str());
+    }
+    else
+    {
         LOG_ERROR("Test", "Flash read failed after append.");
     }
 
-    if (!_flash->fileExists(testFile))
+    if (!_flash->fileExists(testFile.c_str()))
+    {
         LOG_ERROR("Test", "Flash file existence check failed.");
+    }
     else
+    {
         LOG_INFO("Test", "Flash: fileExists('%s') OK", testFile.c_str());
+    }
 
     const uint32_t t_clear = Utils::millis();
-    LOG_INFO("Test", "Flash: clear start (this can take several seconds)...");
+    LOG_INFO("Test", "Flash: clear start (this can take several seconds on full-chip erase)...");
+    
     if (!_flash->clearFlash())
+    {
         LOG_ERROR("Test", "Flash clear failed.");
-    else if (_flash->fileExists(testFile))
+    }
+    else if (_flash->fileExists(testFile.c_str()))
+    {
         LOG_ERROR("Test", "Flash clear did not remove test file.");
+    }
     else
+    {
         LOG_INFO("Test", "Flash: clear OK (%lu ms)", (unsigned long)(Utils::millis() - t_clear));
+    }
 
     LOG_INFO("Test", "Flash: test completed in %lu ms", (unsigned long)(Utils::millis() - t0));
-    return waitForUserInput("Check the logs above. Type PASSED to continue or FAILED to retry");
+
+    return waitForUserInput("Check the logs above in the serial console. Type PASSED to continue or FAILED to retry");
+}
+
+bool TestRoutine::clearFlashMemory()
+{
+    LOG_INFO("Test", "\n=== TEST FLASH ERASE ===");
+    
+    if (!_flash)
+    {
+        _flash = std::make_shared<Flash>();
+    }
+
+    if (!_flash->isInitialized() && !_flash->init(_board.get_spi_bus(), _board.get_flash_cs_pin(), _board.get_flash_hold_pin(), _board.get_flash_wp_pin()))
+    {
+        LOG_ERROR("Test", "Flash init failed");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    printf("WARNING: This operation will format the entire Flash memory.\n");
+    printf("All data will be lost!\n");
+    printf("Are you sure you want to continue? (Y/n): \n");
+    
+    char buffer[16] = {0};
+    Utils::readLine(buffer, sizeof(buffer));
+    std::string input(buffer);
+    trimString(input);
+    
+    if (input == "Y" || input == "y") {
+        LOG_INFO("Test", "Formatting in progress... it might take some time.");
+        if (_flash->clearMemory()) {
+            LOG_INFO("Test", "Formatting completed successfully!");
+            return waitForUserInput("Memory cleared. Type PASSED to continue or FAILED to retry");
+        } else {
+            LOG_ERROR("Test", "Error during formatting!");
+        }
+    } else {
+        LOG_INFO("Test", "Operation cancelled.");
+    }
+    
+    return waitForUserInput("Type PASSED to continue or FAILED to retry");
+}
+
+bool TestRoutine::dumpFlashJsonFiles()
+{
+    LOG_INFO("Test", "[DUMP] Export JSONL telemetry from external flash");
+
+    if (!_flash)
+    {
+        _flash = std::make_shared<Flash>();
+    }
+
+    if (!_flash->isInitialized() && !_flash->init(_board.get_spi_bus(), _board.get_flash_cs_pin(), _board.get_flash_hold_pin(), _board.get_flash_wp_pin()))
+    {
+        LOG_ERROR("Dump", "Flash init failed");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    const char* TELEMETRY_FILENAME = "flight_telemetry.jsonl";
+
+    if (!_flash->fileExists(TELEMETRY_FILENAME))
+    {
+        LOG_WARNING("Dump", "No telemetry file found (%s) on flash.", TELEMETRY_FILENAME);
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    printf("\n=== JSONL DUMP START ===\n");
+    printf("Capture this serial output to a file on PC.\n");
+
+    // Open file stream directly to read line-by-line
+    if (!_flash->openFile(TELEMETRY_FILENAME))
+    {
+        LOG_ERROR("Dump", "Failed to open telemetry file for reading.");
+        return waitForUserInput("Type PASSED to continue or FAILED to retry");
+    }
+
+    // Trigger Python script to open the file
+    printf("START_FILE:%s\n", TELEMETRY_FILENAME);
+
+    int lineCount = 0;
+    std::string line;
+    
+    // Stream line-by-line to prevent RAM exhaustion
+    while (true)
+    {
+        line = _flash->readLine();
+        if (line.empty()) 
+        {
+            break; // End of file reached
+        }
+
+        // Print directly to serial. 
+        // Note: readLine() already includes the '\n' at the end.
+        printf("%s", line.c_str());
+        
+        lineCount++;
+
+        // Feed the FreeRTOS watchdog to prevent resets during massive file dumps
+        if (lineCount % 50 == 0) 
+        {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+
+    // Ensure we are on a new line before sending the termination string
+    printf("\nEND_FILE:%s\n", TELEMETRY_FILENAME);
+
+    _flash->closeFile();
+
+    printf("=== JSONL DUMP END (%d lines extracted) ===\n\n", lineCount);
+    LOG_INFO("Dump", "Successfully exported telemetry file.");
+
+    return waitForUserInput("JSONL dump printed on serial. Type PASSED to continue or FAILED to retry");
 }
 
 bool TestRoutine::testTelemetry()
@@ -318,6 +522,40 @@ bool TestRoutine::testTelemetry()
             LOG_ERROR("Test", "Invio pacchetto %d fallito: %s", i, result.getDescription().c_str());
         vTaskDelay(pdMS_TO_TICKS(500));
     }
+
+    return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+}
+
+bool TestRoutine::testTelemetryCommand()
+{
+    LOG_INFO("Test", "[STEP 11] Test ricezione comando LoRa (timeout 30s)");
+    _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
+
+    E220LoRaTransmitter lora(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN,
+                             MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
+
+    auto initResult = lora.init();
+    if (initResult.getCode() != E220_SUCCESS) {
+        LOG_ERROR("Test", "LoRa init fallita: %s", initResult.getDescription().c_str());
+        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
+    }
+    LOG_INFO("Test", "LoRa init OK. In attesa di un comando dalla ground station...");
+
+    const uint32_t TIMEOUT_MS = 30000;
+    uint32_t start = Utils::millis();
+    bool received = false;
+    while (Utils::millis() - start < TIMEOUT_MS) {
+        CommandPacket cmd;
+        if (lora.receive(&cmd)) {
+            LOG_INFO("Test", "Comando ricevuto: 0x%02X", cmd.command_id);
+            received = true;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    if (!received)
+        LOG_WARNING("Test", "Timeout: nessun comando ricevuto");
 
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
@@ -370,30 +608,7 @@ bool TestRoutine::configureE220()
                    UART_BPS_RATE_9600, SERIAL_8N1);
     e220.begin();
 
-    auto csc = e220.getConfiguration();
-    if (csc.status.code != E220_SUCCESS) {
-        LOG_ERROR("LoRa", "getConfiguration failed: %s", csc.status.getResponseDescription().c_str());
-        csc.close();
-        Serial2.end();
-        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
-    }
-    auto config = *(Configuration*)csc.data;
-    csc.close();
-
-    config.ADDL = 0x03;
-    config.ADDH = 0x00;
-    config.CHAN  = 23;
-    config.SPED.uartBaudRate  = UART_BPS_115200;
-    config.SPED.airDataRate   = AIR_DATA_RATE_100_96;
-    config.SPED.uartParity    = MODE_00_8N1;
-    config.OPTION.subPacketSetting  = SPS_200_00;
-    config.OPTION.RSSIAmbientNoise  = RSSI_AMBIENT_NOISE_DISABLED;
-    config.OPTION.transmissionPower = POWER_17;
-    config.TRANSMISSION_MODE.enableRSSI        = RSSI_ENABLED;
-    config.TRANSMISSION_MODE.fixedTransmission = FT_FIXED_TRANSMISSION;
-    config.TRANSMISSION_MODE.enableLBT         = LBT_DISABLED;
-    config.TRANSMISSION_MODE.WORPeriod         = WOR_2000_011;
-
+    Configuration config = E220LoRaTransmitter::defaultConfiguration();
     auto rs = e220.setConfiguration(config, WRITE_CFG_PWR_DWN_SAVE);
     if (rs.code == E220_SUCCESS)
         LOG_INFO("LoRa", "E220 configurato con successo.");
@@ -437,7 +652,6 @@ bool TestRoutine::testE220Connector()
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
 
-
 void TestRoutine::testFSMTransitions(RocketFSM& fsm)
 {
     LOG_INFO("Test", "\n\n=== STARTING AUTOMATED FSM TEST ===");
@@ -474,12 +688,62 @@ void TestRoutine::testFSMTransitions(RocketFSM& fsm)
     }
 }
 
+bool TestRoutine::calibrateAndSaveIMU()
+{
+    LOG_INFO("Test", "\n[STEP 12] IMU Calibration");
+    LOG_INFO("Test", "Please perform figure-8 movements and rest the sensor on various axes.");
+    
+    auto bnoSensor = _model->getBNO055Sensor();
+    if (!bnoSensor) {
+        LOG_ERROR("Test", "BNO055 Sensor not available!");
+        return waitForUserInput("Type FAILED to continue");
+    }
+
+    bool calibrated = false;
+    LOG_INFO("Test", "Waiting for calibration");
+
+    // Loop until calibration reaches 3 for all sub-sensors
+    while (!calibrated)
+    {
+        _model->updateBNO055();
+        IMUData data;
+        SensorReadStatus bnoStatus = _model->getBNO055Data(data);
+        if (bnoStatus != SensorReadStatus::OK) {
+            LOG_WARNING("Test", "Failed to get BNO055 data");
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+
+        LOG_INFO("Test", "Calib Status -> SYS: %d, GYRO: %d, ACCEL: %d, MAG: %d",
+                 data.calibration_sys, data.calibration_gyro, 
+                 data.calibration_accel, data.calibration_mag);
+
+        if (data.calibration_sys == 3 && data.calibration_gyro == 3 && 
+            data.calibration_accel == 3 && data.calibration_mag == 3) 
+        {
+            LOG_INFO("Test", "IMU is FULLY CALIBRATED!");
+            calibrated = true;
+            break;
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
+    // Save directly to the internal ESP32 partition
+    if (bnoSensor->saveCalibrationToNVS()) {
+        return waitForUserInput("Saved successfully! Type PASSED to continue");
+    } else {
+        LOG_ERROR("Test", "Failed to save to NVS.");
+        return waitForUserInput("Type FAILED to continue");
+    }
+}
+
 void TestRoutine::run()
 {
     LOG_INFO("Test", "=== SYSTEM TEST ROUTINE INITIATED ===");
 
     // ── Tests Definition ────────────────
-    std::array<TestOption, 9> tests = {{
+    std::array<TestOption, 13> tests = {{
         {"Alimentation and LED Test", [this]() { return testPowerAndLEDs(); }, true},
         {"Sensors Test", [this]() { return testSensors(); }, true},
         {"Actuators Test", [this]() { return testActuators(); }, true},
@@ -489,6 +753,10 @@ void TestRoutine::run()
         {"Telemetry Test", [this]() { return testTelemetry(); }, true},
         {"E220 connector Test", [this]() { return testE220Connector(); }, false},
         {"Flash memory Test", [this]() { return testFlashMemory(); }, true},
+        {"LoRa command reception Test", [this]() { return testTelemetryCommand(); }, true},
+        {"Dump JSONL telemetry from Flash", [this]() { return dumpFlashJsonFiles(); }, false},
+        {"Format Flash memory", [this]() { return clearFlashMemory(); }, false},
+        {"IMU calibration and save to NVS (Internal Flash)", [this]() { return calibrateAndSaveIMU(); }, false},
     }};
 
     // ── Run Tests ────────────────
@@ -511,18 +779,18 @@ void TestRoutine::run()
         Utils::readLine(buffer, sizeof(buffer));
         std::string input(buffer);
         Utils::trimString(input);
-        
+
         int choice = std::atoi(input.c_str());
-        
+
         showTestPattern(choice);
-        
+
         if (choice >= 0 && choice <= tests.size() + 1) {
             // ── Exit ──────────────────────────
-            if (choice == 0) {      
+            if (choice == 0) {
                 _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
                 LOG_INFO("Test", "\n=== EXITING TEST MENU ===");
                 _statusManager.setSystemCode(SYSTEM_OK);
-                
+
                 run = false;
             }
             // ── Run Single Test ────────────────
@@ -534,15 +802,15 @@ void TestRoutine::run()
                 _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
             }
             // ── Run All Tests ───────────────────
-            // excluding I2C scan and E220 connector config and test
-            else 
+            // excluding I2C scan, E220 configuration/connector and flash utilities
+            else
             {
                 _statusManager.playBlockingPattern(TEST_ALL, 2000);
 
                 for (const auto& test : tests) {
                     // check if the test should run
-                    if (test.run_all_flag)   
-                        while (!test.func());                            
+                    if (test.run_all_flag)
+                        while (!test.func());
                 }
 
                 _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);

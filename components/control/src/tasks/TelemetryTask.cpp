@@ -1,6 +1,6 @@
 #include "TelemetryTask.hpp"
 #include <utils.h>
-#ifdef TELEMETRY_USB_MIRROR
+#ifdef CONFIG_TELEMETRY_USB_MIRROR
 #  include "driver/usb_serial_jtag.h"
 #endif
 
@@ -10,25 +10,24 @@ constexpr float R = 287.05f;                  // Air gas constant [J/Kg/K]
 #define n (GRAVITY / (R * a))
 #define nInv ((R * a) / GRAVITY)
 
-float relAltitude_tele(float pressure, float pressureRef = 99725.0f,
-                       float temperatureRef = 291.41f)
+float relAltitude_tele(float pressure, float pressureRef = 101325.0f,
+                       float temperatureRef = 288.15f)
 {
     return temperatureRef / a * (1 - powf(pressure / pressureRef, nInv));
 }
 
 
 TelemetryTask::TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                             SemaphoreHandle_t modelMutex,
                              std::shared_ptr<EspNowTransmitter> espNowTransmitter,
                              uint32_t intervalMs,
                              IStateMachine* fsm)
     : BaseTask("TelemetryTask"),
       _rocketModel(rocketModel),
-      _modelMutex(modelMutex),
       _transmitter(espNowTransmitter),
       _fsm(fsm),
       _transmitIntervalMs(intervalMs),
       _lastTransmitTime(0),
+      _lastAckCommandId(0),
       _messagesCreated(0),
       _packetsSent(0),
       _transmitErrors(0)
@@ -69,6 +68,11 @@ void TelemetryTask::taskFunction()
         {
             _lastTransmitTime = now;
 
+            // Poll LoRa RX before building the packet so any received command
+            // is reflected in last_ack_command_id within the same TX cycle.
+            if (_loraTransmitter && running)
+                pollLoRaRx();
+
             // Collect sensor data into binary packet
             TelemetryPacket packet;
             if (collectSensorData(packet) && running)
@@ -104,8 +108,12 @@ void TelemetryTask::taskFunction()
                         LOG_WARNING("Telemetry", "LoRa transmit failed: %s", result.getDescription().c_str());
                     }
                 }
+                else
+                {
+                    LOG_WARNING("Telemetry", "LoRa transmitter not available, skipping LoRa transmission");
+                }
 
-#ifdef TELEMETRY_USB_MIRROR
+#ifdef CONFIG_TELEMETRY_USB_MIRROR
                 if (message.size() <= 255)
                 {
                     const uint8_t frame[3] = {0xAA, 0x55, static_cast<uint8_t>(message.size())};
@@ -144,15 +152,8 @@ void TelemetryTask::taskFunction()
 
 bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
 {
-    if (!_rocketModel || !_modelMutex)
+    if (!_rocketModel)
     {
-        return false;
-    }
-
-    // Take mutex with timeout
-    if (xSemaphoreTake(_modelMutex, pdMS_TO_TICKS(10)) != pdTRUE)
-    {
-        LOG_WARNING("Telemetry", "Failed to acquire data mutex");
         return false;
     }
 
@@ -165,56 +166,64 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         packet.timestamp = Utils::millis();
         packet.dataValid = true;
         packet.flight_phase = _fsm ? static_cast<uint8_t>(_fsm->getCurrentState()) : 0;
+        packet.last_ack_command_id = _lastAckCommandId;
+        _lastAckCommandId = 0;
 
-        auto bno055Data = _rocketModel->getBNO055Data();
-        if (bno055Data) {
-            packet.imu.accel_x = bno055Data->acceleration_x;
-            packet.imu.accel_y = bno055Data->acceleration_y;
-            packet.imu.accel_z = bno055Data->acceleration_z;
+        IMUData outBnoData;
+        SensorReadStatus bnoStatus = _rocketModel->getBNO055Data(outBnoData);
+        if (bnoStatus == SensorReadStatus::OK) {
+            packet.imu.accel_x = outBnoData.acceleration_x;
+            packet.imu.accel_y = outBnoData.acceleration_y;
+            packet.imu.accel_z = outBnoData.acceleration_z;
             LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
-            packet.imu.gyro_x = bno055Data->orientation_x;
-            packet.imu.gyro_y = bno055Data->orientation_y;
-            packet.imu.gyro_z = bno055Data->orientation_z;
+            packet.imu.gyro_x = outBnoData.orientation_x;
+            packet.imu.gyro_y = outBnoData.orientation_y;
+            packet.imu.gyro_z = outBnoData.orientation_z;
         } else {
             LOG_WARNING("Telemetry", "BNO055 data not available");
         }
 
-        auto baro1Data = _rocketModel->getMS561101BA03Data_1();
-        if (baro1Data) {
-            packet.baro1.pressure = baro1Data->pressure;
-            packet.baro1.temperature = baro1Data->temperature;
+        PressureSensorData outMs56Data1;
+        SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outMs56Data1);
+        if (baro1Status == SensorReadStatus::OK) {
+            packet.baro1.pressure = outMs56Data1.pressure;
+            packet.baro1.temperature = outMs56Data1.temperature;
+            packet.baro_altitude = relAltitude_tele(outMs56Data1.pressure,
+                                                    _rocketModel->getLaunchpadBasePressure(),
+                                                    _rocketModel->getLaunchpadBaseTemperature());
         } else {
             LOG_WARNING("Telemetry", "Barometer 1 data not available");
         }
 
-        auto baro2Data = _rocketModel->getMS561101BA03Data_2();
-        if (baro2Data) {
-            packet.baro2.pressure = baro2Data->pressure;
-            packet.baro2.temperature = baro2Data->temperature;
+        PressureSensorData outMs56Data2;
+        SensorReadStatus baro2Status = _rocketModel->getMS561101BA03Data_2(outMs56Data2);
+        if (baro2Status == SensorReadStatus::OK) {
+            packet.baro2.pressure = outMs56Data2.pressure;
+            packet.baro2.temperature = outMs56Data2.temperature;
         } else {
             LOG_WARNING("Telemetry", "Barometer 2 data not available");
         }
 
-        auto gpsData = _rocketModel->getGPSData();
-        if (gpsData) {
-            packet.gps.latitude = gpsData->latitude;
-            packet.gps.longitude = gpsData->longitude;
-            packet.gps.altitude = gpsData->altitude;
+        GPSData gpsData;
+        SensorReadStatus gpsStatus = _rocketModel->getGPSData(gpsData);
+        if (gpsStatus == SensorReadStatus::OK) {
+            packet.gps.latitude = gpsData.latitude;
+            packet.gps.longitude = gpsData.longitude;
+            packet.gps.altitude = gpsData.altitude;
             LOG_DEBUG("Telemetry", "GPS ALT: %.2f LAT: %.6f LON: %.6f",
                       packet.gps.altitude, packet.gps.latitude, packet.gps.longitude);
         } else {
             LOG_WARNING("Telemetry", "GPS data not available");
         }
 
+        packet.velocity = _rocketModel->getHeightGainSpeed();
+        LOG_INFO("Telemetry", "Done collecting sensor data!");
     }
     catch (const std::exception &e)
     {
         LOG_ERROR("Telemetry", "Exception collecting data: %s", e.what());
-        xSemaphoreGive(_modelMutex);
         return false;
     }
-
-    xSemaphoreGive(_modelMutex);
 
     return true;
 }
@@ -263,6 +272,41 @@ bool TelemetryTask::transmitMessage(const std::vector<uint8_t> &message)
     }
 
     return allSuccess;
+}
+
+void TelemetryTask::pollLoRaRx()
+{
+    LOG_DEBUG("Telemetry", "Polling LoRa RX for commands");
+    CommandPacket cmd;
+    while (_loraTransmitter->receive(&cmd))
+    {
+        LOG_INFO("Telemetry", "Command received: 0x%02X", cmd.command_id);
+        _lastAckCommandId = cmd.command_id;
+        handleCommand(static_cast<CommandId>(cmd.command_id));
+    }
+}
+
+void TelemetryTask::handleCommand(CommandId id)
+{
+    if (!_fsm) return;
+
+    switch (id)
+    {
+        case CommandId::PING:
+            LOG_INFO("Telemetry", "PING received from ground station");
+            break;
+        case CommandId::ABORT:
+            LOG_WARNING("Telemetry", "ABORT command received! Sending event");
+            _fsm->sendEvent(FSMEvent::EMERGENCY_ABORT);
+            break;
+        case CommandId::EMERG_CHUTE_OPEN:
+            LOG_WARNING("Telemetry", "EMERG_CHUTE_OPEN command received! Forcing transition to APOGEE");
+            _fsm->forceTransition(RocketState::APOGEE);
+            break;
+        default:
+            LOG_WARNING("Telemetry", "Unknown command id: 0x%02X", id);
+            break;
+    }
 }
 
 void TelemetryTask::getStats(uint32_t &messages, uint32_t &packets, uint32_t &errors) const

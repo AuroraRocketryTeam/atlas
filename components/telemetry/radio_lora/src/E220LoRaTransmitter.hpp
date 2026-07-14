@@ -75,12 +75,26 @@ public:
     ResponseStatusContainer init(Configuration config);
 
     /**
+     * @brief Return default configuration for LoRa E220 module. 
+     * @return Configuration
+     */
+    static Configuration defaultConfiguration();
+
+    /**
      * @brief Transmit data over LoRa
      *
      * @param data The data to transmit
      * @return ResponseStatusContainer
      */
     ResponseStatusContainer transmit(TransmitDataType data) override;
+
+    /**
+     * @brief Receive data over LoRa
+     *
+     * @param packet Where to write the received data
+     * @return bool True is packet received
+     */
+    bool receive(CommandPacket* packet);
 
     /**
      * @brief Set a new configuration for the LoRa module

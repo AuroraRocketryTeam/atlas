@@ -3,9 +3,32 @@
 #include "driver/usb_serial_jtag.h"
 #include <algorithm>
 
-uint32_t Utils::millis() {
+static const char *TAG = "Utils";
+
+volatile uint32_t Utils::_simMillis = 0;
+
+// Mission millis, can get slow down by the simulation
+uint32_t Utils::millis()
+{
+#if CONFIG_AURORA_HIL_SIMULATION
+    return _simMillis;
+#else
+    return esp_timer_get_time() / 1000;
+#endif
+}
+
+// Real millis
+uint32_t Utils::realMillis()
+{
     return esp_timer_get_time() / 1000;
 }
+
+
+void Utils::setSimMillis(uint32_t t)
+{
+    _simMillis = t;
+}
+
 
 int Utils::readLine(char* buf, int maxLen) {
     int pos = 0;

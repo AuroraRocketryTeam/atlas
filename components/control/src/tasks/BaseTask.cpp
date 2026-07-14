@@ -1,6 +1,6 @@
 #include "BaseTask.hpp"
 #include "esp_heap_caps.h"
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 
 BaseTask::BaseTask(const char *name)
     : taskHandle(nullptr), running(false), taskName(name)

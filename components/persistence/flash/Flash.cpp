@@ -1,4 +1,5 @@
 #include "Flash.hpp"
+#include <cstdlib>
 #include <sys/stat.h>
 #include <cstring>
 #include <utility>
@@ -161,90 +162,166 @@ bool Flash::init() {
     return true;
 }
 
-bool Flash::openFile(std::string filename) {
+bool Flash::openFile(const char* filename) {
+    if (filename == nullptr) return false;
     if (!_initialized && !init()) return false;
 
     closeFile();
     _open_filename = getFullPath(filename);
-    _active_stream.open(_open_filename);
+    
+    // Open for reading ("r"). 
+    _active_file = fopen(_open_filename.c_str(), "r");
 
-    // If the file doesn't exist, it is created
-    if (!_active_stream.is_open()) {
-        std::ofstream create(_open_filename);
-        create.close();
-        _active_stream.open(_open_filename);
+    // If it doesn't exist, safely create it in append/update mode ("a+") 
+    // to guarantee we never truncate existing data.
+    if (!_active_file) {
+        _active_file = fopen(_open_filename.c_str(), "a+");
+        // Reset read pointer to the beginning such that the append will work fine
+        if (_active_file) fseek(_active_file, 0, SEEK_SET); 
     }
 
-    return _active_stream.is_open();
+    return _active_file != nullptr;
 }
 
 bool Flash::closeFile() {
-    if (_active_stream.is_open()) {
-        _active_stream.close();
+    if (_active_file) {
+        fclose(_active_file);
+        _active_file = nullptr;
     }
     _open_filename.clear();
     return true;
 }
 
-bool Flash::writeFile(std::string filename, std::string content) {
-    return writeFile(std::move(filename), content.c_str());
+bool Flash::writeFile(const char* filename, const uint8_t* data, size_t length) {
+    // Check parameters
+    if (filename == nullptr || data == nullptr || length == 0) {
+        LOG_ERROR("Flash", "Invalid arguments (null pointers or zero length).");
+        return false;
+    }
+
+    if (!_initialized && !init()) {
+        LOG_ERROR("Flash", "Failed to initialize Flash subsystem.");
+        return false;
+    }
+
+    std::string fullPath = getFullPath(filename);
+    FILE* f = fopen(fullPath.c_str(), "w");
+    
+    // Check if file opened successfully
+    if (!f) {
+        LOG_ERROR("Flash", "Could not open '%s' - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
+    // Write and check the result
+    size_t written = fwrite(data, 1, length, f);
+    if (written != length) {
+        LOG_ERROR("Flash", "Write incomplete on '%s'. Tried to write %zu bytes, but only wrote %zu. Reason: %s", 
+                  fullPath.c_str(), length, written, strerror(errno));
+        
+        fclose(f);
+        return false;
+    }
+
+    // Check fclose
+    if (fclose(f) != 0) {
+        LOG_ERROR("Flash", "Failed to close/flush file '%s' - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
+    return true;
 }
 
-bool Flash::writeFile(std::string filename, const char* content) {
-    if (!_initialized && !init()) return false;
-    if (content == nullptr) return false;
+bool Flash::appendFile(const char* filename, const uint8_t* data, size_t length) {
+    // Validate inputs
+    if (filename == nullptr || data == nullptr || length == 0) {
+        LOG_ERROR("Flash", "Invalid arguments (null pointers or zero length).");
+        return false;
+    }
 
-    std::ofstream os(getFullPath(filename), std::ios::trunc | std::ios::out);
-    if (!os.is_open()) return false;
+    if (!_initialized && !init()) {
+        LOG_ERROR("Flash", "Failed to initialize Flash subsystem.");
+        return false;
+    }
 
-    os << content;
-    os.close();
-    return os.good();
+    std::string fullPath = getFullPath(filename);
+    FILE* f = fopen(fullPath.c_str(), "a");
+    
+    // Check if file opened successfully
+    if (!f) {
+        LOG_ERROR("Flash", "Could not open '%s' for appending - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
+    // Perform the write and check the result
+    size_t written = fwrite(data, 1, length, f);
+    if (written != length) {
+        LOG_ERROR("Flash", "Append incomplete on '%s'. Tried to append %zu bytes, but only wrote %zu. Reason: %s", 
+                  fullPath.c_str(), length, written, strerror(errno));
+        
+        fclose(f);
+        return false;
+    }
+
+    // Check fclose as well (crucial for ensuring appended data is flushed)
+    if (fclose(f) != 0) {
+        LOG_ERROR("Flash", "Failed to close/flush file '%s' after appending - %s", fullPath.c_str(), strerror(errno));
+        return false;
+    }
+
+    return true;
 }
 
-bool Flash::appendFile(std::string filename, std::string content) {
-    return appendFile(std::move(filename), content.c_str());
-}
+std::string Flash::readFile(const char* filename) {
+    if (filename == nullptr) return "";
+    if (!_initialized && !init()) return "";
 
-bool Flash::appendFile(std::string filename, const char* content) {
-    if (!_initialized && !init()) return false;
-    if (content == nullptr) return false;
+    FILE* f = fopen(getFullPath(filename).c_str(), "rb");
+    if (!f) return "";
 
-    std::ofstream os(getFullPath(filename), std::ios::app | std::ios::out);
-    if (!os.is_open()) return false;
-
-    os << content;
-    os.close();
-    return os.good();
-}
-
-char* Flash::readFile(std::string filename) {
-    if (!_initialized && !init()) return nullptr;
-
-    std::ifstream is(getFullPath(filename), std::ios::in | std::ios::binary | std::ios::ate);
-    if (!is.is_open()) return nullptr;
-
-    std::streamsize size = is.tellg();
-    is.seekg(0, std::ios::beg);
+    
+    
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
 
     if (size <= 0) {
-        is.close();
-        return nullptr;
+        fclose(f);
+        return "";
     }
 
-    char* buffer = new char[size + 1];
-    if (is.read(buffer, size)) {
-        buffer[size] = '\0';
-        is.close();
+    std::string buffer;
+    buffer.resize(size);
+    
+    size_t read_bytes = fread(&buffer[0], 1, size, f);
+    fclose(f);
+    
+    if (read_bytes == size) {
         return buffer;
     }
-
-    delete[] buffer;
-    is.close();
-    return nullptr;
+    return "";
 }
 
-bool Flash::clearFlash() {
+std::string Flash::readLine() {
+    if (!_active_file) return "";
+
+    std::string line;
+    // Pre-allocate a safe baseline to prevent early heap fragmentation
+    line.reserve(1024);
+    char buffer[256]; 
+
+    while (fgets(buffer, sizeof(buffer), _active_file) != nullptr) {
+        line += buffer;
+        
+        if (!line.empty() && line.back() == '\n') {
+            break; 
+        }
+    }
+
+    return line;
+}
+
+bool Flash::clearMemory() {
     if (!_initialized && !init()) return false;
 
     ESP_LOGI(TAG, "Formatting LittleFS partition...");
@@ -258,19 +335,10 @@ bool Flash::clearFlash() {
     return true;
 }
 
-bool Flash::fileExists(std::string filename) {
+bool Flash::fileExists(const char* filename) {
+    if (filename == nullptr) return false;
     if (!_initialized && !init()) return false;
 
     struct stat st;
     return stat(getFullPath(filename).c_str(), &st) == 0;
-}
-
-std::string Flash::readLine() {
-    if (!_active_stream.is_open()) return "";
-
-    std::string line;
-    if (std::getline(_active_stream, line)) {
-        return line + "\n";
-    }
-    return "";
 }

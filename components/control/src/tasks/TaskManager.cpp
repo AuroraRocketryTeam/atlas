@@ -6,15 +6,11 @@
 #include <board.h>
 
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
-                         SemaphoreHandle_t modelMutex,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
-                         SemaphoreHandle_t loggerMutex,
                          IStateMachine* fsm) :
                          _rocketModel(rocketModel),
                          _logger(logger),
-                         _modelMutex(modelMutex),
-                         _loggerMutex(loggerMutex),
                          _sd(sd),
                          _fsm(fsm)
 {
@@ -36,13 +32,14 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
     }
 
 
-    // Initialize LoRa transmitter
+    // Initialize and configure LoRa transmitter
     // Serial1 is used by GPS, so LoRa uses Serial2
     _loraTransmitter = std::make_shared<E220LoRaTransmitter>(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN, MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
-    auto loraInit = _loraTransmitter->init();
+
+    auto loraInit = _loraTransmitter->init(E220LoRaTransmitter::defaultConfiguration());
     if (loraInit.getCode() == E220_SUCCESS)
     {
-        LOG_INFO("TaskMgr", "LoRa E220 initialized successfully");
+        LOG_INFO("TaskMgr", "LoRa E220 initialized and configured successfully");
     }
     else
     {
@@ -63,49 +60,36 @@ void TaskManager::initializeTasks()
 
     // Create all task instances but don't start them yet
     // Note: Most tasks still need refactoring to use the model-based architecture
-    // For now, only BarometerTask has been updated to use the Nemesis model
+    // For now, only AltitudeTask has been updated to use the Nemesis model
     
     _tasks[TaskType::SENSOR] = std::make_unique<SensorTask>(
         _rocketModel,
-        _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
     if (_rocketModel->hasGPS())
     {
         _tasks[TaskType::GPS] = std::make_unique<GpsTask>(
             _rocketModel,
-            _modelMutex,
-            _logger,
-            _loggerMutex);
+            _logger);
     } else LOG_INFO("TaskManager", "GPS unavailable. Skipping GPS task");
-    // _tasks[TaskType::EKF] = std::make_unique<EkfTask>(
-    //     _rocketModel,
-    //     _modelMutex,
-    //     _kalmanFilter);
-    if (_sd)
-    {
-        _tasks[TaskType::SD_LOGGING] = std::make_unique<SDLoggingTask>(
-            _logger,
-            _loggerMutex,
-            _sd);
-    }
-    else LOG_INFO("TaskManager", "SD card unavailable. Skipping SD logging task");
-    _tasks[TaskType::SIMULATION] = std::make_unique<SimulationTask>(
-        // Using a different simulation file where at the end of each line there is a
-        // pipe symbol, this was needed as the readLine function had problem recognizing
-        // the \n character, so separating each line
-        "/simulated_sensors_full_piped.csv",
-        _sd,
+    _tasks[TaskType::STORAGE] = std::make_unique<StorageLoggingTask>(
         _rocketModel,
-        _modelMutex,
-        _logger,
-        _loggerMutex);
+        _logger);
+
+#if CONFIG_AURORA_HIL_SIMULATION
+        _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
+        _rocketModel,
+        _logger);
+#endif
+        
+    _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
+        _rocketModel,
+        _logger);
+    
 
     // Create TelemetryTask with ESP-NOW and LoRa transmitters
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
     auto telemetryTask = std::make_unique<TelemetryTask>(
         _rocketModel,
-        _modelMutex,
         _espNowTransmitter,
         TELEMETRY_INTERVAL_MS,
         _fsm);
@@ -115,9 +99,8 @@ void TaskManager::initializeTasks()
     }
     _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
 
-    _tasks[TaskType::BAROMETER] = std::make_unique<BarometerTask>(
-        _rocketModel,
-        _modelMutex);
+    _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
+        _rocketModel);
 
     LOG_INFO("TaskManager", "Created %d task instances", _tasks.size());
 }
@@ -248,21 +231,16 @@ void TaskManager::printTaskStatus() const
     LOG_INFO("TaskManager", "Free heap: %u bytes", ESP.getFreeHeap());
     LOG_INFO("TaskManager", "Task Status:");
 
-    const char *taskNames[] = {
-        "SENSOR", "EKF", "APOGEE_DETECTION", "RECOVERY",
-        "DATA_COLLECTION", "TELEMETRY", "GPS", "LOGGING"};
-
-    int index = 0;
     for (const auto &[type, task] : _tasks)
     {
         if (task)
         {
-            LOG_INFO("TaskManager", "  %s: %s (Stack HWM: %u)",
-                     taskNames[index],
+            LOG_INFO("TaskManager", "  [%s] %s: %s (Stack HWM: %u)",
+                     taskTypeToString(type),
+                     task->getName(),
                      task->isRunning() ? "RUNNING" : "STOPPED",
                      task->getStackHighWaterMark());
         }
-        index++;
     }
     LOG_INFO("TaskManager", "=================");
 }

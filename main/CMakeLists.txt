@@ -1,6 +1,14 @@
+set(MAIN_SRCS)
+
+if(CONFIG_AURORA_HIL_SIMULATION)
+    list(APPEND MAIN_SRCS "main_hil.cpp")
+else()
+    list(APPEND MAIN_SRCS "main.cpp")
+endif()
+
 # register the component to the build system.
 idf_component_register(
-    SRCS "main.cpp"
+    SRCS ${MAIN_SRCS}
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         nvs_flash
@@ -9,21 +17,17 @@ idf_component_register(
         data
         control
         model
-        core
-        implementation
+        rocket_logger
+        serializations
         status
         SD
         flash
-        BME680
         BNO055
         GPS
         LIS3DHTR
-        MPRLS
         MS561101BA03
         I2C
         SPI
-        Termoresistenze
-        filters_kalman
         protocol
         radio_espnow
         radio_lora

@@ -22,10 +22,11 @@ class GPS : public ISensor
 public:
     /**
      * @brief Construct a new GPS sensor object.
+     * @param sensorName Name of the sensor.
      * @param tx_pin ESP32 pin connected to the GPS module's RX pin.
      * @param rx_pin ESP32 pin connected to the GPS module's TX pin.
      */
-    GPS(int tx_pin, int rx_pin);
+    GPS(const char *sensorName, int tx_pin, int rx_pin);
 
     ~GPS();
 
@@ -45,10 +46,10 @@ public:
     bool updateData() override;
 
     /**
-     * @brief Getter for the sensor data (Thread-safe)
-     * * @return a shared pointer to a copy of the latest GPSData structure
+    * @brief Getter for the sensor data (Thread-safe)
+    * * @return a copy of the latest GPSData structure
      */
-    std::shared_ptr<GPSData> getData();
+    GPSData getData();
 
 private:
     // Static event handler required by the ESP-IDF Event Loop
@@ -58,7 +59,7 @@ private:
     int _rx_pin;
     
     nmea_parser_handle_t _nmea_hdl;
-    std::shared_ptr<GPSData> _data;
+    GPSData _data;
     
     // Mutex to protect _data from concurrent read/write operations
     // between the background parser task and the main application loop.

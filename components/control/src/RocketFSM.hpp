@@ -4,7 +4,7 @@
 #include "tasks/TaskManager.hpp"
 #include "states/StateAction.hpp"
 #include "states/TransitionManager.hpp"
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 #include "RocketLogger.hpp"
 #include "config.h"
 #include <SD-master.hpp>
@@ -116,14 +116,19 @@ private:
     // Shared data
     std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
-    SemaphoreHandle_t _modelMutex;
-    SemaphoreHandle_t _loggerMutex;
 
     std::shared_ptr<SD> _sd;
     IBoardHardware* _board;
 
+    // Parachutes states
+    bool _mainDeploymentCommanded = false;
+    bool _drogueDeploymentCommanded = false;
+
+    void deployMain();
+    void deployDrogue();
+    void deployApogeeRecovery();
+    void deployStabilizationExitRecovery();
+
     // Important timers and tresholds
-    const unsigned long LAUNCH_TO_BALLISTIC_THRESHOLD = 6000;
-    const unsigned long LAUNCH_TO_APOGEE_THRESHOLD = 27000; //24850 + 2150 = 27000
     unsigned long _launchDetectionTime = 0;
 };

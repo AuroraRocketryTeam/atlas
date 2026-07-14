@@ -4,7 +4,7 @@
 #include <RocketModel.hpp>
 #include "EspNowTransmitter.hpp"
 #include "E220LoRaTransmitter.hpp"
-#include "Logger.hpp"
+#include "SerialLogger.hpp"
 #include <Packet.hpp>
 #include <PacketManager.hpp>
 #include "IStateMachine.hpp"
@@ -18,7 +18,7 @@
  * @brief Binary telemetry packet structure for efficient transmission.
  *
  * This structure is tightly packed (no padding) for efficient transmission
- * over ESP-NOW. Total size is approximately 64 bytes.
+ * over ESP-NOW and LoRa. Total size: 67 bytes.
  *
  * All multi-byte values are little-endian (ESP32 native).
  */
@@ -31,7 +31,7 @@ struct TelemetryPacket
     struct
     {
         float accel_x, accel_y, accel_z; ///< Accelerometer (m/s²)
-        float gyro_x, gyro_y, gyro_z;    ///< Gyroscope (rad/s)
+        float gyro_x, gyro_y, gyro_z;    ///< Gyroscope / angular velocity (rad/s)
     } imu;
 
     struct
@@ -46,14 +46,19 @@ struct TelemetryPacket
         float temperature; ///< Temperature (°C)
     } baro2;
 
+    float baro_altitude; ///< Relative altitude above launch point, calculated from baro (m)
+
     struct
     {
         float latitude;  ///< Latitude (degrees)
         float longitude; ///< Longitude (degrees)
-        float altitude;  ///< GPS altitude (meters)
+        float altitude;  ///< GPS altitude (m)
     } gps;
 
+    float velocity; ///< (m/s)
+
     uint8_t flight_phase; ///< 0 = INACTIVE, 10 = RECOVERED
+    uint8_t last_ack_command_id; ///< Last successfully received command (CommandId), 0x00 = none
 };
 #pragma pack(pop)
 
@@ -69,13 +74,14 @@ class TelemetryTask : public BaseTask
 {
 private:
     std::shared_ptr<RocketModel> _rocketModel;
-    SemaphoreHandle_t _modelMutex;
     std::shared_ptr<EspNowTransmitter> _transmitter;
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
     IStateMachine* _fsm;
 
     uint32_t _transmitIntervalMs;
     uint32_t _lastTransmitTime;
+
+    uint8_t _lastAckCommandId;
 
     // Statistics
     uint32_t _messagesCreated;
@@ -92,7 +98,6 @@ public:
      * @param intervalMs Interval between transmissions in milliseconds (default 1000ms = 1Hz).
      */
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                  SemaphoreHandle_t modelMutex,
                   std::shared_ptr<EspNowTransmitter> espNowTransmitter,
                   uint32_t intervalMs = 1000,
                   IStateMachine* fsm = nullptr);
@@ -130,4 +135,15 @@ private:
      * @return true if all packets sent successfully.
      */
     bool transmitMessage(const std::vector<uint8_t> &message);
+
+    /**
+     * @brief Poll the LoRa receiver for commands, automatically dispaches them.
+     */
+    void pollLoRaRx();
+
+    /**
+     * @brief Dispatch a received command to the FSM.
+     * @param id The command identifier.
+     */
+    void handleCommand(CommandId id);
 };

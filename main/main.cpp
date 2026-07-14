@@ -26,7 +26,6 @@
 
 // Interfaces
 #include <ISensor.hpp>
-#include <ILogger.hpp>
 #include <ITransmitter.hpp>
 
 // System model
@@ -39,10 +38,11 @@
 #include <GPS.hpp>
 
 // Storage and logging
+#include <PayloadSerializer.hpp>
 #include <SD-master.hpp>
 #include <Flash.hpp>
 #include <RocketLogger.hpp>
-#include <Logger.hpp>
+#include <SerialLogger.hpp>
 
 // Controllers and filters
 #include <LEDController.hpp>
@@ -100,10 +100,11 @@ void setup()
     gpio_set_level(LED_BUILT_IN, LOW);
     gpio_set_level(LED_RED_PIN, HIGH);
 
-    // Install driver for blocking reads of Utils::readLine
-    // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+#ifdef CONFIG_INSTALL_USB_JTAG_DRIVER
+    // I/O becomes blocking and buffer is limited
     usb_serial_jtag_driver_config_t usb_cfg = { .tx_buffer_size = 1024, .rx_buffer_size = 1024 };
     ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&usb_cfg));
+#endif
 
     // Signal initialization start
     board.init();
@@ -134,16 +135,17 @@ void setup()
     // Initialize logger
     LOG_INFO("Init", "Initializing rocket logger...");
     logger = std::make_shared<RocketLogger>();
+    logger->setSerializer(PayloadSerializers::toJson);
     LOG_INFO("Init", "Rocket logger initialized");
 
-    // Create Nemesis instance (constructor expects: logger, bno, lis3dh, ms56_1, ms56_2, gps)
-    rocketModel = std::make_shared<RocketModel>(logger, bno055, accl, baro1, baro2, gps);
+    // Create Nemesis instance (storage backends are optional)
+    rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
     LOG_INFO("Main", "RocketModel system model created");
 
 #ifdef ENABLE_TEST_ROUTINE
     vTaskDelay(5000 / portTICK_PERIOD_MS);
     LOG_INFO("Main", "=== TEST MODE ENABLED ===");
-    TestRoutine tests(board, rocketModel, sdCard, statusManager, ledController, buzzerController);
+    TestRoutine tests(board, rocketModel, sdCard, flash, statusManager, ledController, buzzerController);
     tests.run();
 #endif
 
@@ -180,7 +182,6 @@ void setup()
 
     // Signal successful initialization
     gpio_set_level(LED_RED_PIN, LOW);
-    gpio_set_level(LED_GREEN_PIN, HIGH);
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
@@ -309,7 +310,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     LOG_INFO("Init", "Initializing sensors...");
 
     // Initialize BNO055 (IMU)
-    bno055 = std::make_shared<BNO055Sensor>(board.get_i2c_bus(IBoardHardware::Sensor::IMU), board.get_bno055_i2c_address());
+    bno055 = std::make_shared<BNO055Sensor>("BNO055", board.get_i2c_bus(IBoardHardware::Sensor::IMU), board.get_bno055_i2c_address());
     if (bno055 && bno055->init())
     {
         LOG_INFO("Init", "BNO055 (IMU) initialized");
@@ -320,7 +321,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize barometers
-    baro1 = std::make_shared<MS561101BA03>(board.get_spi_bus(), MANNY_BAROMETER_CS_PIN);
+    baro1 = std::make_shared<MS561101BA03>("MS561101BA03_1", board.get_spi_bus(), MANNY_BAROMETER_CS_PIN);
     if (baro1 && baro1->init())
     {
         LOG_INFO("Init", "Barometer 1 initialized");
@@ -330,7 +331,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
-    baro2 = std::make_shared<MS561101BA03>(board.get_spi_bus(), board.get_barometer2_cs_pin());
+    baro2 = std::make_shared<MS561101BA03>("MS561101BA03_2", board.get_spi_bus(), board.get_barometer2_cs_pin());
     if (baro2 && baro2->init())
     {
         LOG_INFO("Init", "Barometer 2 initialized");
@@ -341,7 +342,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize accelerometer
-    accl = std::make_shared<LIS3DHTRSensor>(board.get_i2c_bus(IBoardHardware::Sensor::ACC));
+    accl = std::make_shared<LIS3DHTRSensor>("LIS3DHTR", board.get_i2c_bus(IBoardHardware::Sensor::ACC));
     if (accl && accl->init())
     {
         LOG_INFO("Init", "LIS3DHTR (Accelerometer) initialized");
@@ -358,7 +359,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
     else
     {
-        gps = std::make_shared<GPS>(board.get_gps_tx_pin(), board.get_gps_rx_pin());
+        gps = std::make_shared<GPS>("GPS", board.get_gps_tx_pin(), board.get_gps_rx_pin());
         if (gps->init())
         {
             LOG_INFO("Init", "GPS initialized");
@@ -380,13 +381,20 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         sdCard = std::make_shared<SD>();
         if (sdCard->init(board.get_spi_bus(), board.get_sd_cs_pin()))
         {
-            LOG_INFO("Init", "SD card initialized");
+            LOG_ERROR("Init", "SD card write test failed");
         }
-        else
-        {
-            LOG_ERROR("Init", "Failed to initialize SD card");
-            sdCard = nullptr;
-        }
+        sdCard->closeFile();
+    }
+
+    LOG_INFO("Init", "Initializing external flash for mirrored logging...");
+    flash = std::make_shared<Flash>();
+    if (flash && flash->init(board.get_spi_bus(), board.get_flash_cs_pin(), board.get_flash_hold_pin(), board.get_flash_wp_pin()))
+    {
+        LOG_INFO("Init", "External flash initialized");
+    }
+    else
+    {
+        LOG_ERROR("Init", "Failed to initialize external flash");
     }
 
     // Initializa ESP-NOW connection for telemetry
@@ -420,7 +428,6 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Wi-Fi");
     }
 
-    // We don't need to initialize LEDManager anymore - StatusManager handles it
     LOG_INFO("Init", "Status indicators initialized");
 }
 
@@ -441,8 +448,8 @@ void GPSfix(std::shared_ptr<GPS> gps)
             {
                 LOG_INFO("GPS", "Getting GPS data...");
                 auto gpsData = gps->getData();
-                auto fixType = gpsData->fixType;
-                auto satellites = gpsData->satellites;
+                auto fixType = gpsData.fixType;
+                auto satellites = gpsData.satellites;
 
                 LOG_INFO("GPS", "Fix value: %d", fixType);
                 if (fixType >= GPS_MIN_FIX)
@@ -463,34 +470,6 @@ void GPSfix(std::shared_ptr<GPS> gps)
     LOG_INFO("Calibration", "Sensor calibration complete.");
     statusManager.setSystemCode(SYSTEM_OK);
 }
-
-// TODO: can we remove these 2?
-// Utility function to calculate mean sensor readings
-Eigen::Vector3f calculateMean(const std::vector<Eigen::Vector3f> &readings)
-{
-    Eigen::Vector3f mean = Eigen::Vector3f::Zero();
-    for (const auto &reading : readings)
-    {
-        mean += reading;
-    }
-    mean /= readings.size();
-    return mean;
-}
-
-// Utility function to calculate standard deviation of sensor readings
-Eigen::Vector3f calculateStandardDeviation(const std::vector<Eigen::Vector3f> &readings)
-{
-    Eigen::Vector3f mean = calculateMean(readings);
-    Eigen::Vector3f variance = Eigen::Vector3f::Zero();
-    for (const auto &reading : readings)
-    {
-        Eigen::Vector3f diff = reading - mean;
-        variance += diff.cwiseProduct(diff);
-    }
-    variance /= static_cast<float>(readings.size() - 1);
-    return variance.cwiseSqrt();
-}
-
 
 // The ESP-IDF entry point, which must be C-linkage
 extern "C" void app_main() {
