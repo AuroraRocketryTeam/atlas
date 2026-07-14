@@ -3,8 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
-// 72 bytes = Header(7) + Payload(59) + CRC(2) + Padding(4) = 3x faster than 250 bytes
-constexpr size_t FIXED_PACKET_SIZE = 72;
+// 80 bytes = Header(7) + Payload(67) + CRC(2) + Padding(4)
+constexpr size_t FIXED_PACKET_SIZE = 80;
 // Maximum raw packet size we assume for transmit buffers (including header and CRC)
 constexpr size_t MAX_PACKET_SIZE = FIXED_PACKET_SIZE;
 constexpr size_t RESERVED_BYTES = 0;

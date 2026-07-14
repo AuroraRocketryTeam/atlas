@@ -22,7 +22,7 @@
 enum class SensorReadStatus {
     OK,
     MUTEX_TIMEOUT,
-    SENSOR_ERROR,   // Sensor is present but the last update() failed
+    NO_DATA,   // Sensor is present but the last update() failed or was never called
     NOT_PRESENT     // Sensor pointer is null (and we aren't injecting HIL data)
 };
 
@@ -259,6 +259,13 @@ public:
      * @return height gain speed
      */
     float getHeightGainSpeed();
+
+    /**
+     * @brief Set the current estimated velocity
+     *
+     * @param heightGainSpeed The current estimated velocity
+     */
+    void setHeightGainSpeed(float heightGainSpeed);
 
     /**
      * @brief Get the Current Estimated Height

@@ -142,12 +142,14 @@ bool TestRoutine::testSensors()
     LOG_INFO("Test", "\n[STEP 2] Test sensori");
 
     _board.init_sensor_test_pins();
-    
+
+    _model->updateBNO055();
+
     IMUData imuData;
     SensorReadStatus imuStatus = _model->getBNO055Data(imuData);
     if (imuStatus != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: IMU non inizializzata.");
+        LOG_ERROR("Test", "Errore: IMU non inizializzata o errore nella lettura. Read status: %d", static_cast<int>(imuStatus));
     } else {
         LOG_INFO("Test", "IMU Accelerometer: x=%.2f, y=%.2f, z=%.2f m/s^2",
                  (double)imuData.acceleration_x,
@@ -170,7 +172,7 @@ bool TestRoutine::testSensors()
     SensorReadStatus baro1Status = _model->getMS561101BA03Data_1(baro1Data);
     if (baro1Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO1_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato.");
+        LOG_ERROR("Test", "Errore: Barometro 1 non inizializzato. Read status: %d", static_cast<int>(baro1Status));
     } else {
         LOG_INFO("Test", "Barometer 1 Pressure: %.2f Pa",
                  (double)baro1Data.pressure);
@@ -181,17 +183,19 @@ bool TestRoutine::testSensors()
     SensorReadStatus baro2Status = _model->getMS561101BA03Data_2(baro2Data);
     if (baro2Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO2_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
+        LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato. Read status: %d", static_cast<int>(baro2Status));
     } else {
         LOG_INFO("Test", "Barometer 2 Pressure: %.2f Pa",
                  (double)baro2Data.pressure);
     }
 
+    _model->updateLIS3DHTR();
+
     AccelerometerSensorData acclData;
     SensorReadStatus acclStatus  = _model->getLIS3DHTRData(acclData);
     if (acclStatus != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(IMU_FAIL, 2000);
-        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato.");
+        LOG_ERROR("Test", "Errore: Accelerometro non inizializzato. Read status: %d", static_cast<int>(acclStatus));
     } else {
         _board.signal_sensor_ok(IBoardHardware::Sensor::ACC);
     }
@@ -616,30 +620,7 @@ bool TestRoutine::configureE220()
                    UART_BPS_RATE_9600, SERIAL_8N1);
     e220.begin();
 
-    auto csc = e220.getConfiguration();
-    if (csc.status.code != E220_SUCCESS) {
-        LOG_ERROR("LoRa", "getConfiguration failed: %s", csc.status.getResponseDescription().c_str());
-        csc.close();
-        Serial2.end();
-        return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
-    }
-    auto config = *(Configuration*)csc.data;
-    csc.close();
-
-    config.ADDL = 0x03;
-    config.ADDH = 0x00;
-    config.CHAN  = 23;
-    config.SPED.uartBaudRate  = UART_BPS_115200;
-    config.SPED.airDataRate   = AIR_DATA_RATE_100_96;
-    config.SPED.uartParity    = MODE_00_8N1;
-    config.OPTION.subPacketSetting  = SPS_200_00;
-    config.OPTION.RSSIAmbientNoise  = RSSI_AMBIENT_NOISE_DISABLED;
-    config.OPTION.transmissionPower = POWER_17;
-    config.TRANSMISSION_MODE.enableRSSI        = RSSI_ENABLED;
-    config.TRANSMISSION_MODE.fixedTransmission = FT_FIXED_TRANSMISSION;
-    config.TRANSMISSION_MODE.enableLBT         = LBT_DISABLED;
-    config.TRANSMISSION_MODE.WORPeriod         = WOR_2000_011;
-
+    Configuration config = E220LoRaTransmitter::defaultConfiguration();
     auto rs = e220.setConfiguration(config, WRITE_CFG_PWR_DWN_SAVE);
     if (rs.code == E220_SUCCESS)
         LOG_INFO("LoRa", "E220 configurato con successo.");

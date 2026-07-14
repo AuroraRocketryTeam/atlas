@@ -18,7 +18,7 @@
  * @brief Binary telemetry packet structure for efficient transmission.
  *
  * This structure is tightly packed (no padding) for efficient transmission
- * over ESP-NOW. Total size is approximately 64 bytes.
+ * over ESP-NOW and LoRa. Total size: 67 bytes.
  *
  * All multi-byte values are little-endian (ESP32 native).
  */
@@ -31,7 +31,7 @@ struct TelemetryPacket
     struct
     {
         float accel_x, accel_y, accel_z; ///< Accelerometer (m/s²)
-        float gyro_x, gyro_y, gyro_z;    ///< Gyroscope (rad/s)
+        float gyro_x, gyro_y, gyro_z;    ///< Gyroscope / angular velocity (rad/s)
     } imu;
 
     struct
@@ -46,12 +46,16 @@ struct TelemetryPacket
         float temperature; ///< Temperature (°C)
     } baro2;
 
+    float baro_altitude; ///< Relative altitude above launch point, calculated from baro (m)
+
     struct
     {
         float latitude;  ///< Latitude (degrees)
         float longitude; ///< Longitude (degrees)
-        float altitude;  ///< GPS altitude (meters)
+        float altitude;  ///< GPS altitude (m)
     } gps;
+
+    float velocity; ///< (m/s)
 
     uint8_t flight_phase; ///< 0 = INACTIVE, 10 = RECOVERED
     uint8_t last_ack_command_id; ///< Last successfully received command (CommandId), 0x00 = none

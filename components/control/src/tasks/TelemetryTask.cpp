@@ -108,6 +108,10 @@ void TelemetryTask::taskFunction()
                         LOG_WARNING("Telemetry", "LoRa transmit failed: %s", result.getDescription().c_str());
                     }
                 }
+                else
+                {
+                    LOG_WARNING("Telemetry", "LoRa transmitter not available, skipping LoRa transmission");
+                }
 
 #ifdef CONFIG_TELEMETRY_USB_MIRROR
                 if (message.size() <= 255)
@@ -184,6 +188,9 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         if (baro1Status == SensorReadStatus::OK) {
             packet.baro1.pressure = outMs56Data1.pressure;
             packet.baro1.temperature = outMs56Data1.temperature;
+            packet.baro_altitude = relAltitude_tele(outMs56Data1.pressure,
+                                                    _rocketModel->getLaunchpadBasePressure(),
+                                                    _rocketModel->getLaunchpadBaseTemperature());
         } else {
             LOG_WARNING("Telemetry", "Barometer 1 data not available");
         }
@@ -209,6 +216,8 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             LOG_WARNING("Telemetry", "GPS data not available");
         }
 
+        packet.velocity = _rocketModel->getHeightGainSpeed();
+        LOG_INFO("Telemetry", "Done collecting sensor data!");
     }
     catch (const std::exception &e)
     {

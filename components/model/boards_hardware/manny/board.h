@@ -37,9 +37,9 @@ static constexpr gpio_num_t MANNY_ARMING_PIN = GPIO_NUM_NC;
 static constexpr gpio_num_t MANNY_GPS_TX_PIN = GPIO_NUM_NC;
 static constexpr gpio_num_t MANNY_GPS_RX_PIN = GPIO_NUM_NC;
 
-static constexpr gpio_num_t MANNY_LORA_AUX_PIN = GPIO_NUM_38;
+static constexpr gpio_num_t MANNY_LORA_AUX_PIN = GPIO_NUM_40;
 static constexpr gpio_num_t MANNY_LORA_RX_PIN  = GPIO_NUM_39;
-static constexpr gpio_num_t MANNY_LORA_TX_PIN  = GPIO_NUM_40;
+static constexpr gpio_num_t MANNY_LORA_TX_PIN  = GPIO_NUM_38;
 static constexpr gpio_num_t MANNY_LORA_M1_PIN  = GPIO_NUM_41;
 static constexpr gpio_num_t MANNY_LORA_M0_PIN  = GPIO_NUM_42;
 

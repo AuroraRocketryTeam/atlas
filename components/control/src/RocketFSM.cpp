@@ -315,6 +315,7 @@ void RocketFSM::deployApogeeRecovery()
     {
         LOG_INFO("RocketFSM", "APOGEE recovery policy: MAIN_ONLY -> deploy MAIN");
         deployMain();
+        deployDrogue();
     }
     else if constexpr (RECOVERY_MODE == RecoveryMode::DrogueAndMain)
     {
