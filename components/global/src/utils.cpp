@@ -2,6 +2,7 @@
 #include "esp_timer.h"
 #include "driver/usb_serial_jtag.h"
 #include <algorithm>
+#include <cctype>
 
 static const char *TAG = "Utils";
 

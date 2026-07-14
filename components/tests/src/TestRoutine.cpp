@@ -767,12 +767,13 @@ void TestRoutine::run()
 
         // ── Show Menu ────────────────
         printf("\n=== MENU TEST ===\n");
-        for (size_t i = 0; i < tests.size(); i++) {
+        const int numTests = static_cast<int>(tests.size());
+        for (int i = 0; i < numTests; i++) {
             printf("%d - %s\n", i + 1, tests.at(i).name);
         }
-        printf("%d - Execute all Tests in sequence\n", tests.size() + 1);
+        printf("%d - Execute all Tests in sequence\n", numTests + 1);
         printf("0 - Exit Menu\n");
-        printf("Insert the desired action number: (0-%d)\n", tests.size() + 1);
+        printf("Insert the desired action number: (0-%d)\n", numTests + 1);
 
         // ── Get Choice ────────────────
         char buffer[32] = {0};
@@ -780,11 +781,16 @@ void TestRoutine::run()
         std::string input(buffer);
         Utils::trimString(input);
 
+        // reject non-numeric input (atoi would turn it into 0 = exit)
+        if (input.empty() || input.find_first_not_of("0123456789") != std::string::npos) {
+            printf("Invalid choice. Try again.\n");
+            continue;
+        }
         int choice = std::atoi(input.c_str());
 
         showTestPattern(choice);
 
-        if (choice >= 0 && choice <= tests.size() + 1) {
+        if (choice >= 0 && choice <= numTests + 1) {
             // ── Exit ──────────────────────────
             if (choice == 0) {
                 _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
@@ -794,7 +800,7 @@ void TestRoutine::run()
                 run = false;
             }
             // ── Run Single Test ────────────────
-            else if (choice <= tests.size())
+            else if (choice <= numTests)
             {
                 while (!tests.at(choice - 1).func());
 
