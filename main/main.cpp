@@ -182,7 +182,6 @@ void setup()
 
     // Signal successful initialization
     gpio_set_level(LED_RED_PIN, LOW);
-    gpio_set_level(LED_GREEN_PIN, HIGH);
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 

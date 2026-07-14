@@ -118,4 +118,4 @@ enum class RecoveryMode
     MainOnly,
     DrogueAndMain,
 };
-#define AURORA_RECOVERY_MODE RecoveryMode::DrogueAndMain
+#define AURORA_RECOVERY_MODE RecoveryMode::MainOnly

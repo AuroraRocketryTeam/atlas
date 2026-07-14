@@ -174,7 +174,7 @@ bool RocketModel::updateBNO055() {
                       data.orientation_x, data.orientation_y, data.orientation_z,
                       data.temperature,
                       data.calibration_sys, data.calibration_gyro, data.calibration_accel, data.calibration_mag);
-            _bnoData = data  
+            _bnoData = data;
         }
         _bnoDataValid = result;
         xSemaphoreGive(_imuMutex);
