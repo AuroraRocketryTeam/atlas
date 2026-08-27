@@ -79,7 +79,8 @@ void TaskManager::initializeTasks()
 #if CONFIG_AURORA_HIL_SIMULATION
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
-        _logger);
+        _logger,
+        _fsm);
 #endif
         
     _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(

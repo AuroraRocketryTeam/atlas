@@ -64,24 +64,24 @@
 #define ENABLE_TEST_ROUTINE
 
 // Board hardware instance
-Board board;
+static Board board;
 
 // Create controller instances
-LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
-BuzzerController buzzerController(board.get_buzzer_pin());
-StatusManager statusManager(ledController, buzzerController);
+static LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
+static BuzzerController buzzerController(board.get_buzzer_pin());
+static StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
-std::shared_ptr<RocketModel> rocketModel = nullptr;
+static std::shared_ptr<RocketModel> rocketModel = nullptr;
 
-std::shared_ptr<SD> sdCard = nullptr;
-std::shared_ptr<Flash> flash = nullptr;
+static std::shared_ptr<SD> sdCard = nullptr;
+static std::shared_ptr<Flash> flash = nullptr;
 
 // Define the RocketLogger
-std::shared_ptr<RocketLogger> logger = nullptr;
+static std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
-std::unique_ptr<RocketFSM> rocketFSM;
+static std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
 void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
@@ -91,16 +91,8 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
                           std::shared_ptr<GPS>& gps);
 void GPSfix(std::shared_ptr<GPS> gps);
 
-void setup()
+void setupFlight()
 {
-    // Actuator pins are configured in board.init()
-
-    // Initialize LED pins (only those not handled by controllers)
-    gpio_config(&led_gpio_config);
-
-    gpio_set_level(LED_BUILT_IN, 0);
-    gpio_set_level(LED_RED_PIN, 1);
-
 #ifdef CONFIG_INSTALL_USB_JTAG_DRIVER
     // I/O becomes blocking and buffer is limited
     usb_serial_jtag_driver_config_t usb_cfg = { .tx_buffer_size = 1024, .rx_buffer_size = 1024 };
@@ -109,6 +101,10 @@ void setup()
 
     // Signal initialization start
     board.init();
+
+    gpio_set_level(board.get_rgb_blue_pin(), LOW);
+    gpio_set_level(board.get_rgb_red_pin(), HIGH);
+
     // Initialize controllers
     ledController.init();
     buzzerController.init();
@@ -182,11 +178,12 @@ void setup()
     statusManager.setSystemCode(FLIGHT_MODE);
 
     // Signal successful initialization
-    gpio_set_level(LED_RED_PIN, 0);
+    gpio_set_level(board.get_rgb_red_pin(), LOW);
+    gpio_set_level(board.get_rgb_green_pin(), HIGH);
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
-void loop()
+void loopFlight()
 {
     auto currentState = rocketFSM->getCurrentState();
     LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
@@ -201,7 +198,7 @@ void loop()
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::millis());
         lastHeartbeat = Utils::millis();
         ledState = !ledState;
-        gpio_set_level(LED_BUILT_IN, ledState);
+        gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -470,16 +467,4 @@ void GPSfix(std::shared_ptr<GPS> gps)
 
     LOG_INFO("Calibration", "Sensor calibration complete.");
     statusManager.setSystemCode(SYSTEM_OK);
-}
-
-// The ESP-IDF entry point, which must be C-linkage
-extern "C" void app_main() {
-    // Initialize the Arduino core background tasks
-    initArduino();
-    
-    setup();
-    
-    while (1) {
-        loop();
-    }
 }

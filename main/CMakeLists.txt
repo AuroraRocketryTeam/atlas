@@ -1,9 +1,7 @@
-set(MAIN_SRCS)
+set(MAIN_SRCS "app_entry.cpp" "main.cpp")
 
-if(CONFIG_AURORA_HIL_SIMULATION)
+if(CONFIG_AURORA_HIL_SUPPORT)
     list(APPEND MAIN_SRCS "main_hil.cpp")
-else()
-    list(APPEND MAIN_SRCS "main.cpp")
 endif()
 
 # register the component to the build system.

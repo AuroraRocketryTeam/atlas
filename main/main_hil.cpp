@@ -61,24 +61,24 @@
 #include <E220LoRaTransmitter.hpp>
 
 // Board hardware instance
-Board board;
+static Board board;
 
 // Create controller instances
-LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
-BuzzerController buzzerController(board.get_buzzer_pin());
-StatusManager statusManager(ledController, buzzerController);
+static LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
+static BuzzerController buzzerController(board.get_buzzer_pin());
+static StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
-std::shared_ptr<RocketModel> rocketModel = nullptr;
+static std::shared_ptr<RocketModel> rocketModel = nullptr;
 
-std::shared_ptr<SD> sdCard = nullptr;
-std::shared_ptr<Flash> flash = nullptr;
+static std::shared_ptr<SD> sdCard = nullptr;
+static std::shared_ptr<Flash> flash = nullptr;
 
 // Define the RocketLogger
-std::shared_ptr<RocketLogger> logger = nullptr;
+static std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
-std::unique_ptr<RocketFSM> rocketFSM;
+static std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
 void printSystemInfo();
@@ -89,8 +89,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 static void createAndStartFSM();
 static void resetHilSimulationIfRequested();
 static void resetHilSimulation();
-
-#if CONFIG_AURORA_HIL_SIMULATION
 
 static constexpr const char *HIL_WIFI_SSID = CONFIG_AURORA_HIL_WIFI_SSID;
 static constexpr const char *HIL_WIFI_PASSWORD = CONFIG_AURORA_HIL_WIFI_PASSWORD;
@@ -109,9 +107,7 @@ static_assert(
     "CONFIG_AURORA_HIL_WIFI_PASSWORD must be empty or at least 8 characters"
 );
 
-#endif
-
-void setup()
+void setupHil()
 {
     // Install driver for blocking reads of Utils::readLine
     // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
@@ -213,13 +209,9 @@ static void createAndStartFSM()
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Start FSM tasks
-    statusManager.setSystemCode(FSM_STARTED);
-    
-    LOG_INFO("Main", "Force transition - READY_FOR_LAUNCH");
-    rocketFSM->forceTransition(RocketState::READY_FOR_LAUNCH);
-    
     LOG_INFO("Main", "Starting Flight State Machine...");
     rocketFSM->start();
+    statusManager.setSystemCode(FSM_STARTED);
 }
 
 static void resetHilSimulationIfRequested()
@@ -279,7 +271,7 @@ static void resetHilSimulation()
     LOG_INFO("Main", "HIL simulation reset complete");
 }
 
-void loop()
+void loopHil()
 {
     resetHilSimulationIfRequested();
 
@@ -459,18 +451,4 @@ void wifi_softap_init(void)
     LOG_INFO("wifi_softap",
             "SoftAP started. SSID:%s IP:%s NETMASK:%s CHANNEL:%d MAX_STA:%d",
             HIL_WIFI_SSID,HIL_AP_IP_ADDR,HIL_AP_NETMASK,HIL_WIFI_CHANNEL,HIL_MAX_STA_CONN);
-}
-
-// The ESP-IDF entry point, which must be C-linkage
-extern "C" void app_main()
-{
-    // Initialize the Arduino core background tasks
-    initArduino();
-
-    setup();
-
-    while (1)
-    {
-        loop();
-    }
 }
