@@ -1,4 +1,7 @@
 #include "TestRoutine.hpp"
+#include "esp_flash.h"
+#include "esp_heap_caps.h"
+#include "soc/rtc.h"
 
 #include <cstring>
 #include <string>
@@ -834,15 +837,23 @@ void TestRoutine::run()
 
 void TestRoutine::printSystemInfo()
 {
+    rtc_cpu_freq_config_t cpuConf;
+    rtc_clk_cpu_freq_get_config(&cpuConf);
+
+    uint32_t flashSize = 0;
+    if (esp_flash_get_size(NULL, &flashSize) != ESP_OK) {
+        flashSize = 0;
+    }
+
     printf("--- System Information ---\n");
-    printf("ESP32 Chip: %s\n",         ESP.getChipModel());
-    printf("CPU Frequency: %lu MHz\n", (unsigned long)ESP.getCpuFreqMHz());
-    printf("Total Heap: %lu bytes\n",  (unsigned long)ESP.getHeapSize());
-    printf("Free Heap: %lu bytes\n",   (unsigned long)ESP.getFreeHeap());
-    printf("PSRAM Total: %lu bytes\n", (unsigned long)ESP.getPsramSize());
-    printf("PSRAM Free: %lu bytes\n",  (unsigned long)ESP.getFreePsram());
-    printf("Flash Size: %lu bytes\n",  (unsigned long)ESP.getFlashChipSize());
-    printf("SDK Version: %s\n",        ESP.getSdkVersion());
+    printf("ESP32 Chip: %s\n",         CONFIG_IDF_TARGET);
+    printf("CPU Frequency: %lu MHz\n", (unsigned long)cpuConf.freq_mhz);
+    printf("Total Heap: %lu bytes\n",  (unsigned long)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    printf("Free Heap: %lu bytes\n",   (unsigned long)esp_get_free_heap_size());
+    printf("PSRAM Total: %lu bytes\n", (unsigned long)heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+    printf("PSRAM Free: %lu bytes\n",  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    printf("Flash Size: %lu bytes\n",  (unsigned long)flashSize);
+    printf("SDK Version: %s\n",        esp_get_idf_version());
     printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
     printf("Tick rate: %d Hz\n",       configTICK_RATE_HZ);
     printf("--- End System Information ---\n");

@@ -1,4 +1,5 @@
 #include "RocketFSM.hpp"
+#include "esp_system.h"
 #include "esp_task_wdt.h"
 #include <utils.h>
 #include <algorithm>
@@ -96,7 +97,7 @@ void RocketFSM::init()
     _previousState = RocketState::INACTIVE;
     _stateStartTime = Utils::millis();
 
-    LOG_INFO("RocketFSM", "Initialization complete - Free heap: %u bytes", ESP.getFreeHeap());
+    LOG_INFO("RocketFSM", "Initialization complete - Free heap: %u bytes", esp_get_free_heap_size());
 }
 
 void RocketFSM::start()
@@ -673,7 +674,7 @@ void RocketFSM::transitionTo(RocketState newState)
 
         xSemaphoreGive(_stateMutex);
 
-        LOG_INFO("RocketFSM", "[TRANSITION] Complete - Free heap: %u bytes", ESP.getFreeHeap());
+        LOG_INFO("RocketFSM", "[TRANSITION] Complete - Free heap: %u bytes", esp_get_free_heap_size());
     }
     else
     {

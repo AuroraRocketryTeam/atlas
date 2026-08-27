@@ -2,6 +2,7 @@
 // Will be replaced with ESP-IDF UART (uart_driver_install / uart_write_bytes).
 
 #include "TaskManager.hpp"
+#include "esp_system.h"
 #include <config.h>
 #include <board.h>
 
@@ -126,7 +127,7 @@ bool TaskManager::startTask(TaskType type, const TaskConfig &config)
     }
 
     // Check available memory before starting
-    uint32_t freeHeap = ESP.getFreeHeap();
+    uint32_t freeHeap = esp_get_free_heap_size();
     if (freeHeap < config.stackSize + 1024)
     { // Reserve 1KB buffer
         LOG_ERROR("TaskManager", "ERROR: Insufficient memory. Free: %u, Need: %u",
@@ -163,7 +164,7 @@ void TaskManager::stopTask(TaskType type)
 
         // Record pre-stop status
         LOG_DEBUG("TaskManager", "Pre-stop: %s isRunning=%d, StackHWM=%u, FreeHeap=%u",
-                  task->getName(), task->isRunning(), task->getStackHighWaterMark(), ESP.getFreeHeap());
+                  task->getName(), task->isRunning(), task->getStackHighWaterMark(), esp_get_free_heap_size());
 
         // Request cooperative stop - BaseTask::stop() now handles waiting
         task->stop();
@@ -175,7 +176,7 @@ void TaskManager::stopTask(TaskType type)
         }
         else
         {
-            LOG_INFO("TaskManager", "Task %s stopped - FreeHeap=%u", task->getName(), ESP.getFreeHeap());
+            LOG_INFO("TaskManager", "Task %s stopped - FreeHeap=%u", task->getName(), esp_get_free_heap_size());
         }
     }
 }
@@ -206,7 +207,7 @@ void TaskManager::stopAllTasks()
     // Minimal settle delay since BaseTask::stop() already waits
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    LOG_INFO("TaskManager", "All tasks stopped - FreeHeap: %u bytes", ESP.getFreeHeap());
+    LOG_INFO("TaskManager", "All tasks stopped - FreeHeap: %u bytes", esp_get_free_heap_size());
 }
 
 bool TaskManager::isTaskRunning(TaskType type) const
@@ -228,7 +229,7 @@ uint32_t TaskManager::getTaskStackUsage(TaskType type) const
 void TaskManager::printTaskStatus() const
 {
     LOG_INFO("TaskManager", "\n=== TASK STATUS ===");
-    LOG_INFO("TaskManager", "Free heap: %u bytes", ESP.getFreeHeap());
+    LOG_INFO("TaskManager", "Free heap: %u bytes", esp_get_free_heap_size());
     LOG_INFO("TaskManager", "Task Status:");
 
     for (const auto &[type, task] : _tasks)

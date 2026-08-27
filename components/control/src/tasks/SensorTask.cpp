@@ -1,4 +1,6 @@
 #include "SensorTask.hpp"
+#include "esp_heap_caps.h"
+#include "esp_system.h"
 #include "esp_task_wdt.h"
 
 SensorTask::SensorTask(std::shared_ptr<RocketModel> rocketModel,
@@ -47,7 +49,7 @@ void SensorTask::taskFunction()
         // Log memory usage every 10 loops
         if (loopCount % 10 == 0)
         {
-            uint32_t freeHeap = ESP.getFreeHeap();
+            uint32_t freeHeap = esp_get_free_heap_size();
             LOG_INFO("Sensor", "L%lu: Stack HwM:%u, Heap=%u, Memory=%u",
                           loopCount, uxTaskGetStackHighWaterMark(NULL), freeHeap,
                           heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));

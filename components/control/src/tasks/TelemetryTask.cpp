@@ -1,4 +1,5 @@
 #include "TelemetryTask.hpp"
+#include "esp_system.h"
 #include <utils.h>
 #ifdef CONFIG_TELEMETRY_USB_MIRROR
 #  include "driver/usb_serial_jtag.h"
@@ -132,7 +133,7 @@ void TelemetryTask::taskFunction()
             {
                 _transmitter->getStats(txSent, txFailed);
                 LOG_INFO("Telemetry", "Stats: msgs=%lu, pkts=%lu, tx_ok=%lu, tx_fail=%lu, heap=%u",
-                         _messagesCreated, _packetsSent, txSent, txFailed, ESP.getFreeHeap());
+                         _messagesCreated, _packetsSent, txSent, txFailed, esp_get_free_heap_size());
             }
         }
 

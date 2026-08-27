@@ -12,6 +12,8 @@ idf_component_register(
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         nvs_flash
+        spi_flash
+        esp_hw_support
         esp_driver_usb_serial_jtag
         global
         data

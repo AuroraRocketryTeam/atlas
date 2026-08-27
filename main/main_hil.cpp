@@ -1,5 +1,9 @@
 // Standard libraries
 #include <Arduino.h>
+#include "esp_flash.h"
+#include "esp_heap_caps.h"
+#include "soc/rtc.h"
+#include "esp_system.h"
 #include <variant>
 #include <string>
 #include <cstring>
@@ -119,8 +123,8 @@ void setup()
 
     // Signal initialization start
     board.init();
-    gpio_set_level(board.get_rgb_blue_pin(), LOW);
-    gpio_set_level(board.get_rgb_red_pin(), HIGH);
+    gpio_set_level(board.get_rgb_blue_pin(), 0);
+    gpio_set_level(board.get_rgb_red_pin(), 1);
 
     // Initialize controllers
     ledController.init();
@@ -194,8 +198,8 @@ void setup()
     statusManager.setSystemCode(FLIGHT_MODE);
 
     // Signal successful initialization
-    gpio_set_level(board.get_rgb_red_pin(), LOW);
-    gpio_set_level(board.get_rgb_green_pin(), HIGH);
+    gpio_set_level(board.get_rgb_red_pin(), 0);
+    gpio_set_level(board.get_rgb_green_pin(), 1);
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
@@ -269,8 +273,8 @@ static void resetHilSimulation()
 
     statusManager.setSystemCode(FLIGHT_MODE);
 
-    gpio_set_level(board.get_rgb_red_pin(), LOW);
-    gpio_set_level(board.get_rgb_green_pin(), HIGH);
+    gpio_set_level(board.get_rgb_red_pin(), 0);
+    gpio_set_level(board.get_rgb_green_pin(), 1);
 
     LOG_INFO("Main", "HIL simulation reset complete");
 }
@@ -299,7 +303,7 @@ void loop()
         ledState = !ledState;
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
-        LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
+        LOG_INFO("Main", "Free heap: %u bytes", esp_get_free_heap_size());
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -330,15 +334,23 @@ void loop()
 
 void printSystemInfo()
 {
+    rtc_cpu_freq_config_t cpuConf;
+    rtc_clk_cpu_freq_get_config(&cpuConf);
+
+    uint32_t flashSize = 0;
+    if (esp_flash_get_size(NULL, &flashSize) != ESP_OK) {
+        flashSize = 0;
+    }
+
     printf("--- System Information ---\n");
-    printf("ESP32 Chip: %s\n", ESP.getChipModel());
-    printf("CPU Frequency: %lu MHz\n", (unsigned long)ESP.getCpuFreqMHz());
-    printf("Total Heap: %lu bytes\n", (unsigned long)ESP.getHeapSize());
-    printf("Free Heap: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
-    printf("PSRAM Total: %lu bytes\n", (unsigned long)ESP.getPsramSize());
-    printf("PSRAM Free: %lu bytes\n", (unsigned long)ESP.getFreePsram());
-    printf("Flash Size: %lu bytes\n", (unsigned long)ESP.getFlashChipSize());
-    printf("SDK Version: %s\n", ESP.getSdkVersion());
+    printf("ESP32 Chip: %s\n", CONFIG_IDF_TARGET);
+    printf("CPU Frequency: %lu MHz\n", (unsigned long)cpuConf.freq_mhz);
+    printf("Total Heap: %lu bytes\n", (unsigned long)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    printf("Free Heap: %lu bytes\n", (unsigned long)esp_get_free_heap_size());
+    printf("PSRAM Total: %lu bytes\n", (unsigned long)heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+    printf("PSRAM Free: %lu bytes\n", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    printf("Flash Size: %lu bytes\n", (unsigned long)flashSize);
+    printf("SDK Version: %s\n", esp_get_idf_version());
 
     // FreeRTOS information
     printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);

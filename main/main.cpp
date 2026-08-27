@@ -1,5 +1,6 @@
 // Standard libraries
 #include <Arduino.h>
+#include "esp_system.h"
 #include <variant>
 #include <string>
 #include <cstring>
@@ -97,8 +98,8 @@ void setup()
     // Initialize LED pins (only those not handled by controllers)
     gpio_config(&led_gpio_config);
 
-    gpio_set_level(LED_BUILT_IN, LOW);
-    gpio_set_level(LED_RED_PIN, HIGH);
+    gpio_set_level(LED_BUILT_IN, 0);
+    gpio_set_level(LED_RED_PIN, 1);
 
 #ifdef CONFIG_INSTALL_USB_JTAG_DRIVER
     // I/O becomes blocking and buffer is limited
@@ -181,7 +182,7 @@ void setup()
     statusManager.setSystemCode(FLIGHT_MODE);
 
     // Signal successful initialization
-    gpio_set_level(LED_RED_PIN, LOW);
+    gpio_set_level(LED_RED_PIN, 0);
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
@@ -189,7 +190,7 @@ void loop()
 {
     auto currentState = rocketFSM->getCurrentState();
     LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-    LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
+    LOG_INFO("Main", "Free heap: %u bytes", esp_get_free_heap_size());
 
     unsigned long lastHeartbeat = 0;
     bool ledState = false;

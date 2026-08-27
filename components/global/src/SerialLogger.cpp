@@ -1,6 +1,5 @@
 #include "SerialLogger.hpp"
 #include "esp_heap_caps.h"
-// TODO: replace ESP calls
 #include <Arduino.h>
 #include <inttypes.h>
 #include <utils.h>
@@ -77,7 +76,7 @@ namespace SerialLogger
 
     void debugMemory(const char *location)
     {
-        size_t maxAlloc = ESP.getMaxAllocHeap();
+        size_t maxAlloc = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
         
         // Log the memory stat so the variable isn't wasted
         log(LogLevel::INFO, location, "Max Allocatable Block: %zu bytes", maxAlloc);
