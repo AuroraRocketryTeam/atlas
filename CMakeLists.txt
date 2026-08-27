@@ -62,6 +62,13 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # Note: if two components have the same name the highest priority one will override the other: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/build-system.html#multiple-components-with-the-same-name
 project(atlas)
 
+# esp-modbus 2.1.3 (pulled in transitively by arduino-esp32) trips
+# -Werror=stringop-truncation on GCC 14.x. Downgrade it to a warning for that component only.
+idf_component_get_property(modbus_lib espressif__esp-modbus COMPONENT_LIB)
+if(modbus_lib)
+    target_compile_options(${modbus_lib} PRIVATE -Wno-error=stringop-truncation)
+endif()
+
 # Relax -Werror for implicit-function-declaration — needed for Arduino-ESP32 3.x
 idf_build_set_property(COMPILE_OPTIONS "-Wno-error=implicit-function-declaration" APPEND)
 
