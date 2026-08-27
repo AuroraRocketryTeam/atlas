@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <IBoardHardware.hpp>
 #include <RocketModel.hpp>
@@ -9,6 +10,12 @@
 #include <BuzzerController.hpp>
 #include <StatusManager.hpp>
 #include <RocketFSM.hpp>
+
+struct TestOption {
+    const char *name;
+    std::function<bool()> func;
+    bool run_all_flag;
+};
 
 class TestRoutine {
 public:

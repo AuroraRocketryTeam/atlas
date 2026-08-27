@@ -3,7 +3,9 @@
 #include "esp_heap_caps.h"
 #include "soc/rtc.h"
 
+#include <array>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <algorithm>
 #include <cctype>
@@ -37,21 +39,6 @@ TestRoutine::TestRoutine(IBoardHardware& board,
       _buzzerController(buzzerController)
 {}
 
-// ── String helpers ────────────────────────────────────────────────────────────
-
-static void trimString(std::string& s)
-{
-    auto notSpace = [](unsigned char c) { return !std::isspace(c); };
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), notSpace));
-    s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
-}
-
-static void toUpperString(std::string& s)
-{
-    for (char& c : s)
-        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-}
-
 bool TestRoutine::waitForUserInput(const char* message)
 {
     printf("%s\n(Shortcuts: 'P' = Passed, 'F' = Failed, 'R' = Reboot)\n", message);
@@ -62,8 +49,8 @@ bool TestRoutine::waitForUserInput(const char* message)
         char buffer[64] = {0};
         Utils::readLine(buffer, sizeof(buffer));
         std::string input(buffer);
-        trimString(input);
-        toUpperString(input);
+        Utils::trimString(input);
+        Utils::toUpperString(input);
 
         if (input == "PASSED" || input == "P")
         {
@@ -88,8 +75,8 @@ bool TestRoutine::waitForUserInput(const char* message)
                 LOG_INFO("Test", "No confirmation - continuing normal operation.");
                 continue;
             }
-            trimString(confirm);
-            toUpperString(confirm);
+            Utils::trimString(confirm);
+            Utils::toUpperString(confirm);
 
             if (confirm == "REBOOT" || confirm == "R") {
                 LOG_WARNING("Test", "Rebooting system...");
@@ -120,7 +107,8 @@ void TestRoutine::showTestPattern(int testNumber)
     case 8:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
     case 9:  _statusManager.playBlockingPattern(TEST_SD,        1000); break;
     case 10: _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    case 11: _statusManager.playBlockingPattern(TEST_ALL,       2000); break;
+    // 11-13 (flash utilities, IMU calibration) have no pattern
+    case 14: _statusManager.playBlockingPattern(TEST_ALL,       2000); break;
     default: break;
     }
 }
@@ -424,7 +412,7 @@ bool TestRoutine::clearFlashMemory()
     char buffer[16] = {0};
     Utils::readLine(buffer, sizeof(buffer));
     std::string input(buffer);
-    trimString(input);
+    Utils::trimString(input);
     
     if (input == "Y" || input == "y") {
         LOG_INFO("Test", "Formatting in progress... it might take some time.");
@@ -757,80 +745,88 @@ void TestRoutine::run()
 {
     LOG_INFO("Test", "=== SYSTEM TEST ROUTINE INITIATED ===");
 
-    while (true)
+    // ── Tests Definition ────────────────
+    std::array<TestOption, 13> tests = {{
+        {"Alimentation and LED Test", [this]() { return testPowerAndLEDs(); }, true},
+        {"Sensors Test", [this]() { return testSensors(); }, true},
+        {"Actuators Test", [this]() { return testActuators(); }, true},
+        {"SD Card Test", [this]() { return testSDCard(); }, true},
+        {"I2C Scan", [this]() { return testI2CScan(); }, false},
+        {"E220 Configuration (one-time setup)", [this]() { return configureE220(); }, false},
+        {"Telemetry Test", [this]() { return testTelemetry(); }, true},
+        {"E220 connector Test", [this]() { return testE220Connector(); }, false},
+        {"Flash memory Test", [this]() { return testFlashMemory(); }, true},
+        {"LoRa command reception Test", [this]() { return testTelemetryCommand(); }, true},
+        {"Dump JSONL telemetry from Flash", [this]() { return dumpFlashJsonFiles(); }, false},
+        {"Format Flash memory", [this]() { return clearFlashMemory(); }, false},
+        {"IMU calibration and save to NVS (Internal Flash)", [this]() { return calibrateAndSaveIMU(); }, false},
+    }};
+
+    // ── Run Tests ────────────────
+    bool run = true;
+    while (run)
     {
         _statusManager.setSystemCode(TEST_MENU);
 
+        // ── Show Menu ────────────────
         printf("\n=== MENU TEST ===\n");
-        printf("1 - Test alimentazione e LED\n");
-        printf("2 - Test sensori\n");
-        printf("3 - Test attuatori\n");
-        printf("4 - Test SD Card\n");
-        printf("5 - I2C scan\n");
-        printf("6 - Configura E220 (one-time setup)\n");
-        printf("7 - Test telemetria\n");
-        printf("8 - Test connettore E220\n");
-        printf("9 - Test Flash memory\n");
-        printf("10 - Test ricezione comando LoRa\n");
-        printf("11 - Esegui tutti i test in sequenza\n");
-        printf("12 - Dump JSONL telemetry from Flash\n");
-        printf("13 - Format Flash memory\n");
-        printf("14 - Calibra IMU e salva in NVS (Internal Flash)\n");
-        printf("0 - Esci dal menu test\n");
-        printf("Inserisci il numero del test da eseguire:\n");
+        const int numTests = static_cast<int>(tests.size());
+        for (int i = 0; i < numTests; i++) {
+            printf("%d - %s\n", i + 1, tests.at(i).name);
+        }
+        printf("%d - Execute all Tests in sequence\n", numTests + 1);
+        printf("0 - Exit Menu\n");
+        printf("Insert the desired action number: (0-%d)\n", numTests + 1);
 
+        // ── Get Choice ────────────────
         char buffer[32] = {0};
         Utils::readLine(buffer, sizeof(buffer));
         std::string input(buffer);
-        trimString(input);
+        Utils::trimString(input);
+
+        // reject non-numeric input (atoi would turn it into 0 = exit)
+        if (input.empty() || input.find_first_not_of("0123456789") != std::string::npos) {
+            printf("Invalid choice. Try again.\n");
+            continue;
+        }
         int choice = std::atoi(input.c_str());
-        bool testPassed = false;
 
         showTestPattern(choice);
 
-        switch (choice)
-        {
-        case 1:  do { testPassed = testPowerAndLEDs();  } while (!testPassed); break;
-        case 2:  do { testPassed = testSensors();       } while (!testPassed); break;
-        case 3:  do { testPassed = testActuators();     } while (!testPassed); break;
-        case 4:  do { testPassed = testSDCard();        } while (!testPassed); break;
-        case 5:  do { testPassed = testI2CScan();       } while (!testPassed); break;
-        case 6:  do { testPassed = configureE220();     } while (!testPassed); break;
-        case 7:  do { testPassed = testTelemetry();     } while (!testPassed); break;
-        case 8:  do { testPassed = testE220Connector(); } while (!testPassed); break;
-        case 9:  do { testPassed = testFlashMemory();      } while (!testPassed); break;
-        case 10: do { testPassed = testTelemetryCommand(); } while (!testPassed); break;
-        case 11:
-            _statusManager.playBlockingPattern(TEST_ALL, 2000);
-            do { testPassed = testPowerAndLEDs();  } while (!testPassed);
-            do { testPassed = testSensors();       } while (!testPassed);
-            do { testPassed = testActuators();     } while (!testPassed);
-            do { testPassed = testSDCard();        } while (!testPassed);
-            do { testPassed = testTelemetry();     } while (!testPassed);
-            do { testPassed = testFlashMemory();   } while (!testPassed);
-            do { testPassed = testTelemetryCommand(); } while (!testPassed);
-            _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
-            LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
-            break;
-        case 12:
-                do { testPassed = dumpFlashJsonFiles(); } while (!testPassed); break;
-        case 13:
-                do { testPassed = clearFlashMemory(); } while (!testPassed); break;
-        case 14:
-                do { testPassed = calibrateAndSaveIMU(); } while (!testPassed); break;
-        case 0:
-            _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
-            LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
-            _statusManager.setSystemCode(SYSTEM_OK);
-            return;
-        default:
-            printf("Scelta non valida. Riprova.\n");
-            continue;
-        }
+        if (choice >= 0 && choice <= numTests + 1) {
+            // ── Exit ──────────────────────────
+            if (choice == 0) {
+                _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
+                LOG_INFO("Test", "\n=== EXITING TEST MENU ===");
+                _statusManager.setSystemCode(SYSTEM_OK);
 
-        if (choice >= 1 && choice <= 13) {
-            LOG_INFO("Test", "Test completato con successo!");
-            _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+                run = false;
+            }
+            // ── Run Single Test ────────────────
+            else if (choice <= numTests)
+            {
+                while (!tests.at(choice - 1).func());
+
+                LOG_INFO("Test", "Test successfully completed!");
+                _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+            }
+            // ── Run All Tests ───────────────────
+            // excluding I2C scan, E220 configuration/connector and flash utilities
+            else
+            {
+                _statusManager.playBlockingPattern(TEST_ALL, 2000);
+
+                for (const auto& test : tests) {
+                    // check if the test should run
+                    if (test.run_all_flag)
+                        while (!test.func());
+                }
+
+                _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
+                LOG_INFO("Test", "\n=== ALL TESTS SUCCESSFULLY COMPLETED ===");
+            }
+        } else {
+            printf("Invalid choice. Try again.\n");
         }
     }
 }
