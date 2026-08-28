@@ -37,6 +37,15 @@ const pollBusy = {
   logs: false,
 };
 const MAX_CLIENT_LOG_LINES = 1000;
+const LIVE_HISTORY_SAMPLES = 120;
+const liveHistory = [];
+let targetAttitudeQuaternion = { w: 1, x: 0, y: 0, z: 0 };
+let displayedAttitudeQuaternion = { w: 1, x: 0, y: 0, z: 0 };
+let targetAttitudeAcceleration = [0, 0, 0];
+let displayedAttitudeAcceleration = [0, 0, 0];
+const DEFAULT_ATTITUDE_MOUNTING = { x: '-x', y: '-y', z: '+z' };
+let attitudeMounting = loadAttitudeMounting();
+let attitudeMountingDraft = { ...attitudeMounting };
 
 token.value = localStorage.getItem('atlas_ground_token') || '';
 
@@ -470,7 +479,7 @@ async function loadHealth() {
       ].join(''))}
       ${healthItem('BNO055 IMU', sensors.imu_bno055, [row('Read status', (sensors.imu_bno055 || {}).status)].join(''))}
       ${healthItem('MS5611 Barometer 1', sensors.barometer_ms5611_primary, [row('Read status', (sensors.barometer_ms5611_primary || {}).status)].join(''))}
-      ${healthItem('MS5611 Barometer 2', sensors.barometer_ms5611_secondary, [row('Read status', (sensors.barometer_ms5611_secondary || {}).status)].join(''))}
+      ${(sensors.barometer_ms5611_secondary || {}).status === 'not_present' ? '' : healthItem('MS5611 Barometer 2', sensors.barometer_ms5611_secondary, [row('Read status', (sensors.barometer_ms5611_secondary || {}).status)].join(''))}
       ${healthItem('LIS3DHTR Accelerometer', sensors.accelerometer_lis3dhtr, [row('Read status', (sensors.accelerometer_lis3dhtr || {}).status)].join(''))}
       ${healthItem('GPS', sensors.gps, [row('Read status', (sensors.gps || {}).status)].join(''))}
       ${healthItem('SD Card', sd, [row('Mounted', sd.present ? 'yes' : 'no')].join(''))}
@@ -584,6 +593,260 @@ function sensorCard(name, sensor, values) {
   </div>`;
 }
 
+function rotateByQuaternion(vector, quaternion) {
+  let w = Number(quaternion.w);
+  let x = Number(quaternion.x);
+  let y = Number(quaternion.y);
+  let z = Number(quaternion.z);
+  const norm = Math.hypot(w, x, y, z) || 1;
+  w /= norm; x /= norm; y /= norm; z /= norm;
+  const [vx, vy, vz] = vector;
+  const tx = 2 * (y * vz - z * vy);
+  const ty = 2 * (z * vx - x * vz);
+  const tz = 2 * (x * vy - y * vx);
+  return [
+    vx + w * tx + (y * tz - z * ty),
+    vy + w * ty + (z * tx - x * tz),
+    vz + w * tz + (x * ty - y * tx)
+  ];
+}
+
+function normalizedVector(vector) {
+  const length = Math.hypot(...vector) || 1;
+  return vector.map(value => value / length);
+}
+
+function crossProduct(a, b) {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+const ATTITUDE_CAMERA_FORWARD = normalizedVector([2, 3, 1.5]);
+const ATTITUDE_CAMERA_RIGHT = normalizedVector(crossProduct([0, 0, 1], ATTITUDE_CAMERA_FORWARD));
+const ATTITUDE_CAMERA_UP = crossProduct(ATTITUDE_CAMERA_FORWARD, ATTITUDE_CAMERA_RIGHT);
+
+function attitudeMountingDeterminant(mapping) {
+  if (!mapping || !['x', 'y', 'z'].every(axis => /^[+-][xyz]$/.test(mapping[axis]))) return 0;
+  const matrix = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  ['x', 'y', 'z'].forEach((bodyAxis, column) => {
+    const mapped = mapping[bodyAxis];
+    matrix['xyz'.indexOf(mapped[1])][column] = mapped[0] === '-' ? -1 : 1;
+  });
+  return matrix[0][0] * (matrix[1][1] * matrix[2][2] - matrix[1][2] * matrix[2][1]) -
+    matrix[0][1] * (matrix[1][0] * matrix[2][2] - matrix[1][2] * matrix[2][0]) +
+    matrix[0][2] * (matrix[1][0] * matrix[2][1] - matrix[1][1] * matrix[2][0]);
+}
+
+function validAttitudeMounting(mapping) {
+  return attitudeMountingDeterminant(mapping) === 1;
+}
+
+function loadAttitudeMounting() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('atlas_attitude_mounting'));
+    return validAttitudeMounting(stored) ? stored : { ...DEFAULT_ATTITUDE_MOUNTING };
+  } catch (_) {
+    return { ...DEFAULT_ATTITUDE_MOUNTING };
+  }
+}
+
+function bodyToSensor(vector, mapping = attitudeMounting) {
+  const sensor = [0, 0, 0];
+  ['x', 'y', 'z'].forEach((bodyAxis, index) => {
+    const mapped = mapping[bodyAxis];
+    sensor['xyz'.indexOf(mapped[1])] = (mapped[0] === '-' ? -1 : 1) * vector[index];
+  });
+  return sensor;
+}
+
+function attitudeGeometry(quaternion) {
+  const cameraForward = ATTITUDE_CAMERA_FORWARD;
+  const cameraRight = ATTITUDE_CAMERA_RIGHT;
+  const cameraUp = ATTITUDE_CAMERA_UP;
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const project = (value, origin = [230, 165], scale = 92) => {
+    const depth = dot(value, cameraForward);
+    const perspective = 3.6 / (3.6 - depth);
+    return [origin[0] + scale * dot(value, cameraRight) * perspective, origin[1] - scale * dot(value, cameraUp) * perspective];
+  };
+  const projectXZ = ([x, , z]) => [382 + 31 * x, 76 - 31 * z];
+  const projectYZ = ([, y, z]) => [382 + 31 * y, 202 - 31 * z];
+  const point = value => value.map(n => n.toFixed(1)).join(',');
+  const rotated = value => rotateByQuaternion(bodyToSensor(value), quaternion);
+  const bodyAxes = [
+    ['X', '#ef4444', rotated([1, 0, 0])],
+    ['Y', '#22c55e', rotated([0, 1, 0])],
+    ['Z / NOSE', '#3b82f6', rotated([0, 0, 1.25])]
+  ];
+  const center = project([0, 0, 0]);
+  const inertialAcceleration = rotateByQuaternion(displayedAttitudeAcceleration, quaternion);
+  const accelerationEnd = project(inertialAcceleration.map(value => value / 9.80665));
+  const accelerationMagnitude = Math.hypot(...displayedAttitudeAcceleration) / 9.80665;
+  const segments = 8;
+  const ring = z => Array.from({ length: segments }, (_, index) => {
+    const angle = index * Math.PI * 2 / segments;
+    return rotated([0.22 * Math.cos(angle), 0.22 * Math.sin(angle), z]);
+  });
+  const bottom = ring(-0.9), shoulder = ring(0.62), nose = rotated([0, 0, 1.35]);
+  const mesh = [];
+  const addFace = (kind, vertices) => mesh.push({ kind, vertices });
+  for (let index = 0; index < segments; index++) {
+    const next = (index + 1) % segments;
+    addFace(`rocket-body rocket-face-${index % 2}`, [bottom[index], bottom[next], shoulder[next], shoulder[index]]);
+    addFace(`rocket-cone rocket-face-${index % 2}`, [shoulder[index], shoulder[next], nose]);
+  }
+  addFace('rocket-base', bottom);
+  for (let index = 0; index < 3; index++) {
+    const angle = index * Math.PI * 2 / 3;
+    const radial = distance => [distance * Math.cos(angle), distance * Math.sin(angle)];
+    const root = radial(0.2), tip = radial(0.52);
+    addFace(`rocket-fin rocket-fin-${index}`, [
+      rotated([root[0], root[1], -0.88]), rotated([tip[0], tip[1], -1.05]),
+      rotated([tip[0], tip[1], -0.48]), rotated([root[0], root[1], -0.38])
+    ]);
+  }
+  const renderFaces = (projector, depthVector) => mesh.map(face => ({
+    kind: face.kind,
+    depth: face.vertices.reduce((sum, value) => sum + dot(value, depthVector), 0) / face.vertices.length,
+    points: face.vertices.map(value => point(projector(value))).join(' ')
+  })).sort((a, b) => a.depth - b.depth);
+
+  return {
+    project, bodyAxes, center, accelerationEnd, accelerationMagnitude,
+    faces: renderFaces(project, cameraForward),
+    xzFaces: renderFaces(projectXZ, [0, 1, 0]),
+    yzFaces: renderFaces(projectYZ, [1, 0, 0])
+  };
+}
+
+function rocketFacesSvg(faces) {
+  return faces.map(face => `<polygon points="${face.points}" class="${face.kind}"/>`).join('');
+}
+
+function attitudeAlignmentControls() {
+  const options = ['+x', '-x', '+y', '-y', '+z', '-z'];
+  return `<div class="attitude-alignment"><strong>Board mounting</strong><small>Map rocket body axes to sensor axes</small><div>${['x', 'y', 'z'].map(axis =>
+    `<label>Body ${axis.toUpperCase()}<select class="attitude-axis-map" data-body-axis="${axis}">${options.map(value =>
+      `<option value="${value}"${attitudeMountingDraft[axis] === value ? ' selected' : ''}>Sensor ${value.toUpperCase()}</option>`).join('')}</select></label>`
+  ).join('')}</div><button type="button" id="applyAttitudeAlignment">Apply alignment</button><span id="attitudeAlignmentStatus">Changes are staged until applied.</span></div>`;
+}
+
+function attitudeSvg() {
+  const { project, bodyAxes, center, faces, xzFaces, yzFaces, accelerationEnd, accelerationMagnitude } = attitudeGeometry(displayedAttitudeQuaternion);
+  const worldAxes = [
+    ['+X', '#ef4444', [1, 0, 0]], ['+Y', '#22c55e', [0, 1, 0]], ['+Z', '#3b82f6', [0, 0, 1]]
+  ];
+  const worldOrigin = [62, 260];
+
+  return `<div class="attitude-view">
+    <svg viewBox="0 0 460 320" role="img" aria-label="Live rocket attitude with world and body reference axes">
+      <defs>
+        <filter id="rocketShadow"><feDropShadow dx="0" dy="5" stdDeviation="6" flood-opacity=".24"/></filter>
+        <marker id="accelerationArrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L7,3 z"/></marker>
+      </defs>
+      <g>
+        <rect width="460" height="165" class="horizon-sky"/>
+        <rect y="165" width="460" height="155" class="horizon-earth"/>
+        <line x1="0" y1="165" x2="460" y2="165" class="horizon-line"/>
+        <line x1="205" y1="125" x2="255" y2="125" class="horizon-mark"/>
+        <line x1="190" y1="205" x2="270" y2="205" class="horizon-mark"/>
+      </g>
+      <circle cx="${center[0]}" cy="${center[1]}" r="108" class="attitude-orbit"/>
+      <g id="attitudeRocket" filter="url(#rocketShadow)">${rocketFacesSvg(faces)}</g>
+      <line id="attitudeAcceleration" x1="${center[0]}" y1="${center[1]}" x2="${accelerationEnd[0]}" y2="${accelerationEnd[1]}" class="acceleration-vector" marker-end="url(#accelerationArrow)"/>
+      <text id="attitudeAccelerationLabel" x="${accelerationEnd[0] + 7}" y="${accelerationEnd[1] - 7}" class="acceleration-label">${accelerationMagnitude.toFixed(2)} g</text>
+      ${bodyAxes.map(([label, color, value], index) => {
+        const end = project(value);
+        return `<line id="bodyAxis${index}" x1="${center[0]}" y1="${center[1]}" x2="${end[0]}" y2="${end[1]}" stroke="${color}" class="body-axis"/><text id="bodyLabel${index}" x="${end[0] + 5}" y="${end[1] - 5}" fill="${color}" class="axis-label">B${label}</text>`;
+      }).join('')}
+      ${worldAxes.map(([label, color, value]) => {
+        const projected = project(value, worldOrigin, 42);
+        return `<line x1="${worldOrigin[0]}" y1="${worldOrigin[1]}" x2="${projected[0]}" y2="${projected[1]}" stroke="${color}" class="world-axis"/><text x="${projected[0] + 4}" y="${projected[1] - 3}" fill="${color}" class="axis-label">I${label}</text>`;
+      }).join('')}
+      <circle cx="${worldOrigin[0]}" cy="${worldOrigin[1]}" r="3" class="axis-origin"/>
+      <g class="orthographic-view"><rect x="338" y="18" width="88" height="116"/><text x="346" y="33">X–Z</text><line x1="346" y1="76" x2="418" y2="76"/><line x1="382" y1="38" x2="382" y2="122"/><g id="attitudeRocketXZ">${rocketFacesSvg(xzFaces)}</g></g>
+      <g class="orthographic-view"><rect x="338" y="144" width="88" height="116"/><text x="346" y="159">Y–Z</text><line x1="346" y1="202" x2="418" y2="202"/><line x1="382" y1="164" x2="382" y2="248"/><g id="attitudeRocketYZ">${rocketFacesSvg(yzFaces)}</g></g>
+    </svg>
+    <div class="attitude-legend"><span><i class="axis-x"></i>Body X</span><span><i class="axis-y"></i>Body Y</span><span><i class="axis-z"></i>Body Z / nose</span></div>
+  </div>`;
+}
+
+function animateAttitude() {
+  let target = targetAttitudeQuaternion;
+  const current = displayedAttitudeQuaternion;
+  if (current.w * target.w + current.x * target.x + current.y * target.y + current.z * target.z < 0) {
+    target = { w: -target.w, x: -target.x, y: -target.y, z: -target.z };
+  }
+  const blend = 0.16;
+  const next = {
+    w: current.w + (target.w - current.w) * blend,
+    x: current.x + (target.x - current.x) * blend,
+    y: current.y + (target.y - current.y) * blend,
+    z: current.z + (target.z - current.z) * blend
+  };
+  const norm = Math.hypot(next.w, next.x, next.y, next.z) || 1;
+  displayedAttitudeQuaternion = { w: next.w / norm, x: next.x / norm, y: next.y / norm, z: next.z / norm };
+  displayedAttitudeAcceleration = displayedAttitudeAcceleration.map((value, index) => value + (targetAttitudeAcceleration[index] - value) * blend);
+
+  const rocket = document.getElementById('attitudeRocket');
+  if (rocket) {
+    const { project, bodyAxes, faces, xzFaces, yzFaces, accelerationEnd, accelerationMagnitude } = attitudeGeometry(displayedAttitudeQuaternion);
+    rocket.innerHTML = rocketFacesSvg(faces);
+    document.getElementById('attitudeRocketXZ').innerHTML = rocketFacesSvg(xzFaces);
+    document.getElementById('attitudeRocketYZ').innerHTML = rocketFacesSvg(yzFaces);
+    const acceleration = document.getElementById('attitudeAcceleration');
+    const accelerationLabel = document.getElementById('attitudeAccelerationLabel');
+    acceleration.setAttribute('x2', accelerationEnd[0]); acceleration.setAttribute('y2', accelerationEnd[1]);
+    accelerationLabel.setAttribute('x', accelerationEnd[0] + 7); accelerationLabel.setAttribute('y', accelerationEnd[1] - 7);
+    accelerationLabel.textContent = `${accelerationMagnitude.toFixed(2)} g`;
+    bodyAxes.forEach(([, , value], index) => {
+      const end = project(value);
+      const axis = document.getElementById(`bodyAxis${index}`);
+      const label = document.getElementById(`bodyLabel${index}`);
+      if (axis) { axis.setAttribute('x2', end[0]); axis.setAttribute('y2', end[1]); }
+      if (label) { label.setAttribute('x', end[0] + 5); label.setAttribute('y', end[1] - 5); }
+    });
+  }
+  requestAnimationFrame(animateAttitude);
+}
+
+function addLiveHistorySample(values) {
+  liveHistory.push({ time: Date.now(), ...values });
+  if (liveHistory.length > LIVE_HISTORY_SAMPLES) liveHistory.shift();
+}
+
+function trendChart(title, unit, series, decimals = 2) {
+  const width = 320, height = 112, left = 8, right = 8, top = 8, bottom = 10;
+  const allValues = series.flatMap(item => liveHistory.map(sample => Number(sample[item.key])).filter(Number.isFinite));
+  if (allValues.length === 0) return '';
+  let min = Math.min(...allValues), max = Math.max(...allValues);
+  const padding = Math.max((max - min) * 0.12, Math.abs(max) * 0.01, 0.01);
+  min -= padding; max += padding;
+  const x = index => left + index * (width - left - right) / Math.max(liveHistory.length - 1, 1);
+  const y = value => top + (max - value) * (height - top - bottom) / (max - min);
+  const paths = series.map(item => {
+    const points = liveHistory.map((sample, index) => [x(index), Number(sample[item.key])]).filter(([, value]) => Number.isFinite(value));
+    if (!points.length) return '';
+    const path = points.map(([px, value], index) => `${index ? 'L' : 'M'}${px.toFixed(1)},${y(value).toFixed(1)}`).join(' ');
+    const [lastX, lastValue] = points[points.length - 1];
+    return `<path d="${path}" stroke="${item.color}"/><circle cx="${lastX.toFixed(1)}" cy="${y(lastValue).toFixed(1)}" r="3.5" fill="${item.color}"/>`;
+  }).join('');
+  const latest = liveHistory[liveHistory.length - 1];
+  const legend = series.map(item => {
+    const value = Number(latest[item.key]);
+    return `<span style="color:${item.color}">${esc(item.label)} <strong>${Number.isFinite(value) ? value.toFixed(decimals) : '—'}</strong></span>`;
+  }).join('');
+  return `<section class="trend-card"><div class="trend-head"><strong>${esc(title)}</strong><small>${esc(unit)}</small></div><div class="trend-legend">${legend}</div><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><line x1="${left}" y1="${height / 2}" x2="${width - right}" y2="${height / 2}" class="trend-grid"/>${paths}</svg></section>`;
+}
+
+const attitudeRotationCheck = rotateByQuaternion([1, 0, 0], { w: Math.SQRT1_2, x: 0, y: 0, z: Math.SQRT1_2 });
+console.assert(Math.abs(attitudeRotationCheck[0]) < 1e-6 && Math.abs(attitudeRotationCheck[1] - 1) < 1e-6, 'Quaternion attitude rotation check failed');
+const cameraHandednessCheck = crossProduct(ATTITUDE_CAMERA_RIGHT, ATTITUDE_CAMERA_UP);
+console.assert(cameraHandednessCheck.every((value, index) => Math.abs(value - ATTITUDE_CAMERA_FORWARD[index]) < 1e-6), 'Camera right-hand-rule check failed');
+console.assert(validAttitudeMounting(DEFAULT_ATTITUDE_MOUNTING), 'Default PCB attitude mapping check failed');
+console.assert(!validAttitudeMounting({ x: '+x', y: '+y', z: '-z' }), 'Left-handed attitude mapping check failed');
+console.assert(bodyToSensor([1, 2, 3], DEFAULT_ATTITUDE_MOUNTING).join(',') === '-1,-2,3', 'Body-to-sensor axis mapping check failed');
+requestAnimationFrame(animateAttitude);
+
 async function loadLive() {
   const s = await api('/api/live-data');
   if (!s.ok) {
@@ -595,8 +858,26 @@ async function loadLive() {
   const calibration = s.calibration || {};
   const sensors = s.sensors || {};
   const imu = sensors.imu || {};
+  const accelerometer = sensors.accelerometer || {};
   const barometer = sensors.barometer || {};
   const gps = sensors.gps || {};
+  const imuCalibration = imu.calibration || {};
+  const orientation = imu.orientation_deg || {};
+  const angularVelocity = imu.angular_velocity_rad_s || {};
+  const acceleration = imu.acceleration_m_s2 || {};
+  const linearAcceleration = imu.linear_acceleration_m_s2 || {};
+  const gravity = imu.gravity_m_s2 || {};
+  const magnetometer = imu.magnetometer_ut || {};
+  targetAttitudeQuaternion = imu.quaternion || targetAttitudeQuaternion;
+  targetAttitudeAcceleration = [Number(acceleration.x) || 0, Number(acceleration.y) || 0, Number(acceleration.z) || 0];
+  addLiveHistorySample({
+    attitudeX: Number(orientation.x), attitudeY: Number(orientation.y), attitudeZ: Number(orientation.z),
+    imuAx: Number(acceleration.x), imuAy: Number(acceleration.y), imuAz: Number(acceleration.z),
+    lisAx: Number(accelerometer.x), lisAy: Number(accelerometer.y), lisAz: Number(accelerometer.z),
+    gyroX: Number(angularVelocity.x), gyroY: Number(angularVelocity.y), gyroZ: Number(angularVelocity.z),
+    pressure: Number(barometer.pressure), gpsAltitude: Number(gps.alt)
+  });
+  if (document.activeElement && document.activeElement.closest('.attitude-alignment')) return;
   document.getElementById('liveContent').innerHTML = `
     <div class="metrics">
       <div><span>Height</span><strong>${Number(flight.height_m || 0).toFixed(2)} m</strong></div>
@@ -604,15 +885,40 @@ async function loadLive() {
       <div><span>Rising</span><strong>${flight.is_rising ? 'yes' : 'no'}</strong></div>
       <div><span>Calibrated</span><strong>${calibration.imu ? 'yes' : 'no'}</strong></div>
     </div>
+    <div class="trend-grid-layout">
+      ${trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1)}
+      ${trendChart('BNO055 acceleration', 'm/s2', [{ key: 'imuAx', label: 'X', color: '#ef4444' }, { key: 'imuAy', label: 'Y', color: '#22c55e' }, { key: 'imuAz', label: 'Z', color: '#3b82f6' }], 2)}
+      ${trendChart('LIS3DHTR acceleration', 'm/s2', [{ key: 'lisAx', label: 'X', color: '#ef4444' }, { key: 'lisAy', label: 'Y', color: '#22c55e' }, { key: 'lisAz', label: 'Z', color: '#3b82f6' }], 2)}
+      ${trendChart('Angular velocity', 'rad/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}
+      ${trendChart('Barometer pressure', 'Pa', [{ key: 'pressure', label: 'P', color: '#a855f7' }], 1)}
+      ${trendChart('GPS altitude', 'm ASL', [{ key: 'gpsAltitude', label: 'Altitude', color: '#f59e0b' }], 1)}
+    </div>
+    <div class="attitude-grid">
+      ${panel('Rocket Attitude', attitudeSvg())}
+      ${panel('Attitude & Calibration', [
+        row('Euler X / heading', `${Number(orientation.x || 0).toFixed(2)} deg`),
+        row('Euler Y / roll', `${Number(orientation.y || 0).toFixed(2)} deg`),
+        row('Euler Z / pitch', `${Number(orientation.z || 0).toFixed(2)} deg`),
+        row('Calibration SYS / GYR / ACC / MAG', `${imuCalibration.system || 0} / ${imuCalibration.gyro || 0} / ${imuCalibration.accelerometer || 0} / ${imuCalibration.magnetometer || 0}`),
+        row('Angular velocity', `${Number(angularVelocity.x || 0).toFixed(3)}, ${Number(angularVelocity.y || 0).toFixed(3)}, ${Number(angularVelocity.z || 0).toFixed(3)} rad/s`),
+        attitudeAlignmentControls()
+      ].join(''))}
+    </div>
     <div class="sensor-grid">
       ${sensorCard('IMU', imu, [
-        ['Acceleration X', Number(imu.ax || 0).toFixed(4)],
-        ['Acceleration Y', Number(imu.ay || 0).toFixed(4)],
-        ['Acceleration Z', Number(imu.az || 0).toFixed(4)],
+        ['Acceleration', `${Number(acceleration.x || 0).toFixed(3)}, ${Number(acceleration.y || 0).toFixed(3)}, ${Number(acceleration.z || 0).toFixed(3)} m/s2`],
+        ['Linear acceleration', `${Number(linearAcceleration.x || 0).toFixed(3)}, ${Number(linearAcceleration.y || 0).toFixed(3)}, ${Number(linearAcceleration.z || 0).toFixed(3)} m/s2`],
+        ['Gravity', `${Number(gravity.x || 0).toFixed(3)}, ${Number(gravity.y || 0).toFixed(3)}, ${Number(gravity.z || 0).toFixed(3)} m/s2`],
+        ['Magnetometer', `${Number(magnetometer.x || 0).toFixed(2)}, ${Number(magnetometer.y || 0).toFixed(2)}, ${Number(magnetometer.z || 0).toFixed(2)} uT`],
         ['Temperature', `${Number(imu.temperature_c || 0).toFixed(1)} C`]
       ])}
+      ${sensorCard('LIS3DHTR Accelerometer', accelerometer, [
+        ['Acceleration X', `${Number(accelerometer.x || 0).toFixed(4)} m/s2`],
+        ['Acceleration Y', `${Number(accelerometer.y || 0).toFixed(4)} m/s2`],
+        ['Acceleration Z', `${Number(accelerometer.z || 0).toFixed(4)} m/s2`]
+      ])}
       ${sensorCard('Barometer', barometer, [
-        ['Pressure', Number(barometer.pressure || 0).toFixed(2)],
+        ['Pressure', `${Number(barometer.pressure || 0).toFixed(2)} Pa`],
         ['Temperature', `${Number(barometer.temperature_c || 0).toFixed(1)} C`],
         ['Zeroed', calibration.barometer ? 'yes' : 'no'],
         ['Samples', calibration.barometer_samples || 0]
@@ -621,7 +927,10 @@ async function loadLive() {
         ['Fix', gps.fix ? 'yes' : 'no'],
         ['Satellites', gps.satellites || 0],
         ['Latitude', Number(gps.lat || 0).toFixed(7)],
-        ['Longitude', Number(gps.lon || 0).toFixed(7)]
+        ['Longitude', Number(gps.lon || 0).toFixed(7)],
+        ['Altitude', `${Number(gps.alt || 0).toFixed(2)} m`],
+        ['Ground speed', `${Number(gps.ground_speed_mps || 0).toFixed(2)} m/s`],
+        ['HDOP', Number(gps.hdop || 0).toFixed(2)]
       ])}
     </div>`;
 }
@@ -945,8 +1254,25 @@ document.addEventListener('keydown', event => {
 document.getElementById('saveConfig').addEventListener('click', saveConfig);
 document.getElementById('resetConfig').addEventListener('click', resetConfig);
 document.getElementById('unlockConfig').addEventListener('click', unlockConfig);
+document.addEventListener('change', event => {
+  if (!event.target.classList.contains('attitude-axis-map')) return;
+  attitudeMountingDraft[event.target.dataset.bodyAxis] = event.target.value;
+  const status = document.getElementById('attitudeAlignmentStatus');
+  if (status) status.textContent = validAttitudeMounting(attitudeMountingDraft) ? 'Right-handed mapping ready to apply.' : 'Choose a unique, right-handed axis mapping.';
+});
+document.addEventListener('click', event => {
+  if (event.target.id !== 'applyAttitudeAlignment') return;
+  const status = document.getElementById('attitudeAlignmentStatus');
+  if (!validAttitudeMounting(attitudeMountingDraft)) {
+    if (status) status.textContent = 'Choose a unique, right-handed axis mapping.';
+    return;
+  }
+  attitudeMounting = { ...attitudeMountingDraft };
+  localStorage.setItem('atlas_attitude_mounting', JSON.stringify(attitudeMounting));
+  if (status) status.textContent = 'Saved in this browser.';
+});
 
-setInterval(() => runPoll('live', !otaUploadActive && !document.getElementById('live').classList.contains('hidden'), loadLive), 1000);
+setInterval(() => runPoll('live', !otaUploadActive && !document.getElementById('live').classList.contains('hidden'), loadLive), 250);
 setInterval(() => runPoll('ota', !otaUploadActive && !document.getElementById('ota').classList.contains('hidden'), refreshOta), 2000);
 setInterval(() => runPoll('tests', !otaUploadActive && !document.getElementById('tests').classList.contains('hidden'), refreshTests), 1500);
 setInterval(() => { if (!otaUploadActive && !document.getElementById('logs').classList.contains('hidden')) loadLogs(); }, 1500);

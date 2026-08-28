@@ -836,9 +836,11 @@ esp_err_t GroundServicesTask::liveDataGetHandler(httpd_req_t *req)
     if (!authOrSend(req)) return ESP_OK;
     auto *self = fromReq(req);
     IMUData imu = {};
+    AccelerometerSensorData acc = {};
     PressureSensorData baro = {};
     GPSData gps = {};
     SensorReadStatus imuStatus = self->_rocketModel ? self->_rocketModel->getBNO055Data(imu) : SensorReadStatus::NOT_PRESENT;
+    SensorReadStatus accStatus = self->_rocketModel ? self->_rocketModel->getLIS3DHTRData(acc) : SensorReadStatus::NOT_PRESENT;
     SensorReadStatus baroStatus = self->_rocketModel ? self->_rocketModel->getMS561101BA03Data_1(baro) : SensorReadStatus::NOT_PRESENT;
     SensorReadStatus gpsStatus = self->_rocketModel ? self->_rocketModel->getGPSData(gps) : SensorReadStatus::NOT_PRESENT;
 
@@ -846,9 +848,19 @@ esp_err_t GroundServicesTask::liveDataGetHandler(httpd_req_t *req)
     snprintf(body, RESPONSE_BUFFER_SIZE,
         "{\"ok\":true,\"fsm_state\":\"%s\",\"calibration\":{\"imu\":%s,\"barometer\":%s,\"barometer_samples\":%d},"
         "\"flight\":{\"height_m\":%.3f,\"vertical_speed_mps\":%.3f,\"is_rising\":%s},"
-        "\"sensors\":{\"imu\":{\"status\":\"%s\",\"ax\":%.5f,\"ay\":%.5f,\"az\":%.5f,\"temperature_c\":%.2f,\"timestamp\":%lu},"
+        "\"sensors\":{\"imu\":{\"status\":\"%s\","
+        "\"calibration\":{\"system\":%u,\"gyro\":%u,\"accelerometer\":%u,\"magnetometer\":%u},"
+        "\"orientation_deg\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
+        "\"quaternion\":{\"w\":%.7f,\"x\":%.7f,\"y\":%.7f,\"z\":%.7f},"
+        "\"angular_velocity_rad_s\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
+        "\"linear_acceleration_m_s2\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
+        "\"acceleration_m_s2\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
+        "\"gravity_m_s2\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
+        "\"magnetometer_ut\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
+        "\"temperature_c\":%.2f,\"timestamp\":%lu},"
+        "\"accelerometer\":{\"status\":\"%s\",\"x\":%.5f,\"y\":%.5f,\"z\":%.5f,\"timestamp\":%lu},"
         "\"barometer\":{\"status\":\"%s\",\"pressure\":%.3f,\"temperature_c\":%.3f,\"timestamp\":%lu},"
-        "\"gps\":{\"status\":\"%s\",\"lat\":%.7f,\"lon\":%.7f,\"alt\":%.2f,\"fix\":%s,\"satellites\":%u,\"timestamp\":%lu}}}",
+        "\"gps\":{\"status\":\"%s\",\"lat\":%.7f,\"lon\":%.7f,\"alt\":%.2f,\"fix\":%s,\"fix_type\":%u,\"satellites\":%u,\"ground_speed_mps\":%.3f,\"hdop\":%.3f,\"timestamp\":%lu}}}",
         self->_fsm ? rocketStateToString(self->_fsm->getCurrentState()) : "unknown",
         self->_rocketModel && self->_rocketModel->isSensorSystemCalibrated() ? "true" : "false",
         self->_rocketModel && self->_rocketModel->isBarometerZeroed() ? "true" : "false",
@@ -857,13 +869,24 @@ esp_err_t GroundServicesTask::liveDataGetHandler(httpd_req_t *req)
         static_cast<double>(self->_rocketModel ? self->_rocketModel->getHeightGainSpeed() : 0.0f),
         self->_rocketModel && self->_rocketModel->getIsRising() ? "true" : "false",
         sensorStatusToString(imuStatus),
+        imu.calibration_sys, imu.calibration_gyro, imu.calibration_accel, imu.calibration_mag,
+        static_cast<double>(imu.orientation_x), static_cast<double>(imu.orientation_y), static_cast<double>(imu.orientation_z),
+        imu.quaternion_w, imu.quaternion_x, imu.quaternion_y, imu.quaternion_z,
+        static_cast<double>(imu.angular_velocity_x), static_cast<double>(imu.angular_velocity_y), static_cast<double>(imu.angular_velocity_z),
+        static_cast<double>(imu.linear_acceleration_x), static_cast<double>(imu.linear_acceleration_y), static_cast<double>(imu.linear_acceleration_z),
         static_cast<double>(imu.acceleration_x), static_cast<double>(imu.acceleration_y), static_cast<double>(imu.acceleration_z),
+        static_cast<double>(imu.gravity_x), static_cast<double>(imu.gravity_y), static_cast<double>(imu.gravity_z),
+        static_cast<double>(imu.magnetometer_x), static_cast<double>(imu.magnetometer_y), static_cast<double>(imu.magnetometer_z),
         static_cast<double>(imu.temperature), static_cast<unsigned long>(imu.timestamp),
+        sensorStatusToString(accStatus),
+        static_cast<double>(acc.acceleration_x), static_cast<double>(acc.acceleration_y), static_cast<double>(acc.acceleration_z),
+        static_cast<unsigned long>(acc.timestamp),
         sensorStatusToString(baroStatus),
         static_cast<double>(baro.pressure), static_cast<double>(baro.temperature), static_cast<unsigned long>(baro.timestamp),
         sensorStatusToString(gpsStatus),
         static_cast<double>(gps.latitude), static_cast<double>(gps.longitude), static_cast<double>(gps.altitude),
-        gps.fixType >= 2 ? "true" : "false", gps.satellites, static_cast<unsigned long>(gps.timestamp));
+        gps.fixType >= 2 ? "true" : "false", gps.fixType, gps.satellites,
+        static_cast<double>(gps.ground_speed), static_cast<double>(gps.hdop), static_cast<unsigned long>(gps.timestamp));
     return sendJson(req, "200 OK", body);
 }
 
