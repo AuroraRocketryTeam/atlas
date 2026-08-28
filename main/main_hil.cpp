@@ -89,6 +89,7 @@ void setupHil()
 
     // Signal initialization start
     board.init();
+
     gpio_set_level(board.get_rgb_blue_pin(), LOW);
     gpio_set_level(board.get_rgb_red_pin(), HIGH);
 
@@ -106,6 +107,9 @@ void setupHil()
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
 
     LOG_INFO("Main", "Initializing system...");
+
+    // Initialize NVS
+    ESP_ERROR_CHECK(board.initNvs() ? ESP_OK : ESP_FAIL);
 
     // Initialize components
     // LOG_INFO("Main", "Initializing sensors...");

@@ -417,7 +417,9 @@ bool TestRoutine::testSensors()
 
     PressureSensorData baro2Data;
     SensorReadStatus baro2Status = _model->getMS561101BA03Data_2(baro2Data);
-    if (baro2Status != SensorReadStatus::OK) {
+    if (baro2Status == SensorReadStatus::NOT_PRESENT) {
+        LOG_INFO("Test", "Barometer 2 not configured on this board.");
+    } else if (baro2Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO2_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato.");
     } else {

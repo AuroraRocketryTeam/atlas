@@ -200,6 +200,8 @@ bool RocketModel::updateMS561101BA03_1() {
 }
 
 bool RocketModel::updateMS561101BA03_2() {
+    if (!_ms56_2) return false;
+
     bool result = _ms56_2->updateData();
 
     if (result && xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {

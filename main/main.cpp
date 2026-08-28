@@ -114,6 +114,9 @@ void setupFlight()
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
     LOG_INFO("Main", "Initializing system...");
 
+    // Initialize NVS
+    ESP_ERROR_CHECK(board.initNvs() ? ESP_OK : ESP_FAIL);
+
     // Initialize components
     LOG_INFO("Main", "Initializing sensors...");
     std::shared_ptr<BNO055Sensor> bno055 = nullptr;
@@ -253,7 +256,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize barometers
-    baro1 = std::make_shared<MS561101BA03>("MS561101BA03_1", board.get_spi_bus(), MANNY_BAROMETER_CS_PIN);
+    baro1 = std::make_shared<MS561101BA03>("MS561101BA03_1", board.get_spi_bus(), board.get_barometer_cs_pin());
     if (baro1 && baro1->init())
     {
         LOG_INFO("Init", "Barometer 1 initialized");
@@ -263,14 +266,21 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
-    baro2 = std::make_shared<MS561101BA03>("MS561101BA03_2", board.get_spi_bus(), board.get_barometer2_cs_pin());
-    if (baro2 && baro2->init())
+    if (board.get_barometer2_cs_pin() != GPIO_NUM_NC)
     {
-        LOG_INFO("Init", "Barometer 2 initialized");
+        baro2 = std::make_shared<MS561101BA03>("MS561101BA03_2", board.get_spi_bus(), board.get_barometer2_cs_pin());
+        if (baro2 && baro2->init())
+        {
+            LOG_INFO("Init", "Barometer 2 initialized");
+        }
+        else
+        {
+            LOG_ERROR("Init", "Failed to initialize Barometer 2");
+        }
     }
     else
     {
-        LOG_ERROR("Init", "Failed to initialize Barometer 2");
+        LOG_INFO("Init", "Barometer 2 not configured on this board");
     }
 
     // Initialize accelerometer
