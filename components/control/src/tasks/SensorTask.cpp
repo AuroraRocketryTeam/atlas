@@ -25,14 +25,11 @@ void SensorTask::onTaskStop()
 
 void SensorTask::taskFunction()
 {
-    uint32_t loopCount = 0;
-
     while (running)
     {
         // CRITICAL: Reset the watchdog every loop (watchdog created in BaseTask)
         esp_task_wdt_reset();
-        LOG_INFO("SensorTask", "READING SENSORS");
-        
+
         // Check running flag early to exit quickly during shutdown
         if (!running || !rocketModel) break;
         
@@ -42,21 +39,16 @@ void SensorTask::taskFunction()
         rocketModel->updateMS561101BA03_2();
         rocketModel->updateLIS3DHTR();
 
-        LOG_DEBUG("Sensor", "Updated all sensors");
-        
         if (!running) break;
 
-        // Log memory usage every 10 loops
-        if (loopCount % 10 == 0)
         {
             uint32_t freeHeap = esp_get_free_heap_size();
-            LOG_INFO("Sensor", "L%lu: Stack HwM:%u, Heap=%u, Memory=%u",
-                          loopCount, uxTaskGetStackHighWaterMark(NULL), freeHeap,
-                          heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-                          
-            // Check for low memory condition
+            LOG_EVERY_MS(5000, INFO, "Sensor", "Stack HwM:%u, Heap=%u, Memory=%u",
+                         uxTaskGetStackHighWaterMark(NULL), freeHeap,
+                         heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+
             if (freeHeap < 50000) { // Warning threshold
-                LOG_WARNING("Sensor", "LOW MEMORY WARNING: Only %u bytes free heap remaining!", freeHeap);
+                LOG_EVERY_MS(1000, WARNING, "Sensor", "LOW MEMORY WARNING: Only %u bytes free heap remaining!", freeHeap);
             }
         }
 
@@ -91,14 +83,9 @@ void SensorTask::taskFunction()
                     logger->logSensorData(outLis3dhData);
                 }
             }
-
-            // Log current RocketLogger memory usage for monitoring
-            LOG_INFO("Sensor", "RocketLogger entries logged");
         }
 #endif
 
-        loopCount++;
-        
         // Shorter delay to exit faster (split into smaller chunks)
         vTaskDelay(pdMS_TO_TICKS(20));
     }

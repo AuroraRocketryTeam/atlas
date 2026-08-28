@@ -477,10 +477,13 @@ bool TestRoutine::dumpFlashJsonFiles()
             break; // End of file reached
         }
 
-        // Print directly to serial. 
+        // Print directly to serial.
         // Note: readLine() already includes the '\n' at the end.
-        printf("%s", line.c_str());
-        
+        {
+            SerialLogger::Lock lineLock;
+            printf("%s", line.c_str());
+        }
+
         lineCount++;
 
         // Feed the FreeRTOS watchdog to prevent resets during massive file dumps

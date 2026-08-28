@@ -1,9 +1,6 @@
 #include "TelemetryTask.hpp"
 #include "esp_system.h"
 #include <utils.h>
-#ifdef CONFIG_TELEMETRY_USB_MIRROR
-#  include "driver/usb_serial_jtag.h"
-#endif
 
 constexpr float TROPOSPHERE_HEIGHT = 11000.f; // Troposphere height [m]
 constexpr float a = 0.0065f;                  // Troposphere temperature gradient [deg/m]
@@ -88,7 +85,7 @@ void TelemetryTask::taskFunction()
                 if (transmitMessage(message))
                 {
                     _messagesCreated++;
-                    LOG_INFO("Telemetry", "Packet %lu transmitted via ESP-NOW", _messagesCreated);
+                    LOG_EVERY_MS(5000, INFO, "Telemetry", "Packet %lu transmitted via ESP-NOW", _messagesCreated);
                 }
                 else
                 {
@@ -102,7 +99,7 @@ void TelemetryTask::taskFunction()
                     auto result = _loraTransmitter->transmit(message);
                     if (result.getCode() == E220_SUCCESS)
                     {
-                        LOG_INFO("Telemetry", "Packet %lu transmitted via LoRa", _messagesCreated);
+                        LOG_EVERY_MS(5000, INFO, "Telemetry", "Packet %lu transmitted via LoRa", _messagesCreated);
                     }
                     else
                     {
@@ -111,17 +108,8 @@ void TelemetryTask::taskFunction()
                 }
                 else
                 {
-                    LOG_WARNING("Telemetry", "LoRa transmitter not available, skipping LoRa transmission");
+                    LOG_EVERY_MS(10000, WARNING, "Telemetry", "LoRa transmitter not available, skipping LoRa transmission");
                 }
-
-#ifdef CONFIG_TELEMETRY_USB_MIRROR
-                if (message.size() <= 255)
-                {
-                    const uint8_t frame[3] = {0xAA, 0x55, static_cast<uint8_t>(message.size())};
-                    usb_serial_jtag_write_bytes(frame, sizeof(frame), portMAX_DELAY);
-                    usb_serial_jtag_write_bytes(message.data(), message.size(), portMAX_DELAY);
-                }
-#endif
             }
         }
 
@@ -181,7 +169,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.imu.gyro_y = outBnoData.orientation_y;
             packet.imu.gyro_z = outBnoData.orientation_z;
         } else {
-            LOG_WARNING("Telemetry", "BNO055 data not available");
+            LOG_EVERY_MS(5000, WARNING, "Telemetry", "BNO055 data not available");
         }
 
         PressureSensorData outMs56Data1;
@@ -193,7 +181,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
                                                     _rocketModel->getLaunchpadBasePressure(),
                                                     _rocketModel->getLaunchpadBaseTemperature());
         } else {
-            LOG_WARNING("Telemetry", "Barometer 1 data not available");
+            LOG_EVERY_MS(5000, WARNING, "Telemetry", "Barometer 1 data not available");
         }
 
         PressureSensorData outMs56Data2;
@@ -202,7 +190,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.baro2.pressure = outMs56Data2.pressure;
             packet.baro2.temperature = outMs56Data2.temperature;
         } else {
-            LOG_WARNING("Telemetry", "Barometer 2 data not available");
+            LOG_EVERY_MS(5000, WARNING, "Telemetry", "Barometer 2 data not available");
         }
 
         GPSData gpsData;
@@ -214,11 +202,10 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             LOG_DEBUG("Telemetry", "GPS ALT: %.2f LAT: %.6f LON: %.6f",
                       packet.gps.altitude, packet.gps.latitude, packet.gps.longitude);
         } else {
-            LOG_WARNING("Telemetry", "GPS data not available");
+            LOG_EVERY_MS(5000, WARNING, "Telemetry", "GPS data not available");
         }
 
         packet.velocity = _rocketModel->getHeightGainSpeed();
-        LOG_INFO("Telemetry", "Done collecting sensor data!");
     }
     catch (const std::exception &e)
     {

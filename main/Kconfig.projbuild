@@ -26,13 +26,6 @@ menu "Atlas Configuration"
         help
             Set to false if no device is connected and able to consume JTAG I/O.
 
-    config TELEMETRY_USB_MIRROR
-        bool "Mirror telemetry over USB Serial/JTAG"
-        default n
-        help
-            Feed the dashboard directly via USB without the ground station.
-            python3 main.py --source serial --port /dev/cu.usbmodemXXX --baud 115200 --serial-format lora_binary
-
 endmenu
 
 menu "Aurora Hil Configuration"

@@ -310,14 +310,14 @@ void loopHil()
             }
         }
 
-        // Optional: Print current state periodically
+        // Print the state only when it actually moves
         RocketState currentState = rocketFSM->getCurrentState();
 
-        // if (currentState != lastLoggedState)
-        // {
-        LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-            // lastLoggedState = currentState;
-        // }
+        if (currentState != lastLoggedState)
+        {
+            LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
+            lastLoggedState = currentState;
+        }
     }
 
     // Small delay to prevent watchdog issues

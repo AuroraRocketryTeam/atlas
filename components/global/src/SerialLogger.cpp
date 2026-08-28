@@ -90,4 +90,17 @@ namespace SerialLogger
         }
         return serialMutex;
     }
+
+    Lock::Lock()
+        : _held(xSemaphoreTake(getSerialMutex(), pdMS_TO_TICKS(100)) == pdTRUE)
+    {
+    }
+
+    Lock::~Lock()
+    {
+        if (_held)
+        {
+            xSemaphoreGive(serialMutex);
+        }
+    }
 }

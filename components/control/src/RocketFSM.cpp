@@ -737,7 +737,8 @@ void RocketFSM::checkTransitions()
     }
 
     auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
-    LOG_INFO("RocketFSM", "ax: %.5f ay: %.5f az: %.5f mag: %.5f", accX, accY, accZ, accMag);
+    
+    LOG_EVERY_MS(500, INFO, "RocketFSM", "ax: %.5f ay: %.5f az: %.5f mag: %.5f", accX, accY, accZ, accMag);
 
     // Fast state-based checks
     switch (_currentState)
@@ -782,8 +783,8 @@ void RocketFSM::checkTransitions()
         const bool isBaroReady = _rocketModel->isBarometerZeroed();
         const bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();
 
-        LOG_INFO("RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d",
-                isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
+        LOG_EVERY_MS(1000, INFO, "RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d",
+                     isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
 
         if (isBaroReady && isBnoReady)
         {
@@ -827,7 +828,7 @@ void RocketFSM::checkTransitions()
 
     case RocketState::LAUNCH:
         // After a short delay consider liftoff started (rocket left the launch pad and is accelerating)
-        LOG_INFO("RocketFSM", "Now: %lu, stateStartTime: %lu, LAUNCH: elapsed=%lu ms", Utils::millis(), _stateStartTime, Utils::millis() - _stateStartTime);
+        LOG_EVERY_MS(200, INFO, "RocketFSM", "Now: %lu, stateStartTime: %lu, LAUNCH: elapsed=%lu ms", Utils::millis(), _stateStartTime, Utils::millis() - _stateStartTime);
         sendEvent(FSMEvent::LIFTOFF_STARTED);
         break;
 
@@ -863,7 +864,7 @@ void RocketFSM::checkTransitions()
     }
 
     case RocketState::APOGEE:
-        LOG_INFO("RocketFSM", "Drogue Opened! %d", Utils::millis()-_launchDetectionTime);
+        LOG_EVERY_MS(500, INFO, "RocketFSM", "Drogue Opened! %d", Utils::millis()-_launchDetectionTime);
         if (Utils::millis() - _stateStartTime >= DROGUE_APOGEE_TIMEOUT)
         {
             sendEvent(FSMEvent::DROGUE_READY);
@@ -874,8 +875,8 @@ void RocketFSM::checkTransitions()
     {
         auto currentHeight = _rocketModel->getCurrentHeight();
         
-        LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight);
-        
+        LOG_EVERY_MS(500, INFO, "RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight);
+
         if (currentHeight < MAIN_ALTITUDE_THRESHOLD)
         {
             LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", currentHeight, Utils::millis() - _stateStartTime);

@@ -185,12 +185,8 @@ void setupFlight()
 
 void loopFlight()
 {
-    auto currentState = rocketFSM->getCurrentState();
-    LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-    LOG_INFO("Main", "Free heap: %u bytes", esp_get_free_heap_size());
-
-    unsigned long lastHeartbeat = 0;
-    bool ledState = false;
+    static unsigned long lastHeartbeat = 0;
+    static bool ledState = false;
 
     // Heartbeat every 2 seconds
     if (Utils::millis() - lastHeartbeat > 2000)
@@ -199,6 +195,8 @@ void loopFlight()
         lastHeartbeat = Utils::millis();
         ledState = !ledState;
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
+
+        LOG_INFO("Main", "Free heap: %u bytes", esp_get_free_heap_size());
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -213,16 +211,9 @@ void loopFlight()
             }
         }
 
-        // Optional: Print current state periodically
-        RocketState lastLoggedState = RocketState::INACTIVE;
+        // Print the state only when it actually moves
         RocketState currentState = rocketFSM->getCurrentState();
-
-        if (currentState != lastLoggedState)
-        {
-            LOG_INFO("Main", "Current FSM State: %s",
-                     rocketFSM->getStateString(currentState));
-            lastLoggedState = currentState;
-        }
+        LOG_ON_CHANGE(currentState, INFO, "Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
     }
 
     // Small delay to prevent watchdog issues
@@ -444,12 +435,11 @@ void GPSfix(std::shared_ptr<GPS> gps)
             auto gpsDataUpdate = gps->updateData();
             if (gpsDataUpdate)
             {
-                LOG_INFO("GPS", "Getting GPS data...");
                 auto gpsData = gps->getData();
                 auto fixType = gpsData.fixType;
                 auto satellites = gpsData.satellites;
 
-                LOG_INFO("GPS", "Fix value: %d", fixType);
+                LOG_EVERY_MS(5000, INFO, "GPS", "Waiting for lock, fix value: %d", fixType);
                 if (fixType >= GPS_MIN_FIX)
                 {
                     gpsLocked = true;

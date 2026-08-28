@@ -78,8 +78,8 @@ void AltitudeTask::taskFunction()
 
         _rocketModel->setHeightGainSpeed(currentVelocity);
 
-        LOG_INFO("AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m", 
-                 currentAltitude, currentVelocity, _max_altitude_read);
+        LOG_EVERY_MS(500, INFO, "AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m",
+                     currentAltitude, currentVelocity, _max_altitude_read);
         
         vTaskDelay(pdMS_TO_TICKS(20));
     }
