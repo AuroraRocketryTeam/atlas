@@ -13,10 +13,7 @@ void AltitudeTask::taskFunction()
     uint32_t lastTimestamp = 0;
     const RuntimeConfig &flightConfig = runtime_config_get_flight_snapshot();
     
-    // Baseline for the slew rate limiter
-    static float lastValidPressure = -1.0f; 
-
-    while (running)
+        while (running)
     {
         esp_task_wdt_reset();
         if(!running) break;
@@ -33,24 +30,25 @@ void AltitudeTask::taskFunction()
             continue;
         }
         
+const uint32_t sampleDeltaMs = (lastTimestamp == 0) ? 0U : (baroData.timestamp - lastTimestamp);
         lastTimestamp = baroData.timestamp;
         float rawPressure = baroData.pressure;
 
         // Physics Lock, if the pressure change is too extreme, clamp it 
         // to a maximum plausible change based on physical limits of the 
         // atmosphere and the sampling rate (prevents spikes instability errors)
-        if (lastValidPressure < 0.0f) {
-            lastValidPressure = rawPressure;
+        if (_lastValidPressure < 0.0f) {
+_lastValidPressure = rawPressure;
         } else {
-            float deltaP = rawPressure - lastValidPressure;
+            float deltaP = rawPressure - _lastValidPressure;
             
             // Clamp the pressure change to physical reality
             if (deltaP > MAX_DELTA_P_PER_TICK) {
-                rawPressure = lastValidPressure + MAX_DELTA_P_PER_TICK;
+                rawPressure = _lastValidPressure + MAX_DELTA_P_PER_TICK;
             } else if (deltaP < -MAX_DELTA_P_PER_TICK) {
-                rawPressure = lastValidPressure - MAX_DELTA_P_PER_TICK;
+                rawPressure = _lastValidPressure - MAX_DELTA_P_PER_TICK;
             }
-            lastValidPressure = rawPressure;
+_lastValidPressure = rawPressure;
         }
         
         // Median Filter (removes isolated outliers)
@@ -71,7 +69,7 @@ void AltitudeTask::taskFunction()
         }
 
         // Apogee & Trend Detection
-        updateRisingTrend(currentAltitude);
+        updateRisingTrend(currentAltitude, baroData.timestamp);
         
         if (currentAltitude > _max_altitude_read) {
             _max_altitude_read = currentAltitude;

@@ -62,9 +62,10 @@ public:
      * Set slightly negative to avoid false positives at apex.
      */
     OLSApogeeDetector(float sample_rate_hz = 50.0f, float trigger_velocity_ms = -1.0f) 
-        : _dt(1.0f / sample_rate_hz), _trigger_velocity(trigger_velocity_ms) 
+        : _fallback_dt(1.0f / sample_rate_hz), _trigger_velocity(trigger_velocity_ms) 
     {
         _y_buffer.fill(0.0f);
+        _t_buffer.fill(0);
         
         // Precompute the X-axis (time/index) constants for the OLS formula:
         // slope = [ N*sum(xy) - sum(x)*sum(y) ] / [ N*sum(x^2) - (sum(x))^2 ]
@@ -73,8 +74,10 @@ public:
         _denominator = (WindowSize * _sum_x2) - (_sum_x * _sum_x);
     }
 
-    void update(float newAltitude) {
+    void update(float newAltitude, uint32_t timestamp_ms) {
         _y_buffer[_head] = newAltitude;
+        _t_buffer[_head] = timestamp_ms;
+        const size_t newestIdx = _head;
         _head++;
         
         if (_head >= WindowSize) {
@@ -97,11 +100,25 @@ public:
             sum_xy += (i * y);
         }
 
-        // Calculate slope (change in altitude per sample)
+        // Calculate slope (change in altitude per sample index)
         float slope_per_sample = ((WindowSize * sum_xy) - (_sum_x * sum_y)) / _denominator;
 
+        // Effective sample period
+        const uint32_t oldest_ts = _t_buffer[_head];
+        const uint32_t newest_ts = _t_buffer[newestIdx];
+        const uint32_t elapsed_ms = newest_ts - oldest_ts;
+
+        float dt = _fallback_dt;
+        if (elapsed_ms > 0) {
+            dt = (static_cast<float>(elapsed_ms) / 1000.0f) / static_cast<float>(WindowSize - 1);
+            // Sanity clamp against a corrupt/duplicate timestamp
+            const float minDt = _fallback_dt * 0.25f;
+            const float maxDt = _fallback_dt * 4.0f;
+            dt = std::clamp(dt, minDt, maxDt);
+        }
+
         // Convert sample slope to physical velocity (m/s)
-        _estimated_velocity = slope_per_sample / _dt;
+        _estimated_velocity = slope_per_sample / dt;
     }
 
     // Returns true if the rocket is still going up (velocity is > trigger threshold)
@@ -116,10 +133,11 @@ public:
 
 private:
     std::array<float, WindowSize> _y_buffer;
+std::array<uint32_t, WindowSize> _t_buffer;
     size_t _head = 0;
     bool _is_full = false;
 
-    float _dt;
+    float _fallback_dt;
     float _trigger_velocity;
     float _estimated_velocity = 0.0f;
     
@@ -183,6 +201,7 @@ private:
 
     /**
      * @brief Updates the trend buffer and evaluates if the rocket is still rising.
+* @param timestampMs Sensor sample timestamp, used to derive the detector's real sample spacing.
      */
-    void updateRisingTrend(float currentAltitude);
+    void updateRisingTrend(float currentAltitude, uint32_t timestampMs);
 };
