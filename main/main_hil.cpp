@@ -247,8 +247,10 @@ void loopHil()
     resetHilSimulationIfRequested();
 
     static unsigned long lastHeartbeat = 0;
+    static unsigned long lastStateLog = 0;
     static bool ledState = false;
     static RocketState lastLoggedState = RocketState::INACTIVE;
+    static bool stateLogged = false;
 
     // Heartbeat every 2 seconds
     if (Utils::realMillis() - lastHeartbeat > 2000)
@@ -273,15 +275,16 @@ void loopHil()
             }
         }
 
-        // Optional: Print current state periodically
-        RocketState currentState = rocketFSM->getCurrentState();
+    }
 
-        if (currentState != lastLoggedState)
-        {
-            LOG_INFO("Main", "Current FSM State: %s",
-                     rocketFSM->getStateString(currentState));
-            lastLoggedState = currentState;
-        }
+    const unsigned long now = Utils::realMillis();
+    const RocketState currentState = rocketFSM->getCurrentState();
+    if (!stateLogged || currentState != lastLoggedState || now - lastStateLog >= 30000)
+    {
+        LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
+        lastLoggedState = currentState;
+        lastStateLog = now;
+        stateLogged = true;
     }
 
     // Small delay to prevent watchdog issues

@@ -82,7 +82,7 @@ void TelemetryTask::taskFunction()
                 std::vector<uint8_t> message(sizeof(TelemetryPacket));
                 memcpy(message.data(), &packet, sizeof(TelemetryPacket));
 
-                LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
+                // LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
 
                 _messagesCreated++;
 
@@ -92,7 +92,7 @@ void TelemetryTask::taskFunction()
                 {
                     if (transmitMessage(message))
                     {
-                        LOG_INFO("Telemetry", "Packet %lu transmitted via ESP-NOW", _messagesCreated);
+                        // LOG_INFO("Telemetry", "Packet %lu transmitted via ESP-NOW", _messagesCreated);
                     }
                     else
                     {
@@ -107,7 +107,7 @@ void TelemetryTask::taskFunction()
                     auto result = _loraTransmitter->transmit(message);
                     if (result.getCode() == E220_SUCCESS)
                     {
-                        LOG_INFO("Telemetry", "Packet %lu transmitted via LoRa", _messagesCreated);
+                        // LOG_INFO("Telemetry", "Packet %lu transmitted via LoRa", _messagesCreated);
                     }
                     else
                     {
@@ -116,7 +116,7 @@ void TelemetryTask::taskFunction()
                 }
                 else
                 {
-                    LOG_WARNING("Telemetry", "LoRa transmitter not available, skipping LoRa transmission");
+                    // LOG_WARNING("Telemetry", "LoRa transmitter not available, skipping LoRa transmission");
                 }
 
 #ifdef CONFIG_TELEMETRY_USB_MIRROR
@@ -133,13 +133,14 @@ void TelemetryTask::taskFunction()
         // Log stats periodically
         if (loopCount % 10 == 0 && loopCount > 0)
         {
-            uint32_t txSent, txFailed;
+            uint32_t txSent = 0;
+            uint32_t txFailed = 0;
             if (_transmitter)
             {
-                _transmitter->getStats(txSent, txFailed);
-                LOG_INFO("Telemetry", "Stats: msgs=%lu, pkts=%lu, tx_ok=%lu, tx_fail=%lu, heap=%u",
-                         _messagesCreated, _packetsSent, txSent, txFailed, ESP.getFreeHeap());
+                _transmitter->getStats(txSent, txFailed); // passed by reference
             }
+            LOG_INFO("Telemetry", "Stats: msgs=%lu, pkts=%lu, errors=%lu, tx_ok=%lu, tx_fail=%lu, heap=%u",
+                     _messagesCreated, _packetsSent, _transmitErrors, txSent, txFailed, ESP.getFreeHeap());
         }
 
         loopCount++;
@@ -181,7 +182,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.imu.accel_x = outBnoData.acceleration_x;
             packet.imu.accel_y = outBnoData.acceleration_y;
             packet.imu.accel_z = outBnoData.acceleration_z;
-            LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
+            // LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
             packet.imu.gyro_x = outBnoData.orientation_x;
             packet.imu.gyro_y = outBnoData.orientation_y;
             packet.imu.gyro_z = outBnoData.orientation_z;
@@ -207,7 +208,7 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.baro2.pressure = outMs56Data2.pressure;
             packet.baro2.temperature = outMs56Data2.temperature;
         } else {
-            LOG_WARNING("Telemetry", "Barometer 2 data not available");
+            // LOG_WARNING("Telemetry", "Barometer 2 data not available");
         }
 
         GPSData gpsData;
@@ -216,14 +217,14 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.gps.latitude = gpsData.latitude;
             packet.gps.longitude = gpsData.longitude;
             packet.gps.altitude = gpsData.altitude;
-            LOG_DEBUG("Telemetry", "GPS ALT: %.2f LAT: %.6f LON: %.6f",
-                      packet.gps.altitude, packet.gps.latitude, packet.gps.longitude);
+            // LOG_DEBUG("Telemetry", "GPS ALT: %.2f LAT: %.6f LON: %.6f",
+            //           packet.gps.altitude, packet.gps.latitude, packet.gps.longitude);
         } else {
-            LOG_WARNING("Telemetry", "GPS data not available");
+            // LOG_WARNING("Telemetry", "GPS data not available");
         }
 
         packet.velocity = _rocketModel->getHeightGainSpeed();
-        LOG_INFO("Telemetry", "Done collecting sensor data!");
+        // LOG_INFO("Telemetry", "Done collecting sensor data!");
     }
     catch (const std::exception &e)
     {
@@ -250,7 +251,7 @@ bool TelemetryTask::transmitMessage(const std::vector<uint8_t> &message)
         return false;
     }
 
-    LOG_DEBUG("Telemetry", "Transmitting %d packets", packets.size());
+    // LOG_DEBUG("Telemetry", "Transmitting %d packets", packets.size());
 
     // Send each packet
     bool allSuccess = true;
@@ -282,7 +283,7 @@ bool TelemetryTask::transmitMessage(const std::vector<uint8_t> &message)
 
 void TelemetryTask::pollLoRaRx()
 {
-    LOG_DEBUG("Telemetry", "Polling LoRa RX for commands");
+    // LOG_DEBUG("Telemetry", "Polling LoRa RX for commands");
     CommandPacket cmd;
     while (_loraTransmitter->receive(&cmd))
     {
