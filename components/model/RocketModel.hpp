@@ -144,6 +144,12 @@ public:
      * @brief Check GPS availability
      */
     bool hasGPS() { return _gps != nullptr; }
+    bool hasBNO055() const { return _bno != nullptr; }
+    bool hasLIS3DHTR() const { return _lis3dh != nullptr; }
+    bool hasMS561101BA03_1() const { return _ms56_1 != nullptr; }
+    bool hasMS561101BA03_2() const { return _ms56_2 != nullptr; }
+    bool isExternalFlashInitialized() const;
+    bool isSdInitialized() const;
 
     
     
@@ -379,6 +385,8 @@ private:
     std::shared_ptr<MS561101BA03> _ms56_1;
     std::shared_ptr<MS561101BA03> _ms56_2;
     std::shared_ptr<GPS> _gps;
+    std::shared_ptr<SD> _sd;
+    std::shared_ptr<Flash> _flash;
 
     // Critical mutexes
     SemaphoreHandle_t _imuMutex;

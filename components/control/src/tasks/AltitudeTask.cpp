@@ -2,12 +2,16 @@
 #include <cmath>
 #include <config.h>
 #include <SerialLogger.hpp>
+#include "RuntimeConfig.hpp"
+
+static constexpr uint32_t ALTITUDE_LOG_PERIOD_MS = 1000;
 
 void AltitudeTask::taskFunction()
 {
     LOG_INFO("AltitudeTask", "Starting Altitude task pipeline...");
 
     uint32_t lastTimestamp = 0;
+    const RuntimeConfig &flightConfig = runtime_config_get_flight_snapshot();
     
     // Baseline for the slew rate limiter
     static float lastValidPressure = -1.0f; 
@@ -58,11 +62,13 @@ void AltitudeTask::taskFunction()
         }
         
         // Altitude Calculation
-        float pressureRef = _rocketModel->isBarometerZeroed() ? 
-                            _rocketModel->getLaunchpadBasePressure() : 
-                            101325.0f;
-
-        float currentAltitude = calculateAltitude(filteredPressure, pressureRef);
+        float currentAltitude = 0.0f;
+        if (_rocketModel->isBarometerZeroed()) {
+            currentAltitude = calculateAltitude(filteredPressure, _rocketModel->getLaunchpadBasePressure());
+        } else {
+            const float seaLevelPressurePa = flightConfig.sea_level_pressure_hpa * 100.0f;
+            currentAltitude = calculateAltitude(filteredPressure, seaLevelPressurePa) - flightConfig.launch_site_altitude_m;
+        }
 
         // Apogee & Trend Detection
         updateRisingTrend(currentAltitude);
@@ -78,7 +84,7 @@ void AltitudeTask::taskFunction()
 
         _rocketModel->setHeightGainSpeed(currentVelocity);
 
-        LOG_EVERY_MS(500, INFO, "AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m",
+        LOG_EVERY_MS(ALTITUDE_LOG_PERIOD_MS, INFO, "AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m",
                      currentAltitude, currentVelocity, _max_altitude_read);
         
         vTaskDelay(pdMS_TO_TICKS(20));

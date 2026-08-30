@@ -1,6 +1,7 @@
 #include "TelemetryTask.hpp"
 #include "esp_system.h"
 #include <utils.h>
+#include "RuntimeConfig.hpp"
 
 constexpr float TROPOSPHERE_HEIGHT = 11000.f; // Troposphere height [m]
 constexpr float a = 0.0065f;                  // Troposphere temperature gradient [deg/m]
@@ -16,18 +17,15 @@ float relAltitude_tele(float pressure, float pressureRef = 101325.0f,
 
 
 TelemetryTask::TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                             uint32_t intervalMs,
                              IStateMachine* fsm)
     : BaseTask("TelemetryTask"),
       _rocketModel(rocketModel),
       _fsm(fsm),
-      _transmitIntervalMs(intervalMs),
       _lastTransmitTime(0),
       _lastAckCommandId(0),
       _messagesCreated(0),
       _transmitErrors(0)
 {
-    LOG_INFO("Telemetry", "Created with transmit interval: %lu ms", _transmitIntervalMs);
     LOG_INFO("Telemetry", "Telemetry packet size: %d bytes", sizeof(TelemetryPacket));
 }
 
@@ -47,6 +45,9 @@ void TelemetryTask::onTaskStop()
 void TelemetryTask::taskFunction()
 {
     uint32_t loopCount = 0;
+    const RuntimeConfig &flightConfig = runtime_config_get_flight_snapshot();
+    const uint32_t transmitIntervalMs = flightConfig.telemetry_period_ms;
+    LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", transmitIntervalMs);
 
     while (running)
     {
@@ -59,7 +60,7 @@ void TelemetryTask::taskFunction()
         uint32_t now = Utils::millis();
 
         // Check if it's time to transmit
-        if (now - _lastTransmitTime >= _transmitIntervalMs)
+        if (now - _lastTransmitTime >= transmitIntervalMs)
         {
             _lastTransmitTime = now;
 
@@ -110,7 +111,7 @@ void TelemetryTask::taskFunction()
         loopCount++;
 
         // Check running flag frequently during delay (50ms chunks)
-        uint32_t delayRemaining = _transmitIntervalMs / 10; // Split into 10 chunks
+        uint32_t delayRemaining = transmitIntervalMs / 10; // Split into 10 chunks
         if (delayRemaining < 10)
             delayRemaining = 10;
 

@@ -13,6 +13,8 @@
 #include <RocketModel.hpp>
 #include <IBoardHardware.hpp>
 
+class IGroundTestRunner;
+
 /**
  * @brief Enumeration for the different rocket states.
  * 
@@ -30,7 +32,8 @@ public:
     RocketFSM(std::shared_ptr<RocketModel> rocketModel,
               std::shared_ptr<SD> sd,
               std::shared_ptr<RocketLogger> logger,
-              IBoardHardware* board
+              IBoardHardware* board,
+              std::shared_ptr<IGroundTestRunner> testRunner = nullptr
             );
     
     /**
@@ -116,6 +119,7 @@ private:
     // Shared data
     std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
+    std::shared_ptr<IGroundTestRunner> _testRunner;
 
     std::shared_ptr<SD> _sd;
     IBoardHardware* _board;

@@ -9,11 +9,15 @@
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
-                         IStateMachine* fsm) :
+                         IBoardHardware* board,
+                         IStateMachine* fsm,
+                         std::shared_ptr<IGroundTestRunner> testRunner) :
                          _rocketModel(rocketModel),
                          _logger(logger),
                          _sd(sd),
-                         _fsm(fsm)
+                         _fsm(fsm),
+                         _board(board),
+                         _testRunner(testRunner)
 {
     LOG_INFO("TaskMgr", "Initialized with model");
 
@@ -64,6 +68,7 @@ void TaskManager::initializeTasks()
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
         _logger,
+        _board,
         _fsm);
 #endif
         
@@ -76,7 +81,6 @@ void TaskManager::initializeTasks()
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
     auto telemetryTask = std::make_unique<TelemetryTask>(
         _rocketModel,
-        TELEMETRY_INTERVAL_MS,
         _fsm);
     if (_loraTransmitter)
     {
@@ -86,6 +90,13 @@ void TaskManager::initializeTasks()
 
     _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
         _rocketModel);
+
+    _tasks[TaskType::GROUND_SERVICES] = std::make_unique<GroundServicesTask>(
+        _rocketModel,
+        _logger,
+        _board,
+        _fsm,
+        _testRunner);
 
     LOG_INFO("TaskManager", "Created %d task instances", _tasks.size());
 }

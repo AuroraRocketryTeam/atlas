@@ -9,7 +9,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+// ESP-IDF helpers
 #include <esp_err.h>
+#include "esp_ota_ops.h"
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -55,7 +57,7 @@
  *
  */
 #define CALIBRATE_SENSORS
-#define ENABLE_TEST_ROUTINE
+// #define ENABLE_TEST_ROUTINE
 
 // Board hardware instance
 static Board board;
@@ -76,6 +78,7 @@ static std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
 static std::unique_ptr<RocketFSM> rocketFSM;
+static std::shared_ptr<TestRoutine> testRoutine = nullptr;
 
 // Utility functions
 void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
@@ -84,6 +87,37 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
                           std::shared_ptr<MS561101BA03>& baro2,
                           std::shared_ptr<GPS>& gps);
 void GPSfix(std::shared_ptr<GPS> gps);
+
+/**
+ * @brief Confirm the running image after an OTA update.
+ *
+ * With CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE a freshly flashed app boots in
+ * ESP_OTA_IMG_PENDING_VERIFY, and the bootloader reverts to the previous
+ * partition on the next restart unless the app marks itself valid. Calling this
+ * only once setup has completed is deliberate: a firmware that cannot finish
+ * initialization is rolled back automatically instead of bricking the board.
+ */
+static void confirmOtaImageIfPending()
+{
+    const esp_partition_t *running_partition = esp_ota_get_running_partition();
+    esp_ota_img_states_t ota_state;
+    if (running_partition == nullptr ||
+        esp_ota_get_state_partition(running_partition, &ota_state) != ESP_OK)
+    {
+        return;
+    }
+    if (ota_state != ESP_OTA_IMG_PENDING_VERIFY) return;
+
+    const esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    if (err == ESP_OK)
+    {
+        LOG_INFO("Main", "OTA image confirmed valid; rollback cancelled");
+    }
+    else
+    {
+        LOG_ERROR("Main", "Failed to confirm OTA image: %s", esp_err_to_name(err));
+    }
+}
 
 void setupFlight()
 {
@@ -133,11 +167,19 @@ void setupFlight()
     rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
     LOG_INFO("Main", "RocketModel system model created");
 
+    testRoutine = std::make_shared<TestRoutine>(
+        board,
+        rocketModel,
+        sdCard,
+        flash,
+        statusManager,
+        ledController,
+        buzzerController);
+
 #ifdef ENABLE_TEST_ROUTINE
     vTaskDelay(5000 / portTICK_PERIOD_MS);
     LOG_INFO("Main", "=== TEST MODE ENABLED ===");
-    TestRoutine tests(board, rocketModel, sdCard, flash, statusManager, ledController, buzzerController);
-    tests.run();
+    testRoutine->run();
 #endif
 
 #ifdef CALIBRATE_SENSORS
@@ -152,7 +194,7 @@ void setupFlight()
     // Initialize and start FSM
     LOG_INFO("Main", "=== System initialization complete ===");
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
-    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board, testRoutine);
     rocketFSM->init();
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
@@ -174,6 +216,8 @@ void setupFlight()
     // Signal successful initialization
     gpio_set_level(board.get_rgb_red_pin(), LOW);
     gpio_set_level(board.get_rgb_green_pin(), HIGH);
+    confirmOtaImageIfPending();
+
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 

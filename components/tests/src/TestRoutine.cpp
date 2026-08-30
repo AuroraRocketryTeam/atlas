@@ -15,6 +15,7 @@
 #include <driver/i2c_master.h>
 #include <driver/gpio.h>
 #include <esp_system.h>
+#include <cstdio>
 
 #include <config.h>
 #include <board.h>
@@ -36,11 +37,248 @@ TestRoutine::TestRoutine(IBoardHardware& board,
       _flash(flash),
       _statusManager(statusManager),
       _ledController(ledController),
-      _buzzerController(buzzerController)
-{}
+      _buzzerController(buzzerController),
+      _webMutex(xSemaphoreCreateMutex()),
+      _webTask(nullptr),
+      _pendingVerdict(GroundTestVerdict::FAILED),
+      _lastInputVerdict(GroundTestVerdict::FAILED),
+      _hasPendingVerdict(false)
+{
+    snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "idle");
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "idle");
+}
+
+static const GroundTestDescriptor GROUND_TESTS[] = {
+    {1,  "Power",     "Power and LEDs",          "Blink status LEDs and ask the operator to confirm visual behavior.", false, ""},
+    {2,  "Sensors",   "Sensor Readout",          "Read IMU, barometers, and accelerometer through the real RocketModel.", false, ""},
+    {5,  "Sensors",   "I2C Scan",                "Probe the I2C bus and report known/unknown devices on serial logs.", false, ""},
+    {14, "Sensors",   "IMU Calibration to NVS",  "Run BNO055 calibration and save offsets to internal NVS.", false, ""},
+    {3,  "Actuators", "Actuators and Buzzer",    "Energize drogue/main outputs and buzzer for operator verification.", true, "ARM_ACTUATORS"},
+    {7,  "Telemetry", "LoRa Telemetry Send",     "Initialize E220 LoRa and transmit three test packets.", false, ""},
+    {8,  "Telemetry", "E220 Connector GPIO",     "Pulse E220 connector pins in a visible sequence.", false, ""},
+    {10, "Telemetry", "LoRa Command Receive",    "Wait up to 30 seconds for a command from the ground station.", false, ""},
+    {6,  "Telemetry", "Configure E220",          "Write the default E220 radio configuration.", true, "CONFIGURE_E220"},
+    {4,  "Storage",   "SD Card",                 "Write and read a test file on the SD card when available.", false, ""},
+    {9,  "Storage",   "External Flash",          "Initialize external flash, write/read/append, then clear test data.", true, "TEST_FLASH"},
+    {12, "Storage",   "Dump Flash Telemetry",    "Print JSONL telemetry from external flash to serial output.", false, ""},
+    {13, "Storage",   "Format Flash",            "Format the external flash memory. Data will be lost.", true, "FORMAT_FLASH"},
+};
+
+size_t TestRoutine::getGroundTestCount() const
+{
+    return sizeof(GROUND_TESTS) / sizeof(GROUND_TESTS[0]);
+}
+
+const GroundTestDescriptor* TestRoutine::getGroundTest(size_t index) const
+{
+    if (index >= getGroundTestCount()) return nullptr;
+    return &GROUND_TESTS[index];
+}
+
+const GroundTestDescriptor* TestRoutine::findGroundTest(int id) const
+{
+    for (size_t i = 0; i < getGroundTestCount(); ++i) {
+        if (GROUND_TESTS[i].id == id) return &GROUND_TESTS[i];
+    }
+    return nullptr;
+}
+
+void TestRoutine::getGroundTestStatus(GroundTestStatus* out) const
+{
+    if (out == nullptr) return;
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    *out = _webStatus;
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+}
+
+void TestRoutine::setWebStatus(const char* state, const char* message)
+{
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", state ? state : "");
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", message ? message : "");
+    _webStatus.waiting_for_verdict = false;
+    _webStatus.prompt[0] = '\0';
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+}
+
+void TestRoutine::setWebPrompt(const char* prompt)
+{
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    _webStatus.waiting_for_verdict = true;
+    snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "waiting");
+    snprintf(_webStatus.prompt, sizeof(_webStatus.prompt), "%s", prompt ? prompt : "");
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "waiting for operator verdict");
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+}
+
+bool TestRoutine::isWebTestContext() const
+{
+    return _webTask != nullptr && xTaskGetCurrentTaskHandle() == _webTask;
+}
+
+bool TestRoutine::startGroundTest(int id, char* error, size_t error_size)
+{
+    const GroundTestDescriptor* descriptor = findGroundTest(id);
+    if (descriptor == nullptr) {
+        if (error && error_size > 0) snprintf(error, error_size, "%s", "unknown test id");
+        return false;
+    }
+
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    if (_webStatus.running) {
+        if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+        if (error && error_size > 0) snprintf(error, error_size, "%s", "a test is already running");
+        return false;
+    }
+
+    _webStatus = GroundTestStatus{};
+    _webStatus.running = true;
+    _webStatus.active_id = id;
+    _webStatus.started_ms = Utils::millis();
+    snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "starting");
+    snprintf(_webStatus.active_name, sizeof(_webStatus.active_name), "%s", descriptor->name);
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "starting test");
+    _hasPendingVerdict = false;
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+
+    if (xTaskCreate(webTestTaskEntry, "ground_test", 8192, this, 5, &_webTask) != pdPASS) {
+        if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+        _webStatus.running = false;
+        snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "failed");
+        snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "failed to create test task");
+        if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+        _webTask = nullptr;
+        if (error && error_size > 0) snprintf(error, error_size, "%s", "failed to create test task");
+        return false;
+    }
+
+    return true;
+}
+
+bool TestRoutine::submitGroundTestVerdict(GroundTestVerdict verdict, char* error, size_t error_size)
+{
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    if (!_webStatus.running || !_webStatus.waiting_for_verdict) {
+        if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+        if (error && error_size > 0) snprintf(error, error_size, "%s", "no test is waiting for a verdict");
+        return false;
+    }
+    _pendingVerdict = verdict;
+    _hasPendingVerdict = true;
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "operator verdict received");
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+    return true;
+}
+
+void TestRoutine::webTestTaskEntry(void* arg)
+{
+    auto* self = static_cast<TestRoutine*>(arg);
+    int id = 0;
+    if (self->_webMutex != nullptr) xSemaphoreTake(self->_webMutex, portMAX_DELAY);
+    id = self->_webStatus.active_id;
+    if (self->_webMutex != nullptr) xSemaphoreGive(self->_webMutex);
+
+    bool passed = false;
+    do {
+        self->setWebStatus("running", "test running");
+        self->_lastInputVerdict = GroundTestVerdict::FAILED;
+        passed = self->runSingleTestById(id);
+
+        if (!passed && self->_lastInputVerdict == GroundTestVerdict::RETRY) {
+            self->setWebStatus("retrying", "retrying test");
+            vTaskDelay(pdMS_TO_TICKS(250));
+        }
+    } while (!passed && self->_lastInputVerdict == GroundTestVerdict::RETRY);
+
+    if (self->_webMutex != nullptr) xSemaphoreTake(self->_webMutex, portMAX_DELAY);
+    self->_webStatus.running = false;
+    self->_webStatus.waiting_for_verdict = false;
+    self->_webStatus.last_passed = passed;
+    self->_webStatus.finished_ms = Utils::millis();
+    if (passed) {
+        snprintf(self->_webStatus.state, sizeof(self->_webStatus.state), "%s", "passed");
+        snprintf(self->_webStatus.message, sizeof(self->_webStatus.message), "%s", "test passed");
+    } else if (self->_lastInputVerdict == GroundTestVerdict::EXIT) {
+        snprintf(self->_webStatus.state, sizeof(self->_webStatus.state), "%s", "exited");
+        snprintf(self->_webStatus.message, sizeof(self->_webStatus.message), "%s", "test exited");
+    } else {
+        snprintf(self->_webStatus.state, sizeof(self->_webStatus.state), "%s", "failed");
+        snprintf(self->_webStatus.message, sizeof(self->_webStatus.message), "%s", "test failed");
+    }
+    self->_webStatus.prompt[0] = '\0';
+    self->_webTask = nullptr;
+    if (self->_webMutex != nullptr) xSemaphoreGive(self->_webMutex);
+
+    vTaskDelete(nullptr);
+}
+
+bool TestRoutine::runSingleTestById(int id)
+{
+    showTestPattern(id);
+
+    switch (id)
+    {
+    case 1:  return testPowerAndLEDs();
+    case 2:  return testSensors();
+    case 3:  return testActuators();
+    case 4:  return testSDCard();
+    case 5:  return testI2CScan();
+    case 6:  return configureE220();
+    case 7:  return testTelemetry();
+    case 8:  return testE220Connector();
+    case 9:  return testFlashMemory();
+    case 10: return testTelemetryCommand();
+    case 12: return dumpFlashJsonFiles();
+    case 13: return clearFlashMemory();
+    case 14: return calibrateAndSaveIMU();
+    default: return false;
+    }
+}
 
 bool TestRoutine::waitForUserInput(const char* message)
 {
+    if (isWebTestContext()) {
+        setWebPrompt(message);
+
+        while (true) {
+            GroundTestVerdict verdict = GroundTestVerdict::FAILED;
+            bool hasVerdict = false;
+
+            if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+            if (_hasPendingVerdict) {
+                verdict = _pendingVerdict;
+                _hasPendingVerdict = false;
+                hasVerdict = true;
+                _webStatus.waiting_for_verdict = false;
+            }
+            if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+
+            if (hasVerdict) {
+                _lastInputVerdict = verdict;
+                if (verdict == GroundTestVerdict::PASSED) {
+                    _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+                    return true;
+                }
+                if (verdict == GroundTestVerdict::REBOOT) {
+                    LOG_WARNING("Test", "Web operator requested reboot");
+                    esp_restart();
+                }
+                if (verdict == GroundTestVerdict::RETRY) {
+                    _statusManager.playBlockingPattern(TEST_FAILURE, 1000);
+                    return false;
+                }
+                if (verdict == GroundTestVerdict::EXIT) {
+                    LOG_INFO("Test", "Web operator exited test");
+                    return false;
+                }
+                _statusManager.playBlockingPattern(TEST_FAILURE, 1000);
+                return false;
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+
     printf("%s\n(Shortcuts: 'P' = Passed, 'F' = Failed, 'R' = Reboot)\n", message);
     _statusManager.setSystemCode(WAITING_INPUT);
 
@@ -107,8 +345,10 @@ void TestRoutine::showTestPattern(int testNumber)
     case 8:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
     case 9:  _statusManager.playBlockingPattern(TEST_SD,        1000); break;
     case 10: _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    // 11-13 (flash utilities, IMU calibration) have no pattern
-    case 14: _statusManager.playBlockingPattern(TEST_ALL,       2000); break;
+    // Flash utilities and IMU calibration have no pattern. Ids 1-10 above are
+    // shared by the serial menu and the Ground Services test ids; the higher
+    // numbers differ between the two, so no pattern is mapped for them.
+    // "Run all" plays TEST_ALL from run() itself.
     default: break;
     }
 }
@@ -405,16 +645,23 @@ bool TestRoutine::clearFlashMemory()
         return waitForUserInput("Type PASSED to continue or FAILED to retry");
     }
 
-    printf("WARNING: This operation will format the entire Flash memory.\n");
-    printf("All data will be lost!\n");
-    printf("Are you sure you want to continue? (Y/n): \n");
-    
-    char buffer[16] = {0};
-    Utils::readLine(buffer, sizeof(buffer));
-    std::string input(buffer);
-    Utils::trimString(input);
-    
-    if (input == "Y" || input == "y") {
+    // The dashboard already gates this behind an explicit FORMAT_FLASH
+    // confirmation, so a web-driven run does not ask again on serial.
+    bool confirmed = isWebTestContext();
+
+    if (!confirmed) {
+        printf("WARNING: This operation will format the entire Flash memory.\n");
+        printf("All data will be lost!\n");
+        printf("Are you sure you want to continue? (Y/n): \n");
+
+        char buffer[16] = {0};
+        Utils::readLine(buffer, sizeof(buffer));
+        std::string input(buffer);
+        Utils::trimString(input);
+        confirmed = input == "Y" || input == "y";
+    }
+
+    if (confirmed) {
         LOG_INFO("Test", "Formatting in progress... it might take some time.");
         if (_flash->clearMemory()) {
             LOG_INFO("Test", "Formatting completed successfully!");
@@ -591,10 +838,10 @@ bool TestRoutine::testI2CScan()
             const char* label = nullptr;
             for (auto& d : known)
                 if (d.addr == addr) { label = d.name; break; }
-            printf(label ? "Found: 0x%02X %s\n" : "Unknown: 0x%02X\n", addr, label ? label : "");
+            LOG_INFO("TestRoutine", label ? "Found: 0x%02X %s\n" : "Unknown: 0x%02X\n", addr, label ? label : "");
         }
-    }
-    if (!found) printf("No devices found.\n");
+    } 
+    if (!found) LOG_INFO("TestRoutine", "No devices found.\n");
 
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }

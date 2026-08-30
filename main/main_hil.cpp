@@ -12,15 +12,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// WiFi and communication
-#include <esp_wifi.h>
-#include <esp_event.h>
-#include <esp_netif.h>
+// ESP-IDF helpers (WiFi/netif/NVS are owned by the board abstraction)
 #include <esp_err.h>
-#include <nvs_flash.h>
-#include "lwip/sockets.h"
-#include "lwip/ip4_addr.h"
-#include "lwip/inet.h"
+#include "esp_ota_ops.h"
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -81,30 +75,42 @@ static std::unique_ptr<RocketFSM> rocketFSM;
 
 // Utility functions
 void printSystemInfo();
-void wifi_softap_init(void);
-static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
 // HIL lifecycle helpers
 static void createAndStartFSM();
 static void resetHilSimulationIfRequested();
 static void resetHilSimulation();
 
-static constexpr const char *HIL_WIFI_SSID = CONFIG_AURORA_HIL_WIFI_SSID;
-static constexpr const char *HIL_WIFI_PASSWORD = CONFIG_AURORA_HIL_WIFI_PASSWORD;
-static constexpr int HIL_WIFI_CHANNEL = CONFIG_AURORA_HIL_WIFI_CHANNEL;
-static constexpr int HIL_MAX_STA_CONN = CONFIG_AURORA_HIL_MAX_STA_CONN;
+/**
+ * @brief Confirm the running image after an OTA update.
+ *
+ * With CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE a freshly flashed app boots in
+ * ESP_OTA_IMG_PENDING_VERIFY, and the bootloader reverts to the previous
+ * partition on the next restart unless the app marks itself valid. Calling this
+ * only once setup has completed is deliberate: a firmware that cannot finish
+ * initialization is rolled back automatically instead of bricking the board.
+ */
+static void confirmOtaImageIfPending()
+{
+    const esp_partition_t *running_partition = esp_ota_get_running_partition();
+    esp_ota_img_states_t ota_state;
+    if (running_partition == nullptr ||
+        esp_ota_get_state_partition(running_partition, &ota_state) != ESP_OK)
+    {
+        return;
+    }
+    if (ota_state != ESP_OTA_IMG_PENDING_VERIFY) return;
 
-static constexpr const char *HIL_AP_IP_ADDR = CONFIG_AURORA_HIL_AP_IP_ADDR;
-static constexpr const char *HIL_AP_NETMASK = CONFIG_AURORA_HIL_AP_NETMASK;
-
-static_assert(sizeof(CONFIG_AURORA_HIL_WIFI_SSID) > 1,
-              "CONFIG_AURORA_HIL_WIFI_SSID must not be empty");
-
-static_assert(
-    sizeof(CONFIG_AURORA_HIL_WIFI_PASSWORD) == 1 ||
-    sizeof(CONFIG_AURORA_HIL_WIFI_PASSWORD) >= 9,
-    "CONFIG_AURORA_HIL_WIFI_PASSWORD must be empty or at least 8 characters"
-);
+    const esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    if (err == ESP_OK)
+    {
+        LOG_INFO("Main", "OTA image confirmed valid; rollback cancelled");
+    }
+    else
+    {
+        LOG_ERROR("Main", "Failed to confirm OTA image: %s", esp_err_to_name(err));
+    }
+}
 
 void setupHil()
 {
@@ -135,9 +141,6 @@ void setupHil()
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
 
     LOG_INFO("Main", "Initializing system...");
-
-    wifi_softap_init();
-    LOG_INFO("Main", "WiFi soft AP ready...");
 
     // Initialize components
     // LOG_INFO("Main", "Initializing sensors...");
@@ -195,6 +198,9 @@ void setupHil()
     // Signal successful initialization
     gpio_set_level(board.get_rgb_red_pin(), 0);
     gpio_set_level(board.get_rgb_green_pin(), 1);
+
+    confirmOtaImageIfPending();
+
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
@@ -287,10 +293,8 @@ void loopHil()
     // Heartbeat every 2 seconds
     if (Utils::realMillis() - lastHeartbeat > 2000)
     {
-        lastHeartbeat = Utils::realMillis();
-
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
-
+        lastHeartbeat = Utils::realMillis();
         ledState = !ledState;
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
@@ -347,107 +351,4 @@ void printSystemInfo()
     printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
     printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
     printf("--- End System Information ---\n");
-}
-
-static void wifi_event_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
-{
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED)
-    {
-        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
-        LOG_INFO("wifi_softap", "station connected, aid=%d", event->aid);
-    }
-
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED)
-    {
-        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-        LOG_INFO("wifi_softap", "station disconnected, aid=%d", event->aid);
-    }
-}
-
-void wifi_softap_init(void)
-{
-    // esp_err_t ret = nvs_flash_init();
-    // if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    //     ESP_ERROR_CHECK(nvs_flash_erase());
-    //     ret = nvs_flash_init();
-    // }
-    // ESP_ERROR_CHECK(ret);
-
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
-    if (ap_netif == nullptr)
-    {
-        LOG_ERROR("wifi_softap", "Failed to create default WiFi AP netif");
-        return;
-    }
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    // Register WiFi events
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
-
-    // Register IP event
-    // ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &ip_event_handler, NULL, NULL));
-
-    wifi_config_t wifi_config = {};
-    wifi_config.ap.ssid_len = strlen(HIL_WIFI_SSID);
-    wifi_config.ap.channel = HIL_WIFI_CHANNEL;
-    wifi_config.ap.max_connection = HIL_MAX_STA_CONN;
-
-    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.ssid),
-            HIL_WIFI_SSID,
-            sizeof(wifi_config.ap.ssid) - 1);
-
-    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.password),
-            HIL_WIFI_PASSWORD,
-            sizeof(wifi_config.ap.password) - 1);
-
-    if (strlen(HIL_WIFI_PASSWORD) == 0)
-    {
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-    }
-    else
-    {
-        wifi_config.ap.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
-    }
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-
-    ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
-
-    esp_netif_ip_info_t ip_info = {};
-
-    if (esp_netif_str_to_ip4(HIL_AP_IP_ADDR, &ip_info.ip) != ESP_OK)
-    {
-        LOG_ERROR("wifi_softap", "Invalid HIL AP IP address: %s", HIL_AP_IP_ADDR);
-        return;
-    }
-
-    // In SoftAP mode, the ESP32 itself is also the gateway.
-    if (esp_netif_str_to_ip4(HIL_AP_IP_ADDR, &ip_info.gw) != ESP_OK)
-    {
-        LOG_ERROR("wifi_softap", "Invalid HIL AP gateway address: %s", HIL_AP_IP_ADDR);
-        return;
-    }
-
-    if (esp_netif_str_to_ip4(HIL_AP_NETMASK, &ip_info.netmask) != ESP_OK)
-    {
-        LOG_ERROR("wifi_softap", "Invalid HIL AP netmask: %s", HIL_AP_NETMASK);
-        return;
-    }
-
-    ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ip_info));
-    ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
-
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    LOG_INFO("wifi_softap",
-            "SoftAP started. SSID:%s IP:%s NETMASK:%s CHANNEL:%d MAX_STA:%d",
-            HIL_WIFI_SSID,HIL_AP_IP_ADDR,HIL_AP_NETMASK,HIL_WIFI_CHANNEL,HIL_MAX_STA_CONN);
 }

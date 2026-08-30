@@ -4,6 +4,7 @@
 #include <MS561101BA03.hpp>
 #include <SerialLogger.hpp>
 #include <RocketModel.hpp>
+#include <utils.h>
 #include <config.h>
 #include <array>
 #include <algorithm>
@@ -160,7 +161,7 @@ private:
     // Triggers when estimated vertical velocity drops below -0.5 m/s.
     // We could switch the -0.5 to something positive like 1.0/2.0 to try triggering 
     // it before the apogee, but we should be carefull at the end of the motor burnout, 
-    // as there is a strong drag force (which shouldn't be a problem thanks to the APOGEE_LOCKOUT_MS timer)
+    // as there is a strong drag force (which should be covered by the RuntimeConfig apogee lockout)
     OLSApogeeDetector<APOGEE_DETECTION_WINDOW_SIZE> apogeeDetector{50.0f, -0.5f};
 
     // Atmospheric Constants

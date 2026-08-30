@@ -1,6 +1,7 @@
 #include "HilSimulationTask.hpp"
 #include "protocol.hpp"
 
+#include <inttypes.h>
 #include <cstring>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -13,6 +14,7 @@
 static const char *TAG = "HilSimulationTask";
 
 static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
+static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 1000;
 
 /* ===================== PACKETS ===================== */
 
@@ -107,10 +109,12 @@ static bool send_all(int _client_sock, const uint8_t *buf, size_t len, const vol
 HilSimulationTask::HilSimulationTask(
     std::shared_ptr<RocketModel> rocketModel,
     std::shared_ptr<RocketLogger> logger,
+    IBoardHardware* board,
     IStateMachine* fsm)
     : BaseTask("HilSimulationTask"),
       _rocketModel(rocketModel),
       _logger(logger),
+      _board(board),
       _fsm(fsm)
 {
     // ctor
@@ -125,6 +129,16 @@ HilSimulationTask::~HilSimulationTask() {
 
 void HilSimulationTask::onTaskStart() {
     // LOG_INFO(TAG, "onTaskStart");
+
+    if (_board != nullptr) {
+        if (!_board->startWifiSoftAp()) {
+            LOG_ERROR(TAG, "Failed to acquire HIL SoftAP");
+            running = false;
+            return;
+        }
+        _softApAcquired = true;
+        LOG_INFO(TAG, "HIL SoftAP ready at %s", _board->getWifiIpAddress());
+    }
 
     const int MAX_RETRY = 5;
     const TickType_t RETRY_DELAY = 200 / portTICK_PERIOD_MS;
@@ -202,6 +216,7 @@ void HilSimulationTask::onTaskStart() {
 
     LOG_ERROR(TAG, "Failed to initialize TCP server after %d attempts", MAX_RETRY);
     _listen_sock = -1;
+    running = false;
 }
 
 void HilSimulationTask::onTaskStop() {
@@ -229,6 +244,13 @@ void HilSimulationTask::onTaskStop() {
         }
 
         _listen_sock = -1;
+    }
+
+    if (_softApAcquired) {
+        if (_board != nullptr && !_board->stopWifi()) {
+            LOG_ERROR(TAG, "Failed to release HIL SoftAP");
+        }
+        _softApAcquired = false;
     }
 
 }
@@ -426,9 +448,9 @@ void HilSimulationTask::taskFunction() {
             gps.altitude  = pkt.alt;
             gps.setSensorName("GPS_SIM");
 
-            LOG_EVERY_MS(1000, INFO, TAG, "Received sim packet: time=%d ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
-                sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt
-            );
+            LOG_EVERY_MS(HIL_PACKET_LOG_PERIOD_MS, INFO, TAG,
+                         "Received sim packet: time=%" PRIu32 " ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
+                         sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt);
             
             /* ================= UPDATE MODEL ================= */
 
@@ -449,7 +471,7 @@ void HilSimulationTask::taskFunction() {
             Utils::setSimMillis(sim_time_ms);
 
             // yield in order to let the other task to set the command
-            vTaskDelay(pdMS_TO_TICKS(20));
+            vTaskDelay(pdMS_TO_TICKS(20)); // 20ms -> 50Hz, because Python runs at default --sampling-rate=50Hz (WARNING: mixing real and simulated time)
             if(!running) break;
 
             /* ================= READ COMMAND FROM MODEL ================= */
@@ -481,17 +503,6 @@ void HilSimulationTask::taskFunction() {
                 LOG_WARNING(TAG, "closing: send_all failed");
                 break;
             }
-
-            /* ================= LOG ================= */
-
-            // LOG_INFO(TAG,
-            //     "t=%.2f | acc=[%.2f %.2f %.2f] | alt=%.2f",
-            //     pkt.sim_time,
-            //     pkt.ax, pkt.ay, pkt.az,
-            //     pkt.alt
-            // );
-
-            //vTaskDelay(pdMS_TO_TICKS(20)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
         }
 
         if (_client_sock >= 0) {

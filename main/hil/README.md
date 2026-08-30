@@ -92,7 +92,7 @@ pip install .
 
 ### 5. Run the simulation
 - build ```main_hil.cpp``` and flash ```atlas-esp-idf```.
-- connect to the WiFi AP, ssid=```myssid``` and psw=```mypassword```.
+- connect to the board WiFi SoftAP, for example `Aurora AP` at `192.168.4.1`.
 - ```bash
   cd main/hil
   python3 hil_rocketpy.py --rocket=fred --sensor-profile=clean
@@ -111,7 +111,6 @@ Useful options:
 
 ```bash
 python hil_rocketpy.py --rocket fred --sensor-profile clean --sampling-rate 50
-python hil_rocketpy.py --rocket fred --sensor-profile clean --calibration-samples 500
 python hil_rocketpy.py --rocket fred --sensor-profile clean --no-startup-reset
 python hil_rocketpy.py --rocket fred --sensor-profile clean --startup-reset-timeout 30
 ```
@@ -119,14 +118,14 @@ python hil_rocketpy.py --rocket fred --sensor-profile clean --startup-reset-time
 The FC endpoint is configured with environment variables:
 
 ```bash
-HIL_FC_HOST=192.168.42.1 HIL_FC_PORT=5000 python hil_rocketpy.py --rocket fred --sensor-profile clean
+HIL_FC_HOST=192.168.4.1 HIL_FC_PORT=5000 python hil_rocketpy.py --rocket fred --sensor-profile clean
 ```
 
 Local mock run:
 
 ```bash
 python mock_manny_fc_server.py
-HIL_FC_HOST=127.0.0.1 python hil_rocketpy.py --rocket fred --sensor-profile clean --calibration-samples 300
+HIL_FC_HOST=127.0.0.1 python hil_rocketpy.py --rocket fred --sensor-profile clean
 ```
 
 ## Configuration model
@@ -330,7 +329,14 @@ Calibration samples contain:
 - synthetic stationary accelerometer data;
 - selected sensor-profile noise, drift, bias, and quantization.
 
-Calibration ends early when the FC reports `READY_FOR_LAUNCH`. If readiness is not received before `--calibration-samples`, the run fails.
+The stationary preflight stream continues through calibration and Ground Services,
+then ends when the FC reports `READY_FOR_LAUNCH`.
+
+Ground Services time is intentionally eclipsed in captures. The FC still receives
+stationary samples during `GROUND_SERVICES`, but those samples are not saved in
+`hil_log`. Instead the saved time axis collapses the interval into a
+`hil_events.time_eclipses` marker, so plots show the launch-ready transition
+without spending many seconds on a flat pre-launch section.
 
 Timing names:
 
@@ -338,10 +344,27 @@ Timing names:
 |---|---|
 | `rocketpy_time_s` | raw RocketPy callback time, starts at launch |
 | `calibration_sim_time_s` | synthetic time for pre-flight calibration |
-| `hil_sim_time_s` | monotonic time sent to FC and stored in captures |
+| `hil_sim_time_s` | raw monotonic time sent to the FC |
+| `capture_time_s` | compact time stored in captures after eclipses are applied |
 | `command_sim_time_s` | FC command timestamp returned to Python |
 
-Flight samples are offset by the calibration duration, so `hil_sim_time_s` remains monotonic from calibration into flight.
+Flight samples sent to the FC are offset by all preflight samples. Flight samples
+stored in captures are offset only by captured calibration samples, so
+`GROUND_SERVICES` is collapsed out of the saved timeline.
+
+Example:
+
+```text
+sampling_rate = 20 Hz
+60 samples reported INACTIVE/CALIBRATING     -> 3.0 s captured
+240 samples reported GROUND_SERVICES         -> 12.0 s sent but omitted
+READY_FOR_LAUNCH returned at FC time         -> 15.0 s
+first flight sample sent to FC at            -> 15.0 s
+first flight sample stored in capture at     -> 3.0 s
+time_eclipses entry:
+  {"label": "GROUND_SERVICES", "time_s": 3.0,
+   "omitted_duration_s": 12.0, "omitted_samples": 240}
+```
 
 ## TCP protocol
 
@@ -369,6 +392,14 @@ queue one simulator sample -> send -> wait for one FC command -> update state ->
 ```
 
 This prevents the simulator from running ahead of the FC.
+
+During preflight, `hil_rocketpy.py` also waits on `wait_for_fsm_response()` after
+queueing each sample. That wait is necessary because the producer must know the
+FSM state from the command packet that corresponds to the sample it just sent:
+`INACTIVE`/`CALIBRATING` samples are logged, `GROUND_SERVICES` samples are
+eclipsed, and `READY_FOR_LAUNCH` stops preflight. Without that barrier, the main
+thread could read a stale FSM state while the communication thread is still
+waiting for the FC response.
 
 ### Simulator input packet
 
@@ -402,15 +433,16 @@ Known FSM values:
 ```text
 0  INACTIVE
 1  CALIBRATING
-2  READY_FOR_LAUNCH
-3  LAUNCH
-4  ACCELERATED_FLIGHT
-5  BALLISTIC_FLIGHT
-6  APOGEE
-7  STABILIZATION
-8  DECELERATION
-9  LANDING
-10 RECOVERED
+2  GROUND_SERVICES
+3  READY_FOR_LAUNCH
+4  LAUNCH
+5  ACCELERATED_FLIGHT
+6  BALLISTIC_FLIGHT
+7  APOGEE
+8  STABILIZATION
+9  DECELERATION
+10 LANDING
+11 RECOVERED
 ```
 
 ## Reset behavior
@@ -458,7 +490,23 @@ open_drogue
 open_main
 airbrakes
 fsm_state
+time_eclipses
 ```
+
+`time_eclipses` entries have this shape:
+
+```json
+{
+  "label": "GROUND_SERVICES",
+  "time_s": 3.0,
+  "omitted_duration_s": 12.0,
+  "omitted_samples": 240
+}
+```
+
+`time_s` is the compact capture timestamp where the omitted interval appears in
+plots. `omitted_duration_s` and `omitted_samples` describe how much raw FC HIL
+time was sent but not stored in `hil_log`.
 
 Replot a capture:
 
@@ -477,6 +525,7 @@ Current plots include:
 - temperature;
 - FSM timeline;
 - airbrakes deployment.
+- time eclipse markers on time-series plots.
 
 The 3D replay uses RocketPy state and saved accelerometer payloads to reconstruct:
 
@@ -485,6 +534,10 @@ S_out -> S_clean -> B -> I
 ```
 
 The first stationary sample is used as a diagnostic for the accelerometer sign convention.
+
+The replay window includes a time slider. Moving it jumps the 3D attitude view
+and synchronized telemetry cursors to the nearest saved capture sample; pressing
+Space pauses/resumes playback and `R` restarts from the first sample.
 
 ## Mock Manny server
 

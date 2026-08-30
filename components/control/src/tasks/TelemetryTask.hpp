@@ -65,7 +65,7 @@ struct TelemetryPacket
  * This task reads from SharedSensorData, serializes it to binary format,
  * and transmits it using E220LoRaTransmitter.
  *
- * Transmission rate is configurable via constructor.
+ * Transmission rate is read from the locked RuntimeConfig snapshot.
  */
 class TelemetryTask : public BaseTask
 {
@@ -74,7 +74,6 @@ private:
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
     IStateMachine* _fsm;
 
-    uint32_t _transmitIntervalMs;
     uint32_t _lastTransmitTime;
 
     uint8_t _lastAckCommandId;
@@ -88,11 +87,12 @@ public:
      * @brief Construct a new Telemetry Task.
      *
      * @param rocketModel Shared rocket model to read sensor data from.
-     * @param intervalMs Interval between transmissions in milliseconds (default 1000ms = 1Hz).
      * @param fsm State machine used to report the flight phase and dispatch ground commands.
+     *
+     * @note The transmission period is read from the locked RuntimeConfig
+     *       snapshot when the task starts, not from a constructor argument.
      */
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                  uint32_t intervalMs = 1000,
                   IStateMachine* fsm = nullptr);
 
     /**
