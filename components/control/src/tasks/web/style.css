@@ -55,6 +55,12 @@ button.danger-action {
 button.danger-action:hover {
   border-color: #8f1f1f;
 }
+button.warning-action {
+  color: #fff;
+  background: var(--amber);
+  border-color: var(--amber);
+}
+button.warning-action:hover { border-color: #805615; }
 .hidden { display: none !important; }
 
 .sidebar {
@@ -111,12 +117,31 @@ button.danger-action:hover {
   background: #11151b;
   border-color: #343b47;
 }
+.token-box button {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  color: #fff;
+  background: #343a44;
+  border-color: #4b5563;
+}
+.auth-state {
+  color: #f6c453;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+.auth-state.operator { color: #59d98e; }
 nav {
   display: grid;
   gap: 6px;
   min-width: 0;
 }
 nav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
   width: 100%;
   text-align: left;
   color: #d6dde8;
@@ -126,6 +151,19 @@ nav button {
 nav button.active, nav button:hover {
   color: #fff;
   background: #343a44;
+}
+nav button[data-auth="required"]::after {
+  content: "LOCK";
+  flex: 0 0 auto;
+  color: #f6c453;
+  font-size: 8px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+body.authenticated nav button[data-auth="required"]::after { display: none; }
+nav button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
 }
 
 .shell {
@@ -684,7 +722,7 @@ pre {
 }
 .test-verdict-actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
   gap: 8px;
 }
 .test-verdict-actions button {
@@ -794,7 +832,7 @@ pre {
     margin-bottom: 0;
     font-size: 10px;
   }
-  .token-box span {
+  .token-box > label {
     display: none;
   }
   .token-box input {
@@ -802,10 +840,16 @@ pre {
     padding: 5px 7px;
     font-size: 12px;
   }
+  .token-box button {
+    min-height: 28px;
+    padding: 3px 6px;
+    font-size: 10px;
+  }
+  .auth-state { font-size: 8px; }
   nav {
     grid-area: nav;
     display: grid;
-    grid-template-columns: repeat(8, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     width: 100%;
     max-width: 100%;
     min-width: 0;
@@ -814,12 +858,12 @@ pre {
     padding-bottom: 0;
   }
   nav button {
+    justify-content: center;
     width: 100%;
     min-height: 30px;
     padding: 4px 2px;
     text-align: center;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
     font-size: 10px;
     font-weight: 700;
     line-height: 1.05;
@@ -929,6 +973,18 @@ pre {
     display: grid;
     width: 100%;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .serial-monitor-head .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .serial-monitor-head .actions button {
+    width: auto;
+    min-height: 30px;
+    padding: 4px 7px;
+    white-space: nowrap;
+    font-size: 11px;
   }
   .actions button,
   .section-head > button {
@@ -1092,6 +1148,9 @@ pre {
   .actions,
   .test-verdict-actions {
     grid-template-columns: 1fr;
+  }
+  .serial-monitor-head .actions {
+    display: flex;
   }
   nav button {
     min-height: 28px;

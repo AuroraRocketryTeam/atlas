@@ -386,7 +386,7 @@ void RocketFSM::setupStateActions()
          * HTTPS/TLS needs contiguous internal RAM per connection, so sensor,
          * GPS, and telemetry tasks are intentionally stopped in this state.
          */
-        .addTask(TaskConfig(TaskType::GROUND_SERVICES, "GroundServices", 8192, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::GROUND_SERVICES, "GroundServices", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
         #if CONFIG_AURORA_HIL_SIMULATION
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ground", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
@@ -732,7 +732,17 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
         return;
     }
 
-    if (_currentState == RocketState::GROUND_SERVICES && eventData.event == FSMEvent::START_READY_FOR_LAUNCH && !runtime_config_is_locked())
+    // Find valid transition
+    auto newState = _transitionManager->findTransition(_currentState, eventData.event);
+    if (!newState.has_value())
+    {
+        LOG_WARNING("RocketFSM", "No valid transition for event %d in state %s",
+                    static_cast<int>(eventData.event),
+                    getStateString(_currentState));
+        return;
+    }
+
+    if (_currentState == RocketState::GROUND_SERVICES && eventData.event == FSMEvent::START_READY_FOR_LAUNCH)
     {
         char reason[128] = {};
         if (runtime_config_lock_for_flight(reason, sizeof(reason)) != ESP_OK)
@@ -742,18 +752,7 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
         }
     }
 
-    // Find valid transition
-    auto newState = _transitionManager->findTransition(_currentState, eventData.event);
-    if (newState.has_value())
-    {
-        transitionTo(newState.value());
-    }
-    else
-    {
-        LOG_WARNING("RocketFSM", "No valid transition for event %d in state %s",
-                    static_cast<int>(eventData.event),
-                    getStateString(_currentState));
-    }
+    transitionTo(newState.value());
 }
 
 void RocketFSM::checkTransitions()

@@ -7,6 +7,7 @@
 #include "esp_http_server.h"
 #include <IBoardHardware.hpp>
 #include <IStateMachine.hpp>
+#include <atomic>
 #include <memory>
 
 class IGroundTestRunner;
@@ -57,11 +58,18 @@ private:
     esp_err_t startServer();
     void stopServer();
     void registerHandlers();
+    size_t buildLiveDataJson(char *body, size_t body_size) const;
+    void queueWebSocketBroadcast();
+    void broadcastLiveData();
+    void broadcastLogs();
+    static void webSocketBroadcastWork(void *arg);
     void setOtaStatus(OtaState state, size_t written, size_t total, esp_err_t err, const char *message, const char *sha256 = nullptr);
     OtaStatus getOtaStatus() const;
 
     bool issueAuthNonce(char out[33], uint32_t ttl_ms);
+    bool isAuthNonceValid(const char *nonce);
     bool consumeAuthNonce(const char *nonce);
+    static bool rejectMutationDuringOta(httpd_req_t *req, GroundServicesTask *self);
 
     static GroundServicesTask* fromReq(httpd_req_t *req);
     static esp_err_t rootGetHandler(httpd_req_t *req);
@@ -73,6 +81,9 @@ private:
     static esp_err_t statusGetHandler(httpd_req_t *req);
     static esp_err_t healthGetHandler(httpd_req_t *req);
     static esp_err_t liveDataGetHandler(httpd_req_t *req);
+    static esp_err_t readOnlyWsHandler(httpd_req_t *req);
+    static esp_err_t liveDataWsPreHandshake(httpd_req_t *req);
+    static esp_err_t logsWsPreHandshake(httpd_req_t *req);
     static esp_err_t logsGetHandler(httpd_req_t *req);
     static esp_err_t runtimeConfigGetHandler(httpd_req_t *req);
     static esp_err_t runtimeConfigPutHandler(httpd_req_t *req);
@@ -101,6 +112,7 @@ private:
     bool _softApAcquired;
     SemaphoreHandle_t _otaMutex;
     SemaphoreHandle_t _authMutex;
+    std::atomic_bool _otaExclusive;
     OtaStatus _otaStatus;
     AuthNonce _authNonces[AUTH_NONCE_COUNT];
 };

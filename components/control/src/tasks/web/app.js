@@ -1,6 +1,14 @@
 const pages = [...document.querySelectorAll('.page')];
 const navButtons = [...document.querySelectorAll('nav button')];
+const protectedNavButtons = [...document.querySelectorAll('nav button[data-auth="required"]')];
+const pageRoutes = {
+  info: '/', health: '/health', live: '/live-data', config: '/config', ota: '/ota',
+  tests: '/tests', logs: '/serial-monitor', files: '/files'
+};
+const routePages = Object.fromEntries(Object.entries(pageRoutes).map(([page, route]) => [route, page]));
 const token = document.getElementById('token');
+const authenticateButton = document.getElementById('authenticate');
+const authState = document.getElementById('authState');
 const progress = document.getElementById('progress');
 const otaStatus = document.getElementById('otaStatus');
 const actionStatus = document.getElementById('actionStatus');
@@ -15,6 +23,7 @@ const logOutput = document.getElementById('logOutput');
 const testLogOutput = document.getElementById('testLogOutput');
 const logFilter = document.getElementById('logFilter');
 const pauseLogsButton = document.getElementById('pauseLogs');
+const pauseTestLogsButton = document.getElementById('pauseTestLogs');
 
 let tests = [];
 let runtimeConfig = {};
@@ -25,10 +34,15 @@ let latestStatus = null;
 let sdkconfigText = null;
 let sdkconfigLoading = false;
 let logsPaused = false;
+let testLogsPaused = false;
+let closeTestLogWhenFinished = false;
 let otaUploadActive = false;
 let lastLogSeq = 0;
 let logLines = [];
+let testLogLines = [];
+let testLogVisible = false;
 let authQueue = Promise.resolve();
+let isAuthenticated = false;
 const pollBusy = {
   status: false,
   live: false,
@@ -43,6 +57,16 @@ let targetAttitudeQuaternion = { w: 1, x: 0, y: 0, z: 0 };
 let displayedAttitudeQuaternion = { w: 1, x: 0, y: 0, z: 0 };
 let targetAttitudeAcceleration = [0, 0, 0];
 let displayedAttitudeAcceleration = [0, 0, 0];
+let liveSocket = null;
+let liveReconnectTimer = null;
+let liveReconnectDelayMs = 1500;
+let logSocket = null;
+let logReconnectTimer = null;
+let logReconnectDelayMs = 1500;
+const WS_RECONNECT_MAX_MS = 10000;
+const nextReconnectDelay = delay => Math.min(delay * 2, WS_RECONNECT_MAX_MS);
+console.assert([1500, 3000, 6000, 10000].map(nextReconnectDelay).join() === '3000,6000,10000,10000',
+  'WebSocket reconnect backoff check failed');
 const DEFAULT_ATTITUDE_MOUNTING = { x: '-x', y: '-y', z: '+z' };
 let attitudeMounting = loadAttitudeMounting();
 let attitudeMountingDraft = { ...attitudeMounting };
@@ -51,6 +75,20 @@ token.value = localStorage.getItem('atlas_ground_token') || '';
 
 function saveToken() {
   localStorage.setItem('atlas_ground_token', token.value.trim());
+}
+
+function setAuthState(authenticated, message = '') {
+  isAuthenticated = authenticated;
+  document.body.classList.toggle('authenticated', authenticated);
+  authState.className = `auth-state ${authenticated ? 'operator' : 'guest'}`;
+  authState.textContent = message || (authenticated ? 'OPERATOR · controls unlocked' : 'VIEWER · monitoring only');
+  authenticateButton.textContent = authenticated ? 'Lock Controls' : 'Unlock Controls';
+  protectedNavButtons.forEach(button => { button.disabled = !authenticated; });
+  if (!authenticated) {
+    const current = pages.find(page => !page.classList.contains('hidden'));
+    if (current && protectedNavButtons.some(button => button.dataset.page === current.id)) show('info');
+  }
+  if (latestStatus) updateFsmBar(latestStatus);
 }
 
 function bytesToHex(bytes) {
@@ -188,14 +226,40 @@ async function signedHeaders(path, method, bodySha256, extra = {}) {
   return enqueueAuth(() => buildSignedHeaders(path, method, bodySha256, extra));
 }
 
+async function authenticateOperator() {
+  authState.textContent = 'AUTHENTICATING…';
+  try {
+    const res = await authFetch('/api/config/schema');
+    if (!res.ok) throw new Error('Authentication failed');
+    setAuthState(true);
+  } catch (err) {
+    setAuthState(false, `VIEWER · ${err.message || 'authentication failed'}`);
+  }
+}
+
 async function authFetch(path, options = {}) {
   return enqueueAuth(async () => {
     const method = (options.method || 'GET').toUpperCase();
     const body = options.body || '';
     const bodySha256 = await sha256Hex(body);
-    const signed = await buildSignedHeaders(path, method, bodySha256, options.headers || {});
-    return fetch(path, { ...options, method, headers: signed, cache: 'no-store' });
+    const headers = await buildSignedHeaders(path, method, bodySha256, options.headers || {});
+    const res = await fetch(path, { ...options, method, headers, cache: 'no-store' });
+    if (res.status === 401) setAuthState(false, 'VIEWER · authentication failed');
+    return res;
   });
+}
+
+async function publicApi(path) {
+  try {
+    const res = await fetch(path, { cache: 'no-store' });
+    const text = await res.text();
+    let body;
+    try { body = JSON.parse(text); } catch { body = { ok: res.ok, text }; }
+    if (!res.ok) body.ok = false;
+    return body;
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
 }
 
 async function api(path, options = {}) {
@@ -211,14 +275,10 @@ async function api(path, options = {}) {
   }
 }
 
-async function apiText(path, options = {}) {
-  const res = await authFetch(path, options);
+async function publicText(path) {
+  const res = await fetch(path, { cache: 'no-store' });
   const text = await res.text();
-
-  if (!res.ok) {
-    throw new Error(text || `HTTP ${res.status}`);
-  }
-
+  if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
   return text;
 }
 
@@ -247,16 +307,32 @@ function showActionStatus(value) {
   actionStatus.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
 
-function show(page) {
+function show(page, updateHistory = true) {
+  const targetButton = navButtons.find(button => button.dataset.page === page);
+  if (targetButton && targetButton.dataset.auth === 'required' && !isAuthenticated) return false;
   pages.forEach(p => p.classList.toggle('hidden', p.id !== page));
   navButtons.forEach(b => b.classList.toggle('active', b.dataset.page === page));
+  const route = pageRoutes[page] || '/';
+  if (updateHistory && location.pathname !== route) history.pushState({ page }, '', route);
   if (page === 'tests' && tests.length === 0) loadTests();
   if (page === 'health') loadHealth();
   if (page === 'config') loadConfig();
   if (page === 'info') loadInfo();
-  if (page === 'live') loadLive();
+  if (page === 'live') {
+    disconnectLogSocket(() => {
+      if (!document.getElementById('live').classList.contains('hidden')) connectLiveSocket();
+    });
+    if (!liveSocket || liveSocket.readyState !== WebSocket.OPEN) loadLive();
+  } else if (page === 'logs' || page === 'tests') {
+    disconnectLiveSocket(() => {
+      if (logStreamVisible()) connectLogSocket();
+    });
+  } else {
+    disconnectLiveSocket();
+    disconnectLogSocket();
+  }
   if (page === 'ota') refreshOta();
-  if (page === 'logs') loadLogs();
+  return true;
 }
 
 function runPoll(name, visible, work) {
@@ -325,7 +401,7 @@ function updateFsmBar(status) {
     simulationWarning.classList.add('hidden');
   }
 
-  if (state === 'GROUND_SERVICES') {
+  if (state === 'GROUND_SERVICES' && isAuthenticated) {
     fsmAdvance.textContent = 'Go To Ready For Launch';
     fsmAdvance.classList.remove('hidden');
     fsmAdvance.classList.add('danger-action');
@@ -341,7 +417,7 @@ async function pollStatus() {
   pollBusy.status = true;
   let s;
   try {
-    s = await api('/api/status');
+    s = await publicApi('/api/status');
   } finally {
     pollBusy.status = false;
   }
@@ -355,8 +431,8 @@ async function pollStatus() {
 
 async function loadInfo() {
   const [s, checklist] = await Promise.all([
-    api('/api/status'),
-    api('/api/prelaunch/checklist')
+    publicApi('/api/status'),
+    publicApi('/api/prelaunch/checklist')
   ]);
   if (!s.ok) {
     document.getElementById('info').innerHTML = panel('Info', `<p class="bad">Unauthorized or unavailable.</p><pre>${esc(JSON.stringify(s, null, 2))}</pre>`);
@@ -454,16 +530,33 @@ function healthItem(name, item, detail) {
 }
 
 async function loadHealth() {
-  const h = await api('/api/health');
+  const h = await publicApi('/api/health');
   if (!h.ok) {
     document.getElementById('healthContent').innerHTML = panel('System Health', '<p class="bad">Unauthorized or unavailable.</p>');
     return;
   }
   const sensors = h.sensors || {};
   const memory = h.memory || {};
+  const internal = memory.internal || {};
   const psram = memory.psram || {};
   const sd = (h.storage || {}).sd || {};
+  const ground = h.ground_services || {};
+  const http = ground.http || {};
+  const websocket = ground.websocket || {};
+  const broadcast = ground.broadcast || {};
   document.getElementById('healthContent').innerHTML = `
+    ${panel('Ground Services Resources', [
+      row('HTTP clients', `${http.clients || 0} / ${http.capacity || 0}`),
+      row('WebSockets', `${websocket.clients || 0} / ${websocket.capacity || 0} (${websocket.live_data || 0} live, ${websocket.logs || 0} logs)`),
+      row('WS failures / slow drops', `${websocket.send_failures || 0} / ${websocket.slow_client_drops || 0}`),
+      row('WS limit rejects', websocket.limit_rejects || 0),
+      row('Broadcast queue failures / coalesced', `${broadcast.queue_failures || 0} / ${broadcast.coalesced || 0}`),
+      row('Internal heap free / largest', `${fmtBytes(internal.free_bytes)} / ${fmtBytes(internal.largest_free_block_bytes)}`),
+      row('Minimum internal heap', fmtBytes(internal.minimum_free_bytes)),
+      row('Ground Services stack HWM', fmtBytes((ground.task || {}).stack_high_water_bytes)),
+      row('SoftAP stations', ground.softap_stations || 0),
+      row('OTA state', ground.ota_state || 'unknown')
+    ].join(''))}
     <div class="sensor-grid">
       ${healthItem('PSRAM', psram, [
         row('Total', fmtBytes(psram.total_bytes)),
@@ -493,7 +586,7 @@ async function loadSdkconfig() {
     sdkconfigLoading = true;
     if (box) box.textContent = 'Loading sdkconfig...';
 
-    sdkconfigText = await apiText('/api/config/sdkconfig');
+    sdkconfigText = await publicText('/api/info/sdkconfig');
 
     const newBox = document.getElementById('sdkconfigBox');
     if (newBox) newBox.textContent = sdkconfigText;
@@ -522,24 +615,40 @@ function scrollToBottom(output) {
   if (output) output.scrollTop = output.scrollHeight;
 }
 
+function logStreamVisible() {
+  return ['logs', 'tests'].some(id => !document.getElementById(id).classList.contains('hidden'));
+}
+
+function currentLogOutput() {
+  if (!document.getElementById('tests').classList.contains('hidden')) return testLogOutput;
+  if (!document.getElementById('logs').classList.contains('hidden')) return logOutput;
+  return null;
+}
+
 function renderLogs(output = logOutput, options = {}) {
   if (!output) return;
+  if (output === testLogOutput && testLogsPaused && !options.force) return;
   const shouldStick = options.forceBottom || isNearBottom(output);
-  output.textContent = filteredLogs(logLines.join('\n')) || 'No log lines captured yet.';
+  const text = (output === testLogOutput ? testLogLines.join('\n') : filteredLogs(logLines.join('\n')));
+  output.textContent = text || 'No log lines captured yet.';
   if (shouldStick) scrollToBottom(output);
 }
 
 async function loadLogs(options = {}) {
+  const output = options.output || logOutput;
+  if (logSocket && logSocket.readyState === WebSocket.OPEN) {
+    renderLogs(output, { force: options.force, forceBottom: options.forceBottom });
+    return;
+  }
   if (pollBusy.logs && !options.force) return;
   pollBusy.logs = true;
-  const output = options.output || logOutput;
   if (logsPaused && output === logOutput && !options.force) {
     pollBusy.logs = false;
     return;
   }
   try {
     const path = `/api/logs?since=${lastLogSeq}`;
-    const res = await authFetch(path);
+    const res = await fetch(path, { cache: 'no-store' });
     const text = await res.text();
     if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
 
@@ -549,16 +658,77 @@ async function loadLogs(options = {}) {
     const newLines = text.split('\n').filter(line => line.length > 0);
     if (newLines.length > 0) {
       logLines.push(...newLines);
+      if (testLogVisible) testLogLines.push(...newLines);
       if (logLines.length > MAX_CLIENT_LOG_LINES) {
         logLines = logLines.slice(logLines.length - MAX_CLIENT_LOG_LINES);
       }
+      if (testLogLines.length > MAX_CLIENT_LOG_LINES) testLogLines = testLogLines.slice(-MAX_CLIENT_LOG_LINES);
     }
-    renderLogs(output, { forceBottom: options.forceBottom });
+    renderLogs(output, { force: options.force, forceBottom: options.forceBottom });
   } catch (err) {
     output.textContent = err.message || String(err);
   } finally {
     pollBusy.logs = false;
   }
+}
+
+function parseLogFrame(data) {
+  const split = data.indexOf('\n');
+  const latest = Number(data.slice(0, split));
+  return split >= 0 && Number.isFinite(latest) ? { latest, text: data.slice(split + 1) } : null;
+}
+
+console.assert(parseLogFrame('42\nline\n').latest === 42, 'Log WebSocket frame parser check failed');
+
+function connectLogSocket() {
+  if (logSocket && logSocket.readyState <= WebSocket.OPEN) return;
+  clearTimeout(logReconnectTimer);
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const socket = new WebSocket(`${protocol}//${location.host}/ws/logs?since=${lastLogSeq}`);
+  logSocket = socket;
+  socket.onopen = () => {
+    if (socket !== logSocket) return;
+    logReconnectDelayMs = 1500;
+    const output = currentLogOutput();
+    if (output && (output !== logOutput || !logsPaused)) renderLogs(output);
+  };
+  socket.onmessage = event => {
+    if (socket !== logSocket) return;
+    const frame = parseLogFrame(event.data);
+    if (!frame || frame.latest <= lastLogSeq) return;
+    lastLogSeq = frame.latest;
+    const newLines = frame.text.split('\n').filter(line => line.length > 0);
+    logLines.push(...newLines);
+    if (testLogVisible) testLogLines.push(...newLines);
+    if (logLines.length > MAX_CLIENT_LOG_LINES) logLines = logLines.slice(-MAX_CLIENT_LOG_LINES);
+    if (testLogLines.length > MAX_CLIENT_LOG_LINES) testLogLines = testLogLines.slice(-MAX_CLIENT_LOG_LINES);
+    const output = currentLogOutput();
+    if (output && (output !== logOutput || !logsPaused)) renderLogs(output);
+  };
+  socket.onclose = () => {
+    if (socket !== logSocket) return;
+    logSocket = null;
+    if (logStreamVisible()) {
+      const delay = logReconnectDelayMs;
+      logReconnectDelayMs = nextReconnectDelay(logReconnectDelayMs);
+      logReconnectTimer = setTimeout(connectLogSocket, delay);
+    }
+  };
+  socket.onerror = () => socket.close();
+}
+
+function disconnectLogSocket(onClosed) {
+  clearTimeout(logReconnectTimer);
+  logReconnectTimer = null;
+  const socket = logSocket;
+  logSocket = null;
+  if (!socket) {
+    if (onClosed) onClosed();
+    return;
+  }
+  if (onClosed) socket.addEventListener('close', onClosed, { once: true });
+  if (socket.readyState < WebSocket.CLOSING) socket.close();
+  else if (socket.readyState === WebSocket.CLOSED && onClosed) onClosed();
 }
 
 function clearLogsView() {
@@ -847,10 +1017,9 @@ console.assert(!validAttitudeMounting({ x: '+x', y: '+y', z: '-z' }), 'Left-hand
 console.assert(bodyToSensor([1, 2, 3], DEFAULT_ATTITUDE_MOUNTING).join(',') === '-1,-2,3', 'Body-to-sensor axis mapping check failed');
 requestAnimationFrame(animateAttitude);
 
-async function loadLive() {
-  const s = await api('/api/live-data');
+function renderLive(s) {
   if (!s.ok) {
-    document.getElementById('liveContent').innerHTML = panel('Live Data', `<p class="bad">Unauthorized or unavailable.</p>`);
+    document.getElementById('liveContent').innerHTML = panel('Live Data', `<p class="bad">Live data unavailable.</p>`);
     return;
   }
   updateFsmBar({ ...(latestStatus || {}), fsm_state: s.fsm_state || 'UNKNOWN' });
@@ -868,8 +1037,6 @@ async function loadLive() {
   const linearAcceleration = imu.linear_acceleration_m_s2 || {};
   const gravity = imu.gravity_m_s2 || {};
   const magnetometer = imu.magnetometer_ut || {};
-  targetAttitudeQuaternion = imu.quaternion || targetAttitudeQuaternion;
-  targetAttitudeAcceleration = [Number(acceleration.x) || 0, Number(acceleration.y) || 0, Number(acceleration.z) || 0];
   addLiveHistorySample({
     attitudeX: Number(orientation.x), attitudeY: Number(orientation.y), attitudeZ: Number(orientation.z),
     imuAx: Number(acceleration.x), imuAy: Number(acceleration.y), imuAz: Number(acceleration.z),
@@ -935,10 +1102,74 @@ async function loadLive() {
     </div>`;
 }
 
+function ingestLive(s) {
+  if (s && s.ok) {
+    const imu = ((s.sensors || {}).imu || {});
+    const acceleration = imu.acceleration_m_s2 || {};
+    targetAttitudeQuaternion = imu.quaternion || targetAttitudeQuaternion;
+    targetAttitudeAcceleration = [Number(acceleration.x) || 0, Number(acceleration.y) || 0, Number(acceleration.z) || 0];
+  }
+  if (!document.getElementById('live').classList.contains('hidden')) renderLive(s);
+}
+
+async function loadLive() {
+  try {
+    const response = await fetch('/api/live-data', { cache: 'no-store' });
+    ingestLive(await response.json());
+  } catch (_) {
+    ingestLive({ ok: false });
+  }
+}
+
+function connectLiveSocket() {
+  if (liveSocket && liveSocket.readyState <= WebSocket.OPEN) return;
+  clearTimeout(liveReconnectTimer);
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const socket = new WebSocket(`${protocol}//${location.host}/ws/live-data`);
+  liveSocket = socket;
+  socket.onopen = () => {
+    if (socket === liveSocket) liveReconnectDelayMs = 1500;
+  };
+  socket.onmessage = event => {
+    if (socket !== liveSocket || document.getElementById('live').classList.contains('hidden')) return;
+    try { ingestLive(JSON.parse(event.data)); } catch (_) {}
+  };
+  socket.onclose = () => {
+    if (socket !== liveSocket) return;
+    liveSocket = null;
+    if (!document.getElementById('live').classList.contains('hidden')) {
+      const delay = liveReconnectDelayMs;
+      liveReconnectDelayMs = nextReconnectDelay(liveReconnectDelayMs);
+      liveReconnectTimer = setTimeout(connectLiveSocket, delay);
+    }
+  };
+  socket.onerror = () => socket.close();
+}
+
+function disconnectLiveSocket(onClosed) {
+  clearTimeout(liveReconnectTimer);
+  liveReconnectTimer = null;
+  const socket = liveSocket;
+  liveSocket = null;
+  if (!socket) {
+    if (onClosed) onClosed();
+    return;
+  }
+  if (onClosed) socket.addEventListener('close', onClosed, { once: true });
+  if (socket.readyState < WebSocket.CLOSING) socket.close();
+  else if (socket.readyState === WebSocket.CLOSED && onClosed) onClosed();
+}
+
 async function refreshOta() {
   const s = await api('/api/ota/status');
   progress.value = s.progress || 0;
-  otaStatus.textContent = JSON.stringify(s, null, 2);
+  if (s.state === 'ready_to_reboot') {
+    otaStatus.textContent = `Firmware validated — ready to reboot\n${JSON.stringify(s, null, 2)}`;
+  } else if (s.state === 'failed' || s.ok === false) {
+    otaStatus.textContent = `OTA failed\n${JSON.stringify(s, null, 2)}`;
+  } else {
+    otaStatus.textContent = JSON.stringify(s, null, 2);
+  }
 }
 
 function configInput(key, value) {
@@ -1084,8 +1315,15 @@ async function refreshTests() {
   document.querySelectorAll('[data-test-verdict]').forEach(button => {
     button.disabled = !s.waiting_for_verdict;
   });
+  if (closeTestLogWhenFinished && !s.running && !s.waiting_for_verdict) {
+    closeTestLogWhenFinished = false;
+    testLogVisible = false;
+    testLogsPaused = false;
+    pauseTestLogsButton.textContent = 'Pause';
+  }
+  if (s.running || s.waiting_for_verdict) testLogVisible = true;
   const testLogPanel = document.getElementById('testLogPanel');
-  const showTestLogs = s.running || s.waiting_for_verdict;
+  const showTestLogs = testLogVisible || s.running || s.waiting_for_verdict;
   const testLogWasHidden = testLogPanel.classList.contains('hidden');
   testLogPanel.classList.toggle('hidden', !showTestLogs);
   if (showTestLogs) loadLogs({ output: testLogOutput, forceBottom: testLogWasHidden });
@@ -1096,6 +1334,15 @@ async function startTest(event) {
   const id = Number(button.dataset.test);
   const confirm = button.dataset.confirm;
   if (confirm && window.prompt(`Type ${confirm} to run this test`) !== confirm) return;
+  testLogLines = [];
+  testLogVisible = true;
+  testLogsPaused = false;
+  closeTestLogWhenFinished = false;
+  pauseTestLogsButton.textContent = 'Pause';
+  const testConsole = document.querySelector('.test-console');
+  document.getElementById('testLogPanel').classList.remove('hidden');
+  renderLogs(testLogOutput, { force: true, forceBottom: true });
+  testConsole.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const s = await api('/api/tests/start', {
     method: 'POST',
     headers: confirm ? { 'X-Confirm': confirm } : {},
@@ -1115,6 +1362,7 @@ async function sendVerdict(verdict) {
     headers: headersExtra,
     body: JSON.stringify({ verdict })
   });
+  if (s.ok && verdict === 'passed') closeTestLogWhenFinished = true;
   document.getElementById('testStatus').textContent = JSON.stringify(s, null, 2);
   refreshTests();
 }
@@ -1146,13 +1394,24 @@ async function uploadFirmware() {
   xhr.open('POST', '/api/ota/upload', true);
   Object.entries(signed).forEach(([key, value]) => xhr.setRequestHeader(key, value));
   xhr.upload.onprogress = event => {
-    if (event.lengthComputable) progress.value = Math.round((event.loaded / event.total) * 100);
+    if (!event.lengthComputable) return;
+    const percent = Math.round((event.loaded / event.total) * 100);
+    progress.value = percent;
+    otaStatus.textContent = percent < 100
+      ? `Uploading firmware... ${percent}%`
+      : 'Upload complete — validating firmware...';
   };
+  xhr.upload.onload = () => { otaStatus.textContent = 'Upload complete — validating firmware...'; };
   xhr.onload = () => {
     otaUploadActive = false;
-    try { otaStatus.textContent = JSON.stringify(JSON.parse(xhr.responseText), null, 2); }
-    catch { otaStatus.textContent = xhr.responseText; }
-    refreshOta();
+    try {
+      const result = JSON.parse(xhr.responseText);
+      otaStatus.textContent = xhr.status >= 200 && xhr.status < 300 && result.ok
+        ? `Firmware validated — ready to reboot\n${JSON.stringify(result, null, 2)}`
+        : `OTA failed\n${JSON.stringify(result, null, 2)}`;
+    } catch {
+      otaStatus.textContent = `OTA failed\n${xhr.responseText}`;
+    }
   };
   xhr.onerror = () => {
     otaUploadActive = false;
@@ -1176,16 +1435,7 @@ async function advanceFsm() {
   let checklist = await api('/api/prelaunch/checklist');
   if (!checklist.ok) {
     const summary = checklistSummary(checklist);
-    const prompt = `Pre-launch checklist is not complete:\n\n${summary}\n\nType READY_FOR_LAUNCH to manually override these checklist blockers and lock the flight configuration.`;
     showActionStatus(`Pre-launch checklist is not complete:\n${summary}`);
-    if (window.prompt(prompt) !== 'READY_FOR_LAUNCH') return;
-    const override = await api('/api/fsm/ready-for-launch', {
-      method: 'POST',
-      headers: { 'X-Confirm': 'READY_FOR_LAUNCH' },
-      body: JSON.stringify({ override: 'READY_FOR_LAUNCH' })
-    });
-    showActionStatus(override);
-    loadInfo();
     return;
   }
   const prompt = 'This will lock the flight configuration.\nAfter this point, mission parameters cannot be edited until the allowed recovery/reset path.\nConfirm that the pre-launch checklist is complete.\n\nType READY_FOR_LAUNCH to lock and arm.';
@@ -1200,8 +1450,24 @@ async function advanceFsm() {
 }
 
 navButtons.forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
-token.addEventListener('input', saveToken);
-token.addEventListener('change', () => { loadInfo(); loadLive(); loadConfig(); refreshOta(); loadTests(); });
+window.addEventListener('popstate', () => {
+  const page = routePages[location.pathname] || 'info';
+  if (!show(page, false)) show('info', false);
+});
+token.addEventListener('input', () => {
+  saveToken();
+  setAuthState(false);
+});
+authenticateButton.addEventListener('click', () => {
+  if (isAuthenticated) {
+    setAuthState(false);
+  } else {
+    authenticateOperator();
+  }
+});
+token.addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !isAuthenticated) authenticateOperator();
+});
 firmware.addEventListener('change', () => {
   selectedFile = firmware.files[0] || null;
   fileName.textContent = selectedFile ? `${selectedFile.name} (${fmtBytes(selectedFile.size)})` : 'No file selected';
@@ -1230,7 +1496,6 @@ document.getElementById('reboot').addEventListener('click', async () => {
 fsmAdvance.addEventListener('click', advanceFsm);
 document.getElementById('testPassed').addEventListener('click', () => sendVerdict('passed'));
 document.getElementById('testRetry').addEventListener('click', () => sendVerdict('retry'));
-document.getElementById('testExit').addEventListener('click', () => sendVerdict('exit'));
 document.getElementById('testReboot').addEventListener('click', () => {
   if (window.prompt('Type REBOOT_FROM_TEST to reboot') === 'REBOOT_FROM_TEST') sendVerdict('reboot');
 });
@@ -1246,9 +1511,6 @@ document.addEventListener('keydown', event => {
   } else if (key === 'r' && !document.getElementById('testRetry').disabled) {
     event.preventDefault();
     sendVerdict('retry');
-  } else if (key === 'e' && !document.getElementById('testExit').disabled) {
-    event.preventDefault();
-    sendVerdict('exit');
   }
 });
 document.getElementById('saveConfig').addEventListener('click', saveConfig);
@@ -1272,10 +1534,15 @@ document.addEventListener('click', event => {
   if (status) status.textContent = 'Saved in this browser.';
 });
 
-setInterval(() => runPoll('live', !otaUploadActive && !document.getElementById('live').classList.contains('hidden'), loadLive), 250);
+setInterval(() => runPoll('live', !otaUploadActive && !document.getElementById('live').classList.contains('hidden') && (!liveSocket || liveSocket.readyState !== WebSocket.OPEN), loadLive), 1000);
 setInterval(() => runPoll('ota', !otaUploadActive && !document.getElementById('ota').classList.contains('hidden'), refreshOta), 2000);
 setInterval(() => runPoll('tests', !otaUploadActive && !document.getElementById('tests').classList.contains('hidden'), refreshTests), 1500);
-setInterval(() => { if (!otaUploadActive && !document.getElementById('logs').classList.contains('hidden')) loadLogs(); }, 1500);
+setInterval(() => {
+  if (!otaUploadActive && logStreamVisible() &&
+      (!logSocket || logSocket.readyState > WebSocket.OPEN)) {
+    loadLogs({ output: currentLogOutput() });
+  }
+}, 1500);
 setInterval(pollStatus, 5000);
 document.getElementById('refreshLogs').addEventListener('click', loadLogs);
 pauseLogsButton.addEventListener('click', () => {
@@ -1287,6 +1554,18 @@ document.getElementById('clearLogs').addEventListener('click', clearLogsView);
 document.getElementById('copyLogs').addEventListener('click', () => copyTextFrom(logOutput));
 document.getElementById('scrollLogsBottom').addEventListener('click', () => { scrollToBottom(logOutput); });
 document.getElementById('refreshTestLogs').addEventListener('click', () => loadLogs({ output: testLogOutput, force: true, forceBottom: true }));
+pauseTestLogsButton.addEventListener('click', () => {
+  testLogsPaused = !testLogsPaused;
+  pauseTestLogsButton.textContent = testLogsPaused ? 'Resume' : 'Pause';
+  if (!testLogsPaused) renderLogs(testLogOutput, { force: true, forceBottom: true });
+});
+document.getElementById('clearTestLogs').addEventListener('click', () => {
+  testLogLines = [];
+  renderLogs(testLogOutput, { force: true, forceBottom: true });
+});
 document.getElementById('copyTestLogs').addEventListener('click', () => copyTextFrom(testLogOutput));
 logFilter.addEventListener('input', () => renderLogs(logOutput));
-show('info');
+setAuthState(false);
+let initialPage = routePages[location.pathname] || 'info';
+if (!show(initialPage, false)) initialPage = 'info';
+history.replaceState({ page: initialPage }, '', pageRoutes[initialPage]);

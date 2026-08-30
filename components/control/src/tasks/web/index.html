@@ -20,19 +20,21 @@
         <p>Ground Services</p>
       </div>
     </div>
-    <label class="token-box">
-      <span>HMAC Shared Secret</span>
+    <div class="token-box">
+      <label for="token">Operator authentication</label>
       <input id="token" type="password" placeholder="Ground-services secret">
-    </label>
+      <button id="authenticate" type="button">Unlock Controls</button>
+      <small id="authState" class="auth-state guest">VIEWER · monitoring only</small>
+    </div>
     <nav>
       <button data-page="info" class="active">Info</button>
       <button data-page="health">Health</button>
       <button data-page="live">Live Data</button>
-      <button data-page="config">Config</button>
-      <button data-page="ota">OTA</button>
-      <button data-page="tests">Tests</button>
+      <button data-page="config" data-auth="required">Config</button>
+      <button data-page="ota" data-auth="required">OTA</button>
+      <button data-page="tests" data-auth="required">Tests</button>
       <button data-page="logs">Serial Monitor</button>
-      <button data-page="files">Files</button>
+      <button data-page="files" data-auth="required">Files</button>
     </nav>
   </aside>
 
@@ -82,7 +84,7 @@
       <section id="ota" class="page hidden">
         <div class="section-head">
           <h2>OTA Update</h2>
-          <button id="reboot">Reboot To Uploaded Firmware</button>
+          <button id="reboot" class="warning-action">Reboot To Uploaded Firmware</button>
         </div>
         <div id="drop" class="drop-zone">
           <input id="firmware" type="file" accept=".bin,application/octet-stream">
@@ -108,6 +110,8 @@
           <div id="testLogPanel" class="test-log-panel hidden">
             <div class="actions">
               <button id="refreshTestLogs">Refresh</button>
+              <button id="pauseTestLogs">Pause</button>
+              <button id="clearTestLogs">Clear</button>
               <button id="copyTestLogs">Copy</button>
             </div>
             <pre id="testLogOutput"></pre>
@@ -115,7 +119,6 @@
           <div class="test-verdict-actions">
             <button id="testPassed" class="verdict-pass" data-test-verdict disabled>Passed</button>
             <button id="testRetry" data-test-verdict disabled>Retry</button>
-            <button id="testExit" data-test-verdict disabled>Exit</button>
             <button id="testReboot" class="verdict-reboot" data-test-verdict disabled>Reboot</button>
           </div>
         </div>
@@ -123,7 +126,7 @@
       </section>
 
       <section id="logs" class="page hidden">
-        <div class="section-head">
+        <div class="section-head serial-monitor-head">
           <h2>Serial Monitor</h2>
           <div class="actions">
             <button id="refreshLogs">Refresh</button>

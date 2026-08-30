@@ -714,7 +714,9 @@ esp_err_t runtime_config_validation_json(char *out, size_t out_size)
 esp_err_t runtime_config_lock_for_flight(char *reason, size_t reason_size)
 {
     if (!s_loaded) return validation_fail(reason, reason_size, "runtime config is not loaded");
-    RuntimeConfig locked = s_active_config;
+    RuntimeConfig locked;
+    if (runtime_config_get(&locked) != ESP_OK) return validation_fail(reason, reason_size, "runtime config is not loaded");
+    if (locked.config_locked) return validation_fail(reason, reason_size, "runtime config is already locked");
 
     esp_err_t err = runtime_config_validate(&locked, reason, reason_size);
     if (err != ESP_OK) return err;
