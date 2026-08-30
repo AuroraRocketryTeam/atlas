@@ -69,17 +69,9 @@ RocketModel::~RocketModel() {
 void RocketModel::reset() {
     _cmd.reset();
 
-    if (_isRising) {
-        _isRising = false;
-    }
-
-    if (_heightGainSpeed) {
-        _heightGainSpeed = 0.0f;
-    }
-
-    if (_currentHeight) {
-        _currentHeight = 0.0f;
-    }
+    _isRising.store(false, std::memory_order_relaxed);
+    _heightGainSpeed.store(0.0f, std::memory_order_relaxed);
+    _currentHeight.store(0.0f, std::memory_order_relaxed);
 
 #if CONFIG_AURORA_HIL_SUPPORT
     _reset_simulation = false;
@@ -368,27 +360,27 @@ bool RocketModel::setSimulatedGPSData(GPSData data) {
 }
 
 bool RocketModel::getIsRising() {
-    return _isRising;
+    return _isRising.load(std::memory_order_relaxed);
 }
 
 void RocketModel::setIsRising(bool isRising) {
-    _isRising = isRising;
+    _isRising.store(isRising, std::memory_order_relaxed);
 }
 
 float RocketModel::getHeightGainSpeed() {
-    return _heightGainSpeed;
+    return _heightGainSpeed.load(std::memory_order_relaxed);
 }
 
 void RocketModel::setHeightGainSpeed(float heightGainSpeed) {
-    _heightGainSpeed = heightGainSpeed;
+    _heightGainSpeed.store(heightGainSpeed, std::memory_order_relaxed);
 }
 
 float RocketModel::getCurrentHeight() {
-    return _currentHeight;
+    return _currentHeight.load(std::memory_order_relaxed);
 }
 
 void RocketModel::setCurrentHeight(float height) {
-    _currentHeight = height;
+    _currentHeight.store(height, std::memory_order_relaxed);
 }
 
 bool RocketModel::isStorageInitialized(uint32_t timeoutMs) const {

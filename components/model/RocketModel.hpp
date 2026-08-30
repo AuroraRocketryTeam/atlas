@@ -5,6 +5,7 @@
 #include <freertos/semphr.h>
 #include <Arduino.h>
 #include <memory>
+#include <atomic>
 #include <BNO055Sensor.hpp>
 #include <LIS3DHTRSensor.hpp>
 #include <MS561101BA03.hpp>
@@ -399,10 +400,10 @@ private:
     int _batteryAdc;
     float _batteryVoltage, _batteryPercentage;
 
-    // Flight state variables
-    bool _isRising;
-    float _heightGainSpeed;
-    float _currentHeight;
+    // Flight state variables (atomic to avoid caching issues)
+    std::atomic<bool> _isRising;
+    std::atomic<float> _heightGainSpeed;
+    std::atomic<float> _currentHeight;
 
     IMUData _bnoData;
     AccelerometerSensorData _lis3dhData;
