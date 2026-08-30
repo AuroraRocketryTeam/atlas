@@ -54,11 +54,7 @@
 #define LAUNCH_TO_BALLISTIC_THRESHOLD 4000 // Time threshold for transition from LAUNCH to BALLISTIC_FLIGHT if apogee is not detected
 #define LAUNCH_TO_APOGEE_THRESHOLD 6700 //24850 + 2150 = 27000, Time threshold for transition from LAUNCH to APOGEE if apogee is not detected but the rocket is no more rising
 
-/* ESP-NOW Telemetry Configuration */
-// MAC address of the peer receiver (ESP32 that will relay to LoRa)
-// Replace with your actual receiver MAC address
-#define ESPNOW_PEER_MAC { 0x34, 0xCD, 0xB0, 0x3C, 0x54, 0xB4 }
-#define ESPNOW_CHANNEL 1 // WiFi channel (1-13)
+/* Telemetry Configuration */
 #define TELEMETRY_INTERVAL_MS 500
 #define TOUCHDOWN_ALTITUDE_THRESHOLD 15.0f // Altitude threshold for touchdown detection (in meters)
 
@@ -107,10 +103,6 @@
 
 #define GRAVITY 9.80665f
 
-
-
-// Telemetry configuration
-constexpr uint8_t RECEIVER_MAC_ADDRESS[] = { 0x34, 0xCD, 0xB0, 0x3D, 0x97, 0xFC };  // MAC dell'ESP32 ricevente: // 34:CD:B0:3D:97:FC
 
 
 enum class RecoveryMode

@@ -19,7 +19,6 @@ set(EXTRA_COMPONENT_DIRS
 
     # telemetry
     ${CMAKE_SOURCE_DIR}/components/telemetry/protocol
-    ${CMAKE_SOURCE_DIR}/components/telemetry/radio_espnow
     ${CMAKE_SOURCE_DIR}/components/telemetry/radio_lora
 
     # logger

@@ -16,18 +16,15 @@ float relAltitude_tele(float pressure, float pressureRef = 101325.0f,
 
 
 TelemetryTask::TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                             std::shared_ptr<EspNowTransmitter> espNowTransmitter,
                              uint32_t intervalMs,
                              IStateMachine* fsm)
     : BaseTask("TelemetryTask"),
       _rocketModel(rocketModel),
-      _transmitter(espNowTransmitter),
       _fsm(fsm),
       _transmitIntervalMs(intervalMs),
       _lastTransmitTime(0),
       _lastAckCommandId(0),
       _messagesCreated(0),
-      _packetsSent(0),
       _transmitErrors(0)
 {
     LOG_INFO("Telemetry", "Created with transmit interval: %lu ms", _transmitIntervalMs);
@@ -37,14 +34,14 @@ TelemetryTask::TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
 void TelemetryTask::onTaskStart()
 {
     LOG_INFO("Telemetry", "Task started with stack: %u bytes", config.stackSize);
-    LOG_INFO("Telemetry", "Transmitter: %s", _transmitter ? "OK" : "NULL");
+    LOG_INFO("Telemetry", "LoRa transmitter: %s", _loraTransmitter ? "OK" : "NULL");
     _lastTransmitTime = Utils::millis();
 }
 
 void TelemetryTask::onTaskStop()
 {
-    LOG_INFO("Telemetry", "Task stopped - Stats: messages=%lu, packets=%lu, errors=%lu",
-             _messagesCreated, _packetsSent, _transmitErrors);
+    LOG_INFO("Telemetry", "Task stopped - Stats: messages=%lu, errors=%lu",
+             _messagesCreated, _transmitErrors);
 }
 
 void TelemetryTask::taskFunction()
@@ -81,28 +78,18 @@ void TelemetryTask::taskFunction()
 
                 LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
 
-                // Transmit via ESP-NOW
-                if (transmitMessage(message))
-                {
-                    _messagesCreated++;
-                    LOG_EVERY_MS(5000, INFO, "Telemetry", "Packet %lu transmitted via ESP-NOW", _messagesCreated);
-                }
-                else
-                {
-                    _transmitErrors++;
-                    LOG_WARNING("Telemetry", "Failed to transmit packet via ESP-NOW (errors: %lu)", _transmitErrors);
-                }
-
                 // Transmit via LoRa
                 if (_loraTransmitter && running)
                 {
                     auto result = _loraTransmitter->transmit(message);
                     if (result.getCode() == E220_SUCCESS)
                     {
+                        _messagesCreated++;
                         LOG_EVERY_MS(5000, INFO, "Telemetry", "Packet %lu transmitted via LoRa", _messagesCreated);
                     }
                     else
                     {
+                        _transmitErrors++;
                         LOG_WARNING("Telemetry", "LoRa transmit failed: %s", result.getDescription().c_str());
                     }
                 }
@@ -116,13 +103,8 @@ void TelemetryTask::taskFunction()
         // Log stats periodically
         if (loopCount % 10 == 0 && loopCount > 0)
         {
-            uint32_t txSent, txFailed;
-            if (_transmitter)
-            {
-                _transmitter->getStats(txSent, txFailed);
-                LOG_INFO("Telemetry", "Stats: msgs=%lu, pkts=%lu, tx_ok=%lu, tx_fail=%lu, heap=%u",
-                         _messagesCreated, _packetsSent, txSent, txFailed, esp_get_free_heap_size());
-            }
+            LOG_INFO("Telemetry", "Stats: msgs=%lu, errors=%lu, heap=%u",
+                     _messagesCreated, _transmitErrors, esp_get_free_heap_size());
         }
 
         loopCount++;
@@ -216,52 +198,6 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
     return true;
 }
 
-bool TelemetryTask::transmitMessage(const std::vector<uint8_t> &message)
-{
-    if (!_transmitter || message.empty())
-    {
-        return false;
-    }
-
-    // Divide message into packets
-    std::vector<Packet> packets = PacketManager::divideMessage(message.data(), message.size());
-
-    if (packets.empty())
-    {
-        LOG_ERROR("Telemetry", "Failed to divide message into packets");
-        return false;
-    }
-
-    LOG_DEBUG("Telemetry", "Transmitting %d packets", packets.size());
-
-    // Send each packet
-    bool allSuccess = true;
-    for (size_t i = 0; i < packets.size() && running; i++)
-    {
-        ResponseStatusContainer result = _transmitter->transmit(packets[i]);
-
-        if (result.getCode() == 0)
-        {
-            _packetsSent++;
-        }
-        else
-        {
-            LOG_WARNING("Telemetry", "Packet %d/%d failed: %s",
-                        i + 1, packets.size(), result.getDescription().c_str());
-            allSuccess = false;
-            // Continue sending remaining packets even if one fails
-        }
-
-        // Small delay between packets to avoid overwhelming receiver
-        if (i < packets.size() - 1 && running)
-        {
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-    }
-
-    return allSuccess;
-}
-
 void TelemetryTask::pollLoRaRx()
 {
     LOG_DEBUG("Telemetry", "Polling LoRa RX for commands");
@@ -297,9 +233,8 @@ void TelemetryTask::handleCommand(CommandId id)
     }
 }
 
-void TelemetryTask::getStats(uint32_t &messages, uint32_t &packets, uint32_t &errors) const
+void TelemetryTask::getStats(uint32_t &messages, uint32_t &errors) const
 {
     messages = _messagesCreated;
-    packets = _packetsSent;
     errors = _transmitErrors;
 }

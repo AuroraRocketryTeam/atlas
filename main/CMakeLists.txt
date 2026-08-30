@@ -29,7 +29,6 @@ idf_component_register(
         I2C
         SPI
         protocol
-        radio_espnow
         radio_lora
         tests
         # Third-party

@@ -2,11 +2,8 @@
 
 #include "BaseTask.hpp"
 #include <RocketModel.hpp>
-#include "EspNowTransmitter.hpp"
 #include "E220LoRaTransmitter.hpp"
 #include "SerialLogger.hpp"
-#include <Packet.hpp>
-#include <PacketManager.hpp>
 #include "IStateMachine.hpp"
 #include <memory>
 #include <cstdint>
@@ -18,7 +15,7 @@
  * @brief Binary telemetry packet structure for efficient transmission.
  *
  * This structure is tightly packed (no padding) for efficient transmission
- * over ESP-NOW and LoRa. Total size: 67 bytes.
+ * over LoRa. Total size: 67 bytes.
  *
  * All multi-byte values are little-endian (ESP32 native).
  */
@@ -63,10 +60,10 @@ struct TelemetryPacket
 #pragma pack(pop)
 
 /**
- * @brief Task that periodically collects sensor data and transmits it via ESP-NOW.
+ * @brief Task that periodically collects sensor data and transmits it via LoRa.
  *
  * This task reads from SharedSensorData, serializes it to binary format,
- * divides it into Packet chunks, and transmits them using EspNowTransmitter.
+ * and transmits it using E220LoRaTransmitter.
  *
  * Transmission rate is configurable via constructor.
  */
@@ -74,7 +71,6 @@ class TelemetryTask : public BaseTask
 {
 private:
     std::shared_ptr<RocketModel> _rocketModel;
-    std::shared_ptr<EspNowTransmitter> _transmitter;
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
     IStateMachine* _fsm;
 
@@ -85,20 +81,17 @@ private:
 
     // Statistics
     uint32_t _messagesCreated;
-    uint32_t _packetsSent;
     uint32_t _transmitErrors;
 
 public:
     /**
      * @brief Construct a new Telemetry Task.
      *
-     * @param sensorData Shared sensor data to read from.
-     * @param mutex Mutex protecting sensor data access.
-     * @param espNowTransmitter ESP-NOW transmitter instance.
+     * @param rocketModel Shared rocket model to read sensor data from.
      * @param intervalMs Interval between transmissions in milliseconds (default 1000ms = 1Hz).
+     * @param fsm State machine used to report the flight phase and dispatch ground commands.
      */
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                  std::shared_ptr<EspNowTransmitter> espNowTransmitter,
                   uint32_t intervalMs = 1000,
                   IStateMachine* fsm = nullptr);
 
@@ -106,10 +99,9 @@ public:
      * @brief Get transmission statistics.
      *
      * @param messages Output: number of messages created.
-     * @param packets Output: number of packets sent.
      * @param errors Output: number of transmission errors.
      */
-    void getStats(uint32_t &messages, uint32_t &packets, uint32_t &errors) const;
+    void getStats(uint32_t &messages, uint32_t &errors) const;
 
     /** @brief Set LoRa transmitter. Will be used only if present. */
     void setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter) { _loraTransmitter = transmitter; }
@@ -127,14 +119,6 @@ private:
      * @return true if data collection successful, false on mutex timeout or error.
      */
     bool collectSensorData(TelemetryPacket &packet);
-
-    /**
-     * @brief Transmit a message by dividing it into packets and sending them.
-     *
-     * @param message The message bytes to transmit.
-     * @return true if all packets sent successfully.
-     */
-    bool transmitMessage(const std::vector<uint8_t> &message);
 
     /**
      * @brief Poll the LoRa receiver for commands, automatically dispaches them.

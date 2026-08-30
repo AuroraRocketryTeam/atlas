@@ -9,13 +9,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// WiFi and communication
-#include <esp_now.h>
-#include <esp_wifi.h>
-#include <esp_event.h>
-#include <esp_netif.h>
 #include <esp_err.h>
-#include <nvs_flash.h>
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -220,73 +214,6 @@ void loopFlight()
     vTaskDelay(100 / portTICK_PERIOD_MS);
 }
 
-static bool initializeWifiStaForEspNow()
-{
-    static bool initialized = false;
-    if (initialized) {
-        return true;
-    }
-
-    // NVS init (required by Wi-Fi)
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ret = nvs_flash_erase();
-        if (ret != ESP_OK) {
-            LOG_ERROR("WiFi", "nvs_flash_erase failed: %s", esp_err_to_name(ret));
-            return false;
-        }
-        ret = nvs_flash_init();
-    }
-    if (ret != ESP_OK) {
-        LOG_ERROR("WiFi", "nvs_flash_init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    // init network stack and event loop
-    ret = esp_netif_init();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        LOG_ERROR("WiFi", "esp_netif_init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    ret = esp_event_loop_create_default();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        LOG_ERROR("WiFi", "esp_event_loop_create_default failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    (void)esp_netif_create_default_wifi_sta();
-
-    // init wifi drivers
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ret = esp_wifi_init(&cfg);
-    if (ret != ESP_OK && ret != ESP_ERR_WIFI_INIT_STATE) {
-        LOG_ERROR("WiFi", "esp_wifi_init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    ret = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (ret != ESP_OK) {
-        LOG_ERROR("WiFi", "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    ret = esp_wifi_start();
-    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_STOPPED) {
-        LOG_ERROR("WiFi", "esp_wifi_start failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    // disconnect wifi
-    ret = esp_wifi_disconnect();
-    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT && ret != ESP_ERR_WIFI_CONN) {
-        LOG_WARNING("WiFi", "esp_wifi_disconnect returned: %s", esp_err_to_name(ret));
-    }
-
-    initialized = true;
-    return true;
-}
-
 void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
                           std::shared_ptr<LIS3DHTRSensor>& accl,
                           std::shared_ptr<MS561101BA03>& baro1,
@@ -384,37 +311,6 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     else
     {
         LOG_ERROR("Init", "Failed to initialize external flash");
-    }
-
-    // Initializa ESP-NOW connection for telemetry
-    LOG_INFO("Init", "Initializing ESP-NOW for telemetry...");
-    if (initializeWifiStaForEspNow())
-    {
-        if (esp_now_init() == ESP_OK)
-        {
-            LOG_INFO("Init", "ESP-NOW initialized");
-            esp_now_peer_info_t peerInfo = {};
-            memcpy(peerInfo.peer_addr, RECEIVER_MAC_ADDRESS, 6);
-            peerInfo.channel = 0;
-            peerInfo.encrypt = false;
-
-            if (esp_now_add_peer(&peerInfo) == ESP_OK)
-            {
-                LOG_INFO("Init", "ESP-NOW peer added");
-            }
-            else
-            {
-                LOG_ERROR("Init", "Failed to add ESP-NOW peer");
-            }
-        }
-        else
-        {
-            LOG_ERROR("Init", "Failed to initialize ESP-NOW");
-        }
-    }
-    else
-    {
-        LOG_ERROR("Init", "Failed to initialize Wi-Fi");
     }
 
     LOG_INFO("Init", "Status indicators initialized");

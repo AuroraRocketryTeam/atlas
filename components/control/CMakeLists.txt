@@ -29,6 +29,5 @@ idf_component_register(
         MS561101BA03
         status
         protocol
-        radio_espnow
         radio_lora
 )

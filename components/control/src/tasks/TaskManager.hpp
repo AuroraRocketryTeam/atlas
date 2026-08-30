@@ -23,7 +23,6 @@
 
 #include "TelemetryTask.hpp"
 #include "AltitudeTask.hpp"
-#include <EspNowTransmitter.hpp>
 #include <E220LoRaTransmitter.hpp>
 
 /**
@@ -117,7 +116,6 @@ private:
 
     std::shared_ptr<SD> _sd;
     // Telemetry
-    std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
 
     IStateMachine* _fsm;
