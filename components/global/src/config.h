@@ -1,5 +1,6 @@
 #pragma once
 
+#include "sdkconfig.h"
 #include <cstdint>
 
 #define __DEBUG__
@@ -84,7 +85,7 @@
 // Larger = smoother but more lag (recommended: 3-7)
 // At 10Hz sampling: window=5 adds 50ms lag
 #define ALTITUDE_FILTER_WINDOW 11
-#define APOGEE_DETECTION_WINDOW_SIZE 35
+#define APOGEE_DETECTION_WINDOW_SIZE 25
 
 #define STATE_INDEX_ALTITUDE 0
 #define STATE_INDEX_VELOCITY 1
