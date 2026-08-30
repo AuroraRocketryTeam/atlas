@@ -12,8 +12,8 @@ void AltitudeTask::taskFunction()
 
     uint32_t lastTimestamp = 0;
     const RuntimeConfig &flightConfig = runtime_config_get_flight_snapshot();
-    
-        while (running)
+
+    while (running)
     {
         esp_task_wdt_reset();
         if(!running) break;
@@ -30,7 +30,7 @@ void AltitudeTask::taskFunction()
             continue;
         }
         
-const uint32_t sampleDeltaMs = (lastTimestamp == 0) ? 0U : (baroData.timestamp - lastTimestamp);
+        const uint32_t sampleDeltaMs = (lastTimestamp == 0) ? 0U : (baroData.timestamp - lastTimestamp);
         lastTimestamp = baroData.timestamp;
         float rawPressure = baroData.pressure;
 
@@ -38,7 +38,7 @@ const uint32_t sampleDeltaMs = (lastTimestamp == 0) ? 0U : (baroData.timestamp -
         // to a maximum plausible change based on physical limits of the 
         // atmosphere and the sampling rate (prevents spikes instability errors)
         if (_lastValidPressure < 0.0f) {
-_lastValidPressure = rawPressure;
+            _lastValidPressure = rawPressure;
         } else {
             float deltaP = rawPressure - _lastValidPressure;
             
@@ -48,7 +48,7 @@ _lastValidPressure = rawPressure;
             } else if (deltaP < -MAX_DELTA_P_PER_TICK) {
                 rawPressure = _lastValidPressure - MAX_DELTA_P_PER_TICK;
             }
-_lastValidPressure = rawPressure;
+            _lastValidPressure = rawPressure;
         }
         
         // Median Filter (removes isolated outliers)
@@ -84,7 +84,7 @@ _lastValidPressure = rawPressure;
 
         LOG_EVERY_MS(ALTITUDE_LOG_PERIOD_MS, INFO, "AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m",
                      currentAltitude, currentVelocity, _max_altitude_read);
-        
+
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
@@ -101,8 +101,23 @@ float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
     return (tempRef / TEMP_GRADIENT) * (1.0f - powf(pressure / pressureRef, N_INV));
 }
 
-void AltitudeTask::updateRisingTrend(float currentAltitude)
+void AltitudeTask::updateRisingTrend(float currentAltitude, uint32_t timestampMs)
 {
-    apogeeDetector.update(currentAltitude);   
-    _rocketModel->setIsRising(apogeeDetector.isRising());
+    apogeeDetector.update(currentAltitude, timestampMs);
+
+    _belowThresholdCount = apogeeDetector.isRising() ? 0 : (_belowThresholdCount + 1);
+    const bool confirmedDescending = _belowThresholdCount >= APOGEE_CONFIRM_SAMPLES;
+
+    _rocketModel->setIsRising(!confirmedDescending);
+}
+
+void AltitudeTask::onTaskStart()
+{
+    // Clear state left over from a previous run so a HIL/ground-test restart
+    // (no power cycle) doesn't inherit filter/detector state from the last flight.
+    pressureFilter.reset();
+    apogeeDetector.reset();
+    _lastValidPressure = -1.0f;
+    _max_altitude_read = -1000.0f;
+    LOG_INFO("AltitudeTask", "State reset for new run");
 }

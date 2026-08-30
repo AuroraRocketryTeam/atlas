@@ -133,7 +133,7 @@ public:
 
 private:
     std::array<float, WindowSize> _y_buffer;
-std::array<uint32_t, WindowSize> _t_buffer;
+    std::array<uint32_t, WindowSize> _t_buffer;
     size_t _head = 0;
     bool _is_full = false;
 
@@ -165,11 +165,18 @@ public:
     {
         stop();
     }
- 
+
+protected:
+    // Resets filter/detector state so a repeated run (like HIL) doesn't inherit state from a previous run.
+    void onTaskStart() override;
+
 private:
     std::shared_ptr<RocketModel> _rocketModel;
 
     float _max_altitude_read;
+
+    // Baseline for the slew rate limiter.
+    float _lastValidPressure = -1.0f;
     
     // RTOS-Safe Filters
     FixedMedianFilter<ALTITUDE_FILTER_WINDOW> pressureFilter;
@@ -180,7 +187,8 @@ private:
     // We could switch the -0.5 to something positive like 1.0/2.0 to try triggering 
     // it before the apogee, but we should be carefull at the end of the motor burnout, 
     // as there is a strong drag force (which should be covered by the RuntimeConfig apogee lockout)
-    OLSApogeeDetector<APOGEE_DETECTION_WINDOW_SIZE> apogeeDetector{50.0f, -0.5f};
+    static constexpr float APOGEE_TRIGGER_VELOCITY_MPS = -0.5f;
+    OLSApogeeDetector<APOGEE_DETECTION_WINDOW_SIZE> apogeeDetector{50.0f, APOGEE_TRIGGER_VELOCITY_MPS};
 
     // Atmospheric Constants
     static constexpr float TEMP_GRADIENT = 0.0065f; // [K/m]
@@ -192,7 +200,10 @@ private:
 
     // Maximum physically possible pressure change per 20ms tick.
     // 80 Pa ≈ 6.8 meters ≈ 340 m/s (Mach 1).
-    static constexpr float MAX_DELTA_P_PER_TICK = 80.0f; 
+    static constexpr float MAX_DELTA_P_PER_TICK = 80.0f;
+
+    static constexpr int APOGEE_CONFIRM_SAMPLES = 5;
+    int _belowThresholdCount = 0;
 
     /**
      * @brief Calculates altitude using the hypsometric formula.
@@ -201,7 +212,7 @@ private:
 
     /**
      * @brief Updates the trend buffer and evaluates if the rocket is still rising.
-* @param timestampMs Sensor sample timestamp, used to derive the detector's real sample spacing.
+     * @param timestampMs Sensor sample timestamp, used to derive the detector's real sample spacing.
      */
     void updateRisingTrend(float currentAltitude, uint32_t timestampMs);
 };

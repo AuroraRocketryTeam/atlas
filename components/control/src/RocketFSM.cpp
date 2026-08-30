@@ -855,8 +855,9 @@ void RocketFSM::checkTransitions()
     case RocketState::READY_FOR_LAUNCH:
         try {
             auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
+            const bool accelAboveThreshold = accMag > runtimeCfg.liftoff_accel_threshold_mps2;
 
-            if (accMag > runtimeCfg.liftoff_accel_threshold_mps2)
+            if (accelAboveThreshold)
             {
                 if (launchHighSince == 0)
                 {
@@ -885,28 +886,36 @@ void RocketFSM::checkTransitions()
         break;
 
     case RocketState::ACCELERATED_FLIGHT:
-        
-        if (Utils::millis() - _launchDetectionTime >= runtimeCfg.launch_to_ballistic_threshold_ms)
+    {
+        const uint32_t accelElapsed = Utils::millis() - _launchDetectionTime;
+
+        if (accelElapsed >= runtimeCfg.launch_to_ballistic_threshold_ms)
         {
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);
         }
         break;
+    }
 
     case RocketState::BALLISTIC_FLIGHT:
     {
         auto elapsed = Utils::millis() - _launchDetectionTime;
-        
+        const bool lockoutExpired = elapsed > runtimeCfg.apogee_lockout_ms;
+        const bool isRising       = _rocketModel->getIsRising();
+        const bool maxTimeReached = elapsed >= runtimeCfg.launch_to_apogee_threshold_ms;
+        const float verticalSpeed = _rocketModel->getHeightGainSpeed();
+        const float currentHeight = _rocketModel->getCurrentHeight();
+
         // Ignore all sensor apogee logic until the initial chaotic burn phase ends
-        if (elapsed > runtimeCfg.apogee_lockout_ms)
+        if (lockoutExpired)
         {
-            if (!_rocketModel->getIsRising() || (elapsed >= runtimeCfg.launch_to_apogee_threshold_ms))
+            if (!isRising || maxTimeReached)
             {
                 LOG_INFO("RocketFSM", "Apogee detected! Elapsed: %lu ms", elapsed);
                 sendEvent(FSMEvent::APOGEE_REACHED);
             }
         } 
         // If we somehow haven't hit the lockout but the max time elapsed, trigger anyway
-        else if (elapsed >= runtimeCfg.launch_to_apogee_threshold_ms)
+        else if (maxTimeReached)
         {
             LOG_WARNING("RocketFSM", "Apogee Lockout bypassed due to absolute max time limit!");
             sendEvent(FSMEvent::APOGEE_REACHED);
