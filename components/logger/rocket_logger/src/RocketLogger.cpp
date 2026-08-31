@@ -2,8 +2,9 @@
 #include <new>
 #include <cstdlib>
 #include <cstring>
-// TODO: Find alternative calls for heap
-#include <Arduino.h>
+
+// Every queue slot stores a full LogPayload variant in internal RAM.
+static constexpr size_t MAX_QUEUE_LENGTH = 200;
 
 RocketLogger::RocketLogger() {
     _logQueue = xQueueCreate(MAX_QUEUE_LENGTH, sizeof(LogPayload));

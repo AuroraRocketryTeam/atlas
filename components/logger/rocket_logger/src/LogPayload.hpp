@@ -12,8 +12,8 @@
  */
 struct SystemLog {
     char level[10] = {0};
-    char source[32] = {0};
-    char message[128] = {0};
+    char source[24] = {0};
+    char message[96] = {0};
 
     SystemLog() = default;
 
