@@ -16,7 +16,7 @@ static const char *TAG = "HilSimulationTask";
 
 static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
 static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 1000;
-
+static constexpr uint32_t HIL_SENSOR_LOG_PERIOD_MS = 200;
 /* ===================== PACKETS ===================== */
 
 typedef struct __attribute__((packed)) {
@@ -334,6 +334,7 @@ void HilSimulationTask::taskFunction() {
 
         LOG_INFO(TAG, "Client connected");
         uint32_t last_packet_log_ms = Utils::realMillis() - HIL_PACKET_LOG_PERIOD_MS;
+        uint32_t last_sensor_log_ms = Utils::realMillis() - HIL_SENSOR_LOG_PERIOD_MS;
 
         /* ================= CONNECTION LOOP ================= */
 
@@ -489,12 +490,13 @@ void HilSimulationTask::taskFunction() {
             _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
             _rocketModel->setSimulatedGPSData(gps);
 
-            if (_logger) {
+            if (_logger && now_ms - last_sensor_log_ms >= HIL_SENSOR_LOG_PERIOD_MS) {
                 _logger->logSensorData(bnoData);
                 _logger->logSensorData(lis3dhData);
                 _logger->logSensorData(ms1);
                 _logger->logSensorData(ms2);
                 _logger->logSensorData(gps);
+                last_sensor_log_ms = now_ms;
             }
 
             Utils::setSimMillis(sim_time_ms);

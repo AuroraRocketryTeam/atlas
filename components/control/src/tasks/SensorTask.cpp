@@ -1,6 +1,20 @@
 #include "SensorTask.hpp"
 #include "esp_task_wdt.h"
 
+// constants for sensor task loop and logging rates
+static constexpr uint32_t SENSOR_LOOP_RATE_HZ = 50;
+static constexpr uint32_t SENSOR_LOG_RATE_HZ = 25;
+static constexpr uint32_t SENSOR_LOOP_PERIOD_MS = 1000 / SENSOR_LOOP_RATE_HZ;
+static constexpr uint32_t SENSOR_LOG_INTERVAL_LOOPS = SENSOR_LOOP_RATE_HZ / SENSOR_LOG_RATE_HZ;
+
+// logging and health check thresholds
+static constexpr uint32_t HEALTH_CHECK_INTERVAL_LOOPS = SENSOR_LOOP_RATE_HZ * 5;
+static constexpr uint32_t MIN_STACK_REMAINING_BYTES = 512;
+static constexpr uint32_t LOW_HEAP_THRESHOLD_BYTES = 5 * 1024;
+
+static_assert(SENSOR_LOOP_RATE_HZ % SENSOR_LOG_RATE_HZ == 0,
+              "Sensor log rate must divide the sensor loop rate");
+
 SensorTask::SensorTask(std::shared_ptr<RocketModel> rocketModel,
                         std::shared_ptr<RocketLogger> logger)
     : BaseTask("SensorTask"), 
@@ -23,7 +37,11 @@ void SensorTask::onTaskStop()
 
 void SensorTask::taskFunction()
 {
-    uint32_t loopCount = 0;
+    uint32_t healthCheckCounter = 0;
+#ifndef CONFIG_AURORA_HIL_SIMULATION
+    uint32_t sensorLogCounter = 0;
+#endif
+    TickType_t lastWakeTime = xTaskGetTickCount();
 
     while (running)
     {
@@ -41,26 +59,27 @@ void SensorTask::taskFunction()
         
         if (!running) break;
 
-        // Log memory usage
-        if (loopCount % 250 == 0)
+        // FreeRTOS reports the minimum-ever remaining stack, not stack usage.
+        if (++healthCheckCounter >= HEALTH_CHECK_INTERVAL_LOOPS)
         {
-            uint32_t freeHeap = ESP.getFreeHeap();
-            LOG_INFO("Sensor", "L%lu: Stack HwM:%u, Heap=%u, Memory=%u",
-                          loopCount, uxTaskGetStackHighWaterMark(NULL), freeHeap,
-                          heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-                          
-            // Check for low memory condition
-            if (freeHeap < 50000) { // Warning threshold
-                LOG_WARNING("Sensor", "LOW MEMORY WARNING: Only %u bytes free heap remaining!", freeHeap);
+            healthCheckCounter = 0;
+            const uint32_t stackRemaining = uxTaskGetStackHighWaterMark(nullptr);
+            const uint32_t freeHeap = ESP.getFreeHeap();
+            if (stackRemaining < MIN_STACK_REMAINING_BYTES || freeHeap < LOW_HEAP_THRESHOLD_BYTES) {
+                LOG_WARNING("Sensor", "Resource warning: stack remaining=%u bytes, heap=%u bytes, largest block=%u bytes",
+                            static_cast<unsigned>(stackRemaining),
+                            static_cast<unsigned>(freeHeap),
+                            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
             }
         }
 
 #ifndef CONFIG_AURORA_HIL_SIMULATION
-        // Log sensor data every 3 loops if logger is available
-        if (logger)
+        // Record every second acquisition cycle: 25 Hz from the 50 Hz outer loop.
+        if (++sensorLogCounter >= SENSOR_LOG_INTERVAL_LOOPS)
         {
+            sensorLogCounter = 0;
             // Log sensor data through the model
-            if (rocketModel)
+            if (logger && rocketModel)
             {
                 IMUData outBnoData;
                 SensorReadStatus bnoStatus = rocketModel->getBNO055Data(outBnoData);
@@ -91,10 +110,7 @@ void SensorTask::taskFunction()
             // LOG_INFO("Sensor", "RocketLogger entries logged");
         }
 #endif
-
-        loopCount++;
         
-        // Shorter delay to exit faster (split into smaller chunks)
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(SENSOR_LOOP_PERIOD_MS));
     }
 }
