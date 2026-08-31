@@ -461,11 +461,11 @@ void HilSimulationTask::taskFunction() {
 
             ms1.timestamp = sim_time_ms;
             ms1.pressure = pkt.p;
-            ms1.temperature = pkt.t;
+            ms1.temperature = pkt.t - 273.15f;
             ms1.setSensorName("MS56_1_SIM");
             ms2.timestamp = sim_time_ms;
             ms2.pressure = pkt.p;
-            ms2.temperature = pkt.t;
+            ms2.temperature = pkt.t - 273.15f;
             ms2.setSensorName("MS56_2_SIM");
 
             gps.timestamp = sim_time_ms;
