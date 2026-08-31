@@ -2,6 +2,7 @@
 #include "protocol.hpp"
 
 #include <inttypes.h>
+#include <cmath>
 #include <cstring>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -25,12 +26,18 @@ typedef struct __attribute__((packed)) {
     float ax;               // acceleration x
     float ay;               // acceleration y
     float az;               // acceleration z
+    float qw;               // body-to-inertial attitude quaternion
+    float qx;
+    float qy;
+    float qz;
     float p;                // pressure
     float t;                // temperature
     float lat;              // latitude
     float lon;              // longitude
     float alt;              // altitude
 } sim_packet_t;
+
+static_assert(sizeof(sim_packet_t) == 60, "HIL simulator packet layout mismatch");
 
 /* ===================== SOCKET HELPERS ===================== */
 
@@ -426,6 +433,24 @@ void HilSimulationTask::taskFunction() {
             bnoData.acceleration_x = pkt.ax;
             bnoData.acceleration_y = pkt.ay;
             bnoData.acceleration_z = pkt.az;
+            bnoData.quaternion_w = pkt.qw;
+            bnoData.quaternion_x = pkt.qx;
+            bnoData.quaternion_y = pkt.qy;
+            bnoData.quaternion_z = pkt.qz;
+
+            constexpr float RADIANS_TO_DEGREES = 180.0f / 3.14159265358979323846f;
+            const float roll = std::atan2(
+                2.0f * (pkt.qw * pkt.qx + pkt.qy * pkt.qz),
+                1.0f - 2.0f * (pkt.qx * pkt.qx + pkt.qy * pkt.qy));
+            const float pitchInput = 2.0f * (pkt.qw * pkt.qy - pkt.qz * pkt.qx);
+            const float pitch = std::asin(std::fmax(-1.0f, std::fmin(1.0f, pitchInput)));
+            float heading = std::atan2(
+                2.0f * (pkt.qw * pkt.qz + pkt.qx * pkt.qy),
+                1.0f - 2.0f * (pkt.qy * pkt.qy + pkt.qz * pkt.qz)) * RADIANS_TO_DEGREES;
+            if (heading < 0.0f) heading += 360.0f;
+            bnoData.orientation_x = heading;
+            bnoData.orientation_y = roll * RADIANS_TO_DEGREES;
+            bnoData.orientation_z = pitch * RADIANS_TO_DEGREES;
             bnoData.setSensorName("BNO055_SIM");
 
             lis3dhData.timestamp = sim_time_ms;

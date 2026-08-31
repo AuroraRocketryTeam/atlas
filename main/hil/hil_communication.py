@@ -30,9 +30,10 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
 # Payload format:
 # sequence_number, hil_sim_time_s, host_unix_time_s,
-# ax_m_s2, ay_m_s2, az_m_s2, pressure_pa, temperature_k,
+# ax_m_s2, ay_m_s2, az_m_s2, attitude quaternion w/x/y/z,
+# pressure_pa, temperature_k,
 # latitude_deg, longitude_deg, altitude_m
-PAYLOAD_FMT = "<IfIffffffff"
+PAYLOAD_FMT = "<IfIffffffffffff"
 PAYLOAD_SIZE = struct.calcsize(PAYLOAD_FMT)
 
 # Extended command format:
@@ -130,6 +131,10 @@ def build_sim_input_payload(
     ax_m_s2,
     ay_m_s2,
     az_m_s2,
+    quaternion_w,
+    quaternion_x,
+    quaternion_y,
+    quaternion_z,
     pressure_pa,
     temperature_k,
     latitude_deg,
@@ -146,6 +151,10 @@ def build_sim_input_payload(
         float(ax_m_s2),
         float(ay_m_s2),
         float(az_m_s2),
+        float(quaternion_w),
+        float(quaternion_x),
+        float(quaternion_y),
+        float(quaternion_z),
         float(pressure_pa),
         float(temperature_k),
         float(latitude_deg),
@@ -162,6 +171,10 @@ def decode_sim_input_payload(payload):
         ax_m_s2,
         ay_m_s2,
         az_m_s2,
+        quaternion_w,
+        quaternion_x,
+        quaternion_y,
+        quaternion_z,
         pressure_pa,
         temperature_k,
         latitude_deg,
@@ -178,6 +191,10 @@ def decode_sim_input_payload(payload):
         ax_m_s2,
         ay_m_s2,
         az_m_s2,
+        quaternion_w,
+        quaternion_x,
+        quaternion_y,
+        quaternion_z,
         pressure_pa,
         temperature_k,
         latitude_deg,
