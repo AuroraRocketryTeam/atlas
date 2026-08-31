@@ -37,12 +37,18 @@ public:
      */
     int getLogCount() const;
 
+    /** 
+     * @brief Total records overwritten or rejected because the queue was full.
+     */
+    uint32_t getDroppedCount() const;
+
     /**
      * @brief Log an informational message.
      * 
      * @param message The informational message to log.
      */
     void logInfo(const std::string& message);
+    void logInfo(const char* source, const char* message);
 
     /**
      * @brief Log a warning message.
@@ -81,11 +87,8 @@ public:
     size_t consumeBatch(uint8_t* outBuffer, size_t bufferCapacity);
     
     private:
-    static constexpr size_t MAX_QUEUE_LENGTH = 250;
-    static constexpr uint32_t STATS_LOG_PERIOD_MS = 10000;
     QueueHandle_t _logQueue;
     std::atomic_uint32_t _dropped{0};
-    std::atomic_uint32_t _lastStatsLogMs{0};
 
     // Store the function pointer instead of an object pointer
     SerializeFunction _serializeFn = nullptr;

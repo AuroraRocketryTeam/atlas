@@ -28,6 +28,10 @@ int RocketLogger::getLogCount() const {
     return uxQueueMessagesWaiting(_logQueue); 
 }
 
+uint32_t RocketLogger::getDroppedCount() const {
+    return _dropped.load(std::memory_order_relaxed);
+}
+
 void RocketLogger::pushToQueue(const LogPayload& payload) {
     if (_logQueue == nullptr) return;
 
@@ -35,22 +39,14 @@ void RocketLogger::pushToQueue(const LogPayload& payload) {
     // If the queue is full, we drop the oldest item to make room.
     if (xQueueSend(_logQueue, &payload, 0) == errQUEUE_FULL) {
         LogPayload dummy;
+        // This counter is shared by multiple producers. Atomic relaxed updates
+        // avoid lost increments; it is statistics and does not guard other data.
         if (xQueueReceive(_logQueue, &dummy, 0) == pdTRUE) { // Discard oldest
             _dropped.fetch_add(1, std::memory_order_relaxed);
         }
         if (xQueueSend(_logQueue, &payload, 0) != pdTRUE) { // Insert newest
             _dropped.fetch_add(1, std::memory_order_relaxed);
         }
-    }
-
-    const uint32_t now = millis();
-    uint32_t last = _lastStatsLogMs.load(std::memory_order_relaxed);
-    if (now - last >= STATS_LOG_PERIOD_MS &&
-        _lastStatsLogMs.compare_exchange_strong(last, now, std::memory_order_relaxed)) {
-        LOG_INFO("RocketLogger", "Queue stats: depth=%u/%u dropped=%u",
-                 static_cast<unsigned>(uxQueueMessagesWaiting(_logQueue)),
-                 static_cast<unsigned>(MAX_QUEUE_LENGTH),
-                 static_cast<unsigned>(_dropped.load(std::memory_order_relaxed)));
     }
 }
 
@@ -77,9 +73,6 @@ void RocketLogger::clearData() {
 }
 
 size_t RocketLogger::consumeBatch(uint8_t* outBuffer, size_t bufferCapacity) {
-    // Check each condition
-    LOG_DEBUG("RocketLogger", "consumeBatch called. Queue length: %d, SerializeFunction set: %s, outBuffer valid: %s\n",
-        getLogCount(), _serializeFn ? "true" : "false", outBuffer ? "true" : "false");
     if (_logQueue == nullptr) {
         LOG_ERROR("RocketLogger", "consumeBatch failed: Log queue is not initialized!\n");
         return 0;
@@ -96,7 +89,6 @@ size_t RocketLogger::consumeBatch(uint8_t* outBuffer, size_t bufferCapacity) {
     size_t currentOffset = 0;
     LogPayload payload;
 
-    LOG_DEBUG("RocketLogger", "Starting batch consumption. Initial queue length: %d\n", getLogCount());
     while (uxQueueMessagesWaiting(_logQueue) > 0) {
         if (xQueueReceive(_logQueue, &payload, 0) == pdTRUE) {
             // serializeFn dynamically evaluates size and writes if it fits
@@ -118,8 +110,6 @@ size_t RocketLogger::consumeBatch(uint8_t* outBuffer, size_t bufferCapacity) {
             }
         }
     }
-
-    LOG_DEBUG("RocketLogger", "Finished consuming batch. Total batch size: %zu bytes\n", currentOffset);
 
     return currentOffset;
 }
