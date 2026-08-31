@@ -1,6 +1,9 @@
 #include <BNO055Sensor.hpp>
 #include <utils.h>
 
+static constexpr uint32_t BNO055_LOOKUP_MAX_ATTEMPTS = 5;
+static constexpr uint32_t BNO055_LOOKUP_TIMEOUT_MS = 1000;
+
 BNO055Sensor::BNO055Sensor(const char *sensorName, I2CBus* bus, uint8_t address)
     : ISensor(sensorName), _bno_interface(bus, address)
 {
@@ -13,7 +16,7 @@ bool BNO055Sensor::init()
     uint32_t start = Utils::millis();
     bool initialized = false;
     
-    while (attempts++ < SENSOR_LOOKUP_MAX_ATTEMPTS) {
+    while (attempts++ < BNO055_LOOKUP_MAX_ATTEMPTS) {
         if (_bno_interface.init()) {
             // Auto-load calibration from NVS
             loadCalibrationFromNVS();
@@ -29,7 +32,7 @@ bool BNO055Sensor::init()
         }
         
         uint32_t end = Utils::millis();
-        while (end - start < SENSOR_LOOKUP_TIMEOUT) {
+        while (end - start < BNO055_LOOKUP_TIMEOUT_MS) {
             end = Utils::millis();
         }
         start = Utils::millis();
