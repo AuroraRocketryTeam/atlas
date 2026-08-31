@@ -175,8 +175,8 @@ void HilSimulationTask::onTaskStart() {
         /* ===== SO_RCVTIMEO ===== */
         if (success) {
             struct timeval timeout;
-            timeout.tv_sec = 1;
-            timeout.tv_usec = 0;
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 500000;
 
             if (setsockopt(_listen_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
                 LOG_ERROR(TAG, "setsockopt(SO_RCVTIMEO) failed: %s", strerror(errno));
