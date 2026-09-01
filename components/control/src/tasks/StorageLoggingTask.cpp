@@ -64,7 +64,7 @@ void StorageLoggingTask::taskFunction() {
         // We write if we have leftover data, OR if data is getting stale, OR if we have "enough" logs waiting
         bool shouldWrite = (pendingBytesToWrite > 0) || 
                         (timeoutReached && currentLogCount > 0) ||
-                        (currentLogCount >= 10);
+                        (currentLogCount >= BATCH_ENTRY_THRESHOLD);
 
         // Execute Write
         if (shouldWrite && running) {
