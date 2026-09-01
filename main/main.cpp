@@ -381,7 +381,7 @@ void GPSfix(std::shared_ptr<GPS> gps)
                     LOG_INFO("GPS", "GPS lock acquired. Satellites: %d", satellites);
                 }
             }
-            vTaskDelay(GPS_FIX_LOOKUP_INTERVAL_MS / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(GPS_FIX_LOOKUP_INTERVAL_MS));
         }
 
         if (!gpsLocked)
