@@ -28,7 +28,7 @@
  * - OTA: authenticated firmware upload, validation, and reboot.
  * - Tests: authenticated guided hardware tests with live operator logs.
  * - Serial Monitor: public live device logs with pause, filter, and copy tools.
- * - Files: authenticated flight-data access; backend support is still pending.
+ * - Files: authenticated listing, streaming download, and deletion of flight data.
  */
 #include "GroundServicesTask.hpp"
 
@@ -41,6 +41,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <climits>
+#include <new>
 #include <sys/socket.h>
 #include <sys/time.h>
 
@@ -68,24 +69,25 @@ static const char *TAG = "GroundServices";
 #error "CONFIG_GROUND_SERVICES_AUTH_TOKEN must be configured. It is used as the HMAC shared secret for Ground Services."
 #endif
 
-static constexpr size_t IO_BUFFER_SIZE = 1024;
 static constexpr size_t AUTH_HEADER_MAX_LEN = 96;
 static constexpr size_t AUTH_SHA256_HEX_LEN = 64;
 static constexpr size_t AUTH_SIGNATURE_HEX_LEN = 64;
 static constexpr size_t BODY_MAX_LEN = 4096;
 static constexpr size_t RESPONSE_BUFFER_SIZE = 12288;
+static constexpr size_t STREAM_CHUNK_SIZE = 4096;
 static constexpr size_t LOG_RESPONSE_BUFFER_SIZE = 4096;
 static constexpr size_t MAX_HTTP_CLIENTS = 4;
 static constexpr size_t MAX_WS_CLIENTS = 2;
+static constexpr size_t REGISTERED_URI_HANDLERS = 31;
 static constexpr size_t LOG_WS_PREFIX_SPACE = 16;
 static constexpr suseconds_t WS_SEND_TIMEOUT_US = 200000;
 static constexpr uint32_t AUTH_NONCE_TTL_MS = 30000;
 static_assert(MAX_HTTP_CLIENTS >= MAX_WS_CLIENTS + 2, "WebSockets must leave room for configuration HTTP requests");
+static_assert(STREAM_CHUNK_SIZE <= RESPONSE_BUFFER_SIZE, "Stream chunks must fit in the shared response buffer");
 
 // HTTP handlers and queued WebSocket work execute serially in HTTPD context,
 // so request, response, and log payloads can share one buffer.
-static char s_responseBuffer[RESPONSE_BUFFER_SIZE];
-static char s_ioBuffer[IO_BUFFER_SIZE];
+alignas(StorageFileInfo) static char s_responseBuffer[RESPONSE_BUFFER_SIZE];
 static std::atomic_bool s_wsBroadcastQueued{false};
 static size_t s_nextLogClient = 0;
 static std::atomic_uint32_t s_wsSendFailures{0};
@@ -442,6 +444,22 @@ static bool headerEquals(httpd_req_t *req, const char *name, const char *expecte
     return httpd_req_get_hdr_value_str(req, name, value, sizeof(value)) == ESP_OK && strcmp(value, expected) == 0;
 }
 
+static bool getSafeFileName(httpd_req_t *req, char *out, size_t outSize)
+{
+    if (req == nullptr || out == nullptr || outSize == 0) return false;
+    char query[128] = {};
+    if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+        httpd_query_key_value(query, "name", out, outSize) != ESP_OK || out[0] == '\0' ||
+        strstr(out, "..") != nullptr) {
+        return false;
+    }
+    for (const unsigned char *p = reinterpret_cast<const unsigned char *>(out); *p != '\0'; ++p) {
+        const unsigned char c = *p;
+        if (!(std::isalnum(c) || c == '.' || c == '_' || c == '-')) return false;
+    }
+    return true;
+}
+
 static bool bodyGetInt(const char *body, const char *key, int *out)
 {
     if (body == nullptr || key == nullptr || out == nullptr) return false;
@@ -613,7 +631,7 @@ esp_err_t GroundServicesTask::startServer()
     if (_server != nullptr) return ESP_OK;
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 30;
+    config.max_uri_handlers = REGISTERED_URI_HANDLERS;
     config.stack_size = 4096;
     config.max_open_sockets = MAX_HTTP_CLIENTS;
     config.backlog_conn = 2;
@@ -698,6 +716,9 @@ void GroundServicesTask::registerHandlers()
     add("/api/ota/status", HTTP_GET, otaStatusGetHandler);
     add("/api/ota/upload", HTTP_POST, otaUploadPostHandler);
     add("/api/ota/reboot", HTTP_POST, otaRebootPostHandler);
+    add("/api/files", HTTP_GET, filesListGetHandler);
+    add("/api/files", HTTP_DELETE, fileDeleteHandler);
+    add("/api/files/download", HTTP_GET, fileDownloadGetHandler);
     add("/*", HTTP_GET, redirectToRootHandler);
 }
 
@@ -1502,7 +1523,7 @@ esp_err_t GroundServicesTask::sdkconfigGetHandler(httpd_req_t *req)
     auto flush = [&]() -> esp_err_t {
         if (out_len == 0) return ESP_OK;
 
-        esp_err_t err = httpd_resp_send_chunk(req, s_ioBuffer, out_len);
+        esp_err_t err = httpd_resp_send_chunk(req, s_responseBuffer, out_len);
         out_len = 0;
 
         // Client closed the connection. This is not a firmware fault.
@@ -1516,7 +1537,7 @@ esp_err_t GroundServicesTask::sdkconfigGetHandler(httpd_req_t *req)
 
     auto append = [&](const char *data, size_t data_len) -> esp_err_t {
         while (data_len > 0) {
-            const size_t room = sizeof(s_ioBuffer) - out_len;
+            const size_t room = STREAM_CHUNK_SIZE - out_len;
             if (room == 0) {
                 esp_err_t err = flush();
                 if (err != ESP_OK) return err;
@@ -1524,7 +1545,7 @@ esp_err_t GroundServicesTask::sdkconfigGetHandler(httpd_req_t *req)
             }
 
             const size_t copy_len = std::min(room, data_len);
-            memcpy(s_ioBuffer + out_len, data, copy_len);
+            memcpy(s_responseBuffer + out_len, data, copy_len);
             out_len += copy_len;
             data += copy_len;
             data_len -= copy_len;
@@ -1786,6 +1807,104 @@ esp_err_t GroundServicesTask::testsVerdictPostHandler(httpd_req_t *req)
     return sendJson(req, "200 OK", "{\"ok\":true}");
 }
 
+esp_err_t GroundServicesTask::filesListGetHandler(httpd_req_t *req)
+{
+    if (!authOrSend(req)) return ESP_OK;
+    auto *self = fromReq(req);
+    if (!self || !self->_rocketModel || !self->_rocketModel->isStorageInitialized()) {
+        return sendErrorJson(req, "503 Service Unavailable", "storage unavailable");
+    }
+
+    auto *files = reinterpret_cast<StorageFileInfo *>(s_responseBuffer);
+    constexpr size_t MAX_LISTED_FILES = 32;
+    for (size_t i = 0; i < MAX_LISTED_FILES; ++i) new (&files[i]) StorageFileInfo{};
+    const size_t count = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "Connection", "close");
+    if (httpd_resp_send_chunk(req, "{\"ok\":true,\"files\":[", HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+
+    bool first = true;
+    char item[160];
+    for (size_t i = 0; i < count; ++i) {
+        const char *safeName = files[i].name;
+        bool safe = safeName[0] != '\0' && strstr(safeName, "..") == nullptr;
+        for (const unsigned char *p = reinterpret_cast<const unsigned char *>(safeName); safe && *p; ++p) {
+            safe = std::isalnum(*p) || *p == '.' || *p == '_' || *p == '-';
+        }
+        if (!safe) continue;
+        const int written = snprintf(item, sizeof(item), "%s{\"name\":\"%.63s\",\"size\":%lu}",
+                                     first ? "" : ",", safeName,
+                                     static_cast<unsigned long>(files[i].size));
+        if (written < 0 || static_cast<size_t>(written) >= sizeof(item) ||
+            httpd_resp_send_chunk(req, item, written) != ESP_OK) return ESP_FAIL;
+        first = false;
+    }
+    if (httpd_resp_send_chunk(req, "]}", HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    return httpd_resp_send_chunk(req, nullptr, 0);
+}
+
+esp_err_t GroundServicesTask::fileDownloadGetHandler(httpd_req_t *req)
+{
+    if (!authOrSend(req)) return ESP_OK;
+    auto *self = fromReq(req);
+    char name[64] = {};
+    if (!getSafeFileName(req, name, sizeof(name))) {
+        return sendErrorJson(req, "400 Bad Request", "invalid file name");
+    }
+    if (!self || !self->_rocketModel) return sendErrorJson(req, "503 Service Unavailable", "storage unavailable");
+
+    size_t bytesRead = 0;
+    size_t fileSize = 0;
+    if (!self->_rocketModel->storageReadFileChunk(name, 0, reinterpret_cast<uint8_t *>(s_responseBuffer),
+                                                  STREAM_CHUNK_SIZE, bytesRead, fileSize)) {
+        return sendErrorJson(req, "404 Not Found", "file not found");
+    }
+    const size_t downloadSize = fileSize;
+
+    char disposition[96];
+    snprintf(disposition, sizeof(disposition), "attachment; filename=\"%s\"", name);
+    httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Content-Disposition", disposition);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "Connection", "close");
+
+    size_t offset = 0;
+    while (offset < downloadSize) {
+        if (offset != 0) {
+            size_t currentFileSize = 0;
+            const size_t remaining = downloadSize - offset;
+            if (!self->_rocketModel->storageReadFileChunk(name, offset, reinterpret_cast<uint8_t *>(s_responseBuffer),
+                                                           std::min(STREAM_CHUNK_SIZE, remaining), bytesRead, currentFileSize)) {
+                return ESP_FAIL;
+            }
+        }
+        if (bytesRead == 0 || httpd_resp_send_chunk(req, s_responseBuffer, bytesRead) != ESP_OK) return ESP_FAIL;
+        offset += bytesRead;
+        taskYIELD();
+    }
+    return httpd_resp_send_chunk(req, nullptr, 0);
+}
+
+esp_err_t GroundServicesTask::fileDeleteHandler(httpd_req_t *req)
+{
+    if (!authOrSend(req)) { discardBody(req); return ESP_OK; }
+    auto *self = fromReq(req);
+    if (rejectMutationDuringOta(req, self)) return ESP_OK;
+    if (!headerEquals(req, "X-Confirm", "DELETE_FILE")) {
+        return sendErrorJson(req, "400 Bad Request", "missing X-Confirm: DELETE_FILE header");
+    }
+    char name[64] = {};
+    if (!getSafeFileName(req, name, sizeof(name))) {
+        return sendErrorJson(req, "400 Bad Request", "invalid file name");
+    }
+    if (!self || !self->_rocketModel || !self->_rocketModel->storageDeleteFile(name)) {
+        return sendErrorJson(req, "404 Not Found", "file not found");
+    }
+    return sendJson(req, "200 OK", "{\"ok\":true}");
+}
+
 esp_err_t GroundServicesTask::otaStatusGetHandler(httpd_req_t *req)
 {
     if (!authOrSend(req)) return ESP_OK;
@@ -1862,8 +1981,8 @@ esp_err_t GroundServicesTask::otaUploadPostHandler(httpd_req_t *req)
     size_t remaining = req->content_len;
     size_t written = 0;
     while (remaining > 0) {
-        const size_t to_read = std::min(remaining, IO_BUFFER_SIZE);
-        int received = httpd_req_recv(req, s_ioBuffer, static_cast<int>(to_read));
+        const size_t to_read = std::min(remaining, STREAM_CHUNK_SIZE);
+        int received = httpd_req_recv(req, s_responseBuffer, static_cast<int>(to_read));
         if (received <= 0) {
             if (received == HTTPD_SOCK_ERR_TIMEOUT) continue;
             mbedtls_sha256_free(&sha);
@@ -1872,9 +1991,9 @@ esp_err_t GroundServicesTask::otaUploadPostHandler(httpd_req_t *req)
             return sendErrorJson(req, "500 Internal Server Error", "http receive failed");
         }
 
-        mbedtls_sha256_update(&sha, reinterpret_cast<const uint8_t *>(s_ioBuffer), static_cast<size_t>(received));
+        mbedtls_sha256_update(&sha, reinterpret_cast<const uint8_t *>(s_responseBuffer), static_cast<size_t>(received));
 
-        err = esp_ota_write(ota_handle, s_ioBuffer, static_cast<size_t>(received));
+        err = esp_ota_write(ota_handle, s_responseBuffer, static_cast<size_t>(received));
         if (err != ESP_OK) {
             mbedtls_sha256_free(&sha);
             esp_ota_abort(ota_handle);

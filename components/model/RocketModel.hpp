@@ -188,6 +188,11 @@ public:
      */
     bool storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs = 200);
 
+    size_t storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs = 200);
+    bool storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
+                              size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs = 200);
+    bool storageDeleteFile(const char* filename, uint32_t timeoutMs = 200);
+
 #if CONFIG_AURORA_HIL_SUPPORT
     // Simulation
      /**

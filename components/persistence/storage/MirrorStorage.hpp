@@ -24,6 +24,10 @@ public:
     bool appendFile(const char* filename, const uint8_t* data, size_t length) override;
     std::string readFile(const char* filename) override;
     std::string readLine() override;
+    size_t listFiles(StorageFileInfo* files, size_t capacity) override;
+    bool readFileChunk(const char* filename, size_t offset, uint8_t* buffer,
+                       size_t capacity, size_t& bytesRead, size_t& fileSize) override;
+    bool deleteFile(const char* filename) override;
 
     bool clearMemory() override;
     bool fileExists(const char* filename) override;

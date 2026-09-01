@@ -145,8 +145,15 @@
 
       <section id="files" class="page hidden">
         <div class="panel">
-          <h2>Files</h2>
-          <p>File listing/download/delete endpoints are reserved for the storage pass.</p>
+          <div class="section-head">
+            <div>
+              <h2>Files</h2>
+              <p>Stored flight logs. Downloads are streamed by the device.</p>
+            </div>
+            <button id="refreshFiles" type="button">Refresh</button>
+          </div>
+          <div id="filesContent"></div>
+          <pre id="filesStatus" class="status-box hidden"></pre>
         </div>
       </section>
     </main>

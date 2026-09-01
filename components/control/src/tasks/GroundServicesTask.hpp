@@ -101,6 +101,9 @@ private:
     static esp_err_t otaStatusGetHandler(httpd_req_t *req);
     static esp_err_t otaUploadPostHandler(httpd_req_t *req);
     static esp_err_t otaRebootPostHandler(httpd_req_t *req);
+    static esp_err_t filesListGetHandler(httpd_req_t *req);
+    static esp_err_t fileDownloadGetHandler(httpd_req_t *req);
+    static esp_err_t fileDeleteHandler(httpd_req_t *req);
     static esp_err_t buildPrelaunchChecklistJson(GroundServicesTask *self, char *body, size_t body_size, bool *ok_out);
 
     std::shared_ptr<RocketModel> _rocketModel;

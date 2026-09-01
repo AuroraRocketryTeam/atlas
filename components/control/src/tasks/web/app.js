@@ -302,6 +302,57 @@ function fmtMs(ms) {
   return `${h}h ${m}m ${s % 60}s`;
 }
 
+async function loadFiles() {
+  const content = document.getElementById('filesContent');
+  const status = document.getElementById('filesStatus');
+  content.innerHTML = '<p>Loading files…</p>';
+  status.classList.add('hidden');
+  const result = await api('/api/files');
+  if (!result.ok) {
+    content.innerHTML = `<p class="bad">${esc(result.error || 'Unable to list files')}</p>`;
+    return;
+  }
+  const files = result.files || [];
+  content.innerHTML = files.length ? `<div class="config-table-wrap"><table class="config-table file-table">
+    <thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>
+    <tbody>${files.map(file => `<tr><td><strong>${esc(file.name)}</strong></td><td>${esc(fmtBytes(file.size))}</td><td>
+      <button type="button" data-file-download="${esc(file.name)}">Download</button>
+      <button type="button" class="danger-action" data-file-delete="${esc(file.name)}">Delete</button>
+    </td></tr>`).join('')}</tbody></table></div>` : '<p>No stored files.</p>';
+}
+
+async function downloadStoredFile(name) {
+  const status = document.getElementById('filesStatus');
+  status.classList.remove('hidden');
+  status.textContent = `Downloading ${name}…`;
+  const path = `/api/files/download?name=${encodeURIComponent(name)}`;
+  try {
+    const response = await authFetch(path);
+    if (!response.ok) throw new Error((await response.json()).error || `HTTP ${response.status}`);
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    status.textContent = `Downloaded ${name}`;
+  } catch (error) {
+    status.textContent = `Download failed: ${error.message || error}`;
+  }
+}
+
+async function deleteStoredFile(name) {
+  if (window.prompt(`Type DELETE to permanently remove ${name}`) !== 'DELETE') return;
+  const path = `/api/files?name=${encodeURIComponent(name)}`;
+  const result = await api(path, { method: 'DELETE', headers: { 'X-Confirm': 'DELETE_FILE' } });
+  const status = document.getElementById('filesStatus');
+  status.classList.remove('hidden');
+  status.textContent = result.ok ? `Deleted ${name}` : `Delete failed: ${result.error || 'unknown error'}`;
+  if (result.ok) loadFiles();
+}
+
 function showActionStatus(value) {
   actionStatus.classList.remove('hidden');
   actionStatus.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
@@ -317,6 +368,7 @@ function show(page, updateHistory = true) {
   if (page === 'tests' && tests.length === 0) loadTests();
   if (page === 'health') loadHealth();
   if (page === 'config') loadConfig();
+  if (page === 'files') loadFiles();
   if (page === 'info') loadInfo();
   if (page === 'live') {
     disconnectLogSocket(() => {
@@ -1485,6 +1537,13 @@ drop.addEventListener('drop', event => {
   fileName.textContent = `${file.name} (${fmtBytes(file.size)})`;
 });
 document.getElementById('upload').addEventListener('click', uploadFirmware);
+document.getElementById('refreshFiles').addEventListener('click', loadFiles);
+document.getElementById('filesContent').addEventListener('click', event => {
+  const download = event.target.closest('[data-file-download]');
+  if (download) downloadStoredFile(download.dataset.fileDownload);
+  const remove = event.target.closest('[data-file-delete]');
+  if (remove) deleteStoredFile(remove.dataset.fileDelete);
+});
 document.getElementById('reboot').addEventListener('click', async () => {
   const s = await api('/api/ota/reboot', {
     method: 'POST',

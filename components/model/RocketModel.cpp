@@ -475,6 +475,38 @@ bool RocketModel::storageAppendFile(const char* filename, const uint8_t* data, s
     return false;
 }
 
+size_t RocketModel::storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs) {
+    if (files == nullptr || capacity == 0) return 0;
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        const size_t count = (_storage && _storage->isInitialized()) ? _storage->listFiles(files, capacity) : 0;
+        xSemaphoreGive(_storageMutex);
+        return count;
+    }
+    return 0;
+}
+
+bool RocketModel::storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
+                                       size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs) {
+    if (filename == nullptr || buffer == nullptr || capacity == 0) return false;
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        const bool ok = _storage && _storage->isInitialized() &&
+                        _storage->readFileChunk(filename, offset, buffer, capacity, bytesRead, fileSize);
+        xSemaphoreGive(_storageMutex);
+        return ok;
+    }
+    return false;
+}
+
+bool RocketModel::storageDeleteFile(const char* filename, uint32_t timeoutMs) {
+    if (filename == nullptr) return false;
+    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+        const bool ok = _storage && _storage->isInitialized() && _storage->deleteFile(filename);
+        xSemaphoreGive(_storageMutex);
+        return ok;
+    }
+    return false;
+}
+
 std::shared_ptr<BNO055Sensor> RocketModel::getBNO055Sensor() {
     return _bno;
 }

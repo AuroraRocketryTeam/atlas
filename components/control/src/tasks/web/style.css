@@ -622,6 +622,25 @@ pre {
   margin: 0 0 10px;
   font-size: 16px;
 }
+.config-table-wrap { overflow-x: auto; }
+.config-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.config-table th,
+.config-table td {
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--line);
+}
+.config-table th { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.config-table td:nth-child(2),
+.config-table td:nth-child(3) { white-space: nowrap; }
+.file-table td:last-child { white-space: nowrap; }
+.file-table button { min-height: 32px; padding: 5px 8px; }
+
 .config-field {
   display: grid;
   gap: 7px;
