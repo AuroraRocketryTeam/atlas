@@ -394,11 +394,11 @@ private:
     std::shared_ptr<Flash> _flash;
 
     // Critical mutexes
-    SemaphoreHandle_t _imuMutex;
-    SemaphoreHandle_t _baro1Mutex;
-    SemaphoreHandle_t _baro2Mutex;
-    SemaphoreHandle_t _gpsMutex;
-    SemaphoreHandle_t _stateMutex;
+    SemaphoreHandle_t _imuMutex = nullptr;
+    SemaphoreHandle_t _baro1Mutex = nullptr;
+    SemaphoreHandle_t _baro2Mutex = nullptr;
+    SemaphoreHandle_t _gpsMutex = nullptr;
+    SemaphoreHandle_t _stateMutex = nullptr;
 
     adc_oneshot_unit_handle_t _adc1_handle;
     int _batteryAdc;

@@ -6,6 +6,13 @@
 #include "esp_err.h"
 #include "pins.h"
 
+namespace {
+void reportMissingMutex(const char* operation)
+{
+    LOG_ERROR("RocketModel", "%s skipped: required mutex was not created", operation);
+}
+} // namespace
+
 RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
             std::shared_ptr<LIS3DHTRSensor> lis3dh,
             std::shared_ptr<MS561101BA03> ms56_1,
@@ -57,9 +64,18 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _baro2Mutex = xSemaphoreCreateMutex();
     _gpsMutex = xSemaphoreCreateMutex();
     _stateMutex = xSemaphoreCreateMutex();
+
+    if (!_storageMutex || !_imuMutex || !_baro1Mutex || !_baro2Mutex || !_gpsMutex || !_stateMutex) {
+        LOG_ERROR("RocketModel", "Failed to create one or more model mutexes; affected operations will be skipped");
+    }
 }
 
 RocketModel::~RocketModel() {
+    if (_imuMutex) { vSemaphoreDelete(_imuMutex); _imuMutex = nullptr; }
+    if (_baro1Mutex) { vSemaphoreDelete(_baro1Mutex); _baro1Mutex = nullptr; }
+    if (_baro2Mutex) { vSemaphoreDelete(_baro2Mutex); _baro2Mutex = nullptr; }
+    if (_gpsMutex) { vSemaphoreDelete(_gpsMutex); _gpsMutex = nullptr; }
+    if (_stateMutex) { vSemaphoreDelete(_stateMutex); _stateMutex = nullptr; }
     if (_storageMutex) {
         vSemaphoreDelete(_storageMutex);
         _storageMutex = nullptr;
@@ -118,6 +134,7 @@ void RocketModel::readBattery() {
 }
 
 bool RocketModel::setOpenMainCommand(){
+    if (!_stateMutex) { reportMissingMutex("setOpenMainCommand"); return false; }
     if (xSemaphoreTake(_stateMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         _cmd.setMain(true);
         xSemaphoreGive(_stateMutex);
@@ -126,6 +143,7 @@ bool RocketModel::setOpenMainCommand(){
 }
 
 bool RocketModel::setOpenDrogueCommand(){
+    if (!_stateMutex) { reportMissingMutex("setOpenDrogueCommand"); return false; }
     if (xSemaphoreTake(_stateMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         _cmd.setDrogue(true);
         xSemaphoreGive(_stateMutex);
@@ -134,6 +152,7 @@ bool RocketModel::setOpenDrogueCommand(){
 }
 
 bool RocketModel::setAirbrakesCommand(float lvl){
+    if (!_stateMutex) { reportMissingMutex("setAirbrakesCommand"); return false; }
     if (xSemaphoreTake(_stateMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         _cmd.setAirbrakes(lvl);
         xSemaphoreGive(_stateMutex);
@@ -163,6 +182,8 @@ bool RocketModel::getResetSimulationFlag()
 #endif
 
 bool RocketModel::updateBNO055() {
+    if (!_bno) return false;
+    if (!_imuMutex) { reportMissingMutex("updateBNO055"); return false; }
     bool result = _bno->updateData();
 
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -176,6 +197,8 @@ bool RocketModel::updateBNO055() {
 }
 
 bool RocketModel::updateLIS3DHTR() {
+    if (!_lis3dh) return false;
+    if (!_imuMutex) { reportMissingMutex("updateLIS3DHTR"); return false; }
     bool result = _lis3dh->updateData();
 
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -189,6 +212,8 @@ bool RocketModel::updateLIS3DHTR() {
 }
 
 bool RocketModel::updateMS561101BA03_1() {
+    if (!_ms56_1) return false;
+    if (!_baro1Mutex) { reportMissingMutex("updateMS561101BA03_1"); return false; }
     bool result = _ms56_1->updateData();
 
     if (result && xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -201,6 +226,7 @@ bool RocketModel::updateMS561101BA03_1() {
 
 bool RocketModel::updateMS561101BA03_2() {
     if (!_ms56_2) return false;
+    if (!_baro2Mutex) { reportMissingMutex("updateMS561101BA03_2"); return false; }
 
     bool result = _ms56_2->updateData();
 
@@ -213,6 +239,8 @@ bool RocketModel::updateMS561101BA03_2() {
 }
 
 bool RocketModel::updateGPS() {
+    if (!_gps) return false;
+    if (!_gpsMutex) { reportMissingMutex("updateGPS"); return false; }
     bool result = _gps->updateData();
 
     if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -230,6 +258,7 @@ SensorReadStatus RocketModel::getBNO055Data(IMUData& data) {
     if (!_bno) return SensorReadStatus::NOT_PRESENT;
 #endif
 
+    if (!_imuMutex) { reportMissingMutex("getBNO055Data"); return SensorReadStatus::MUTEX_TIMEOUT; }
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_bnoDataValid) {
             xSemaphoreGive(_imuMutex);
@@ -247,6 +276,7 @@ SensorReadStatus RocketModel::getLIS3DHTRData(AccelerometerSensorData& data) {
     if (!_lis3dh) return SensorReadStatus::NOT_PRESENT;
 #endif
 
+    if (!_imuMutex) { reportMissingMutex("getLIS3DHTRData"); return SensorReadStatus::MUTEX_TIMEOUT; }
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_lis3dhDataValid) {
             xSemaphoreGive(_imuMutex);
@@ -264,6 +294,7 @@ SensorReadStatus RocketModel::getMS561101BA03Data_1(PressureSensorData& data) {
     if (!_ms56_1) return SensorReadStatus::NOT_PRESENT;
 #endif
     
+    if (!_baro1Mutex) { reportMissingMutex("getMS561101BA03Data_1"); return SensorReadStatus::MUTEX_TIMEOUT; }
     if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_ms561101ba03Data_1_Valid) {
             xSemaphoreGive(_baro1Mutex);
@@ -281,6 +312,7 @@ SensorReadStatus RocketModel::getMS561101BA03Data_2(PressureSensorData& data) {
     if (!_ms56_2) return SensorReadStatus::NOT_PRESENT;
 #endif
     
+    if (!_baro2Mutex) { reportMissingMutex("getMS561101BA03Data_2"); return SensorReadStatus::MUTEX_TIMEOUT; }
     if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_ms561101ba03Data_2_Valid) {
             xSemaphoreGive(_baro2Mutex);
@@ -298,6 +330,7 @@ SensorReadStatus RocketModel::getGPSData(GPSData& data) {
     if (!_gps) return SensorReadStatus::NOT_PRESENT;
 #endif
     
+    if (!_gpsMutex) { reportMissingMutex("getGPSData"); return SensorReadStatus::MUTEX_TIMEOUT; }
     if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         if (!_gpsDataValid) {
             xSemaphoreGive(_gpsMutex);
@@ -311,6 +344,7 @@ SensorReadStatus RocketModel::getGPSData(GPSData& data) {
 }
 
 bool RocketModel::setSimulatedBNO055Data(IMUData data) {
+    if (!_imuMutex) { reportMissingMutex("setSimulatedBNO055Data"); return false; }
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         _bnoData = data;
         _bnoDataValid = true;
@@ -321,6 +355,7 @@ bool RocketModel::setSimulatedBNO055Data(IMUData data) {
 }
 
 bool RocketModel::setSimulatedLIS3DHTRData(AccelerometerSensorData data) {
+    if (!_imuMutex) { reportMissingMutex("setSimulatedLIS3DHTRData"); return false; }
     if (xSemaphoreTake(_imuMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         _lis3dhData = data;
         _lis3dhDataValid = true;
@@ -331,6 +366,7 @@ bool RocketModel::setSimulatedLIS3DHTRData(AccelerometerSensorData data) {
 }
 
 bool RocketModel::setSimulatedMS561101BA03Data_1(PressureSensorData data) {
+    if (!_baro1Mutex) { reportMissingMutex("setSimulatedMS561101BA03Data_1"); return false; }
     if (xSemaphoreTake(_baro1Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         _ms561101ba03Data_1 = data;
         _ms561101ba03Data_1_Valid = true;
@@ -341,6 +377,7 @@ bool RocketModel::setSimulatedMS561101BA03Data_1(PressureSensorData data) {
 }
 
 bool RocketModel::setSimulatedMS561101BA03Data_2(PressureSensorData data) {
+    if (!_baro2Mutex) { reportMissingMutex("setSimulatedMS561101BA03Data_2"); return false; }
     if (xSemaphoreTake(_baro2Mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         _ms561101ba03Data_2 = data;
         _ms561101ba03Data_2_Valid = true;
@@ -351,6 +388,7 @@ bool RocketModel::setSimulatedMS561101BA03Data_2(PressureSensorData data) {
 }
 
 bool RocketModel::setSimulatedGPSData(GPSData data) {
+    if (!_gpsMutex) { reportMissingMutex("setSimulatedGPSData"); return false; }
     if (xSemaphoreTake(_gpsMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         _gpsData = data;
         _gpsDataValid = true;
@@ -385,7 +423,8 @@ void RocketModel::setCurrentHeight(float height) {
 }
 
 bool RocketModel::isStorageInitialized(uint32_t timeoutMs) const {
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("isStorageInitialized"); return false; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         bool initialized = _storage && _storage->isInitialized();
         xSemaphoreGive(_storageMutex);
         return initialized;
@@ -406,7 +445,8 @@ bool RocketModel::storageFileExists(const char* filename, uint32_t timeoutMs) {
         return false;
     }
 
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("storageFileExists"); return false; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         bool exists = _storage && _storage->isInitialized() && _storage->fileExists(filename);
         xSemaphoreGive(_storageMutex);
         return exists;
@@ -419,7 +459,8 @@ bool RocketModel::storageResetReadCursor(const char* filename, uint32_t timeoutM
         return false;
     }
 
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("storageResetReadCursor"); return false; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const bool ok = _storage && _storage->isInitialized() && _storage->openFile(filename);
         xSemaphoreGive(_storageMutex);
         return ok;
@@ -432,7 +473,8 @@ std::string RocketModel::storageReadFile(const char* filename, uint32_t timeoutM
         return "";
     }
 
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("storageReadFile"); return ""; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         std::string content = (_storage && _storage->isInitialized()) ? _storage->readFile(filename) : "";
         xSemaphoreGive(_storageMutex);
         return content;
@@ -441,7 +483,8 @@ std::string RocketModel::storageReadFile(const char* filename, uint32_t timeoutM
 }
 
 std::string RocketModel::storageReadLine(uint32_t timeoutMs) {
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("storageReadLine"); return ""; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         std::string line = (_storage && _storage->isInitialized()) ? _storage->readLine() : "";
         xSemaphoreGive(_storageMutex);
         return line;
@@ -452,7 +495,8 @@ std::string RocketModel::storageReadLine(uint32_t timeoutMs) {
 bool RocketModel::storageWriteFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs) {
     if (filename == nullptr || data == nullptr || length == 0) return false;
 
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("storageWriteFile"); return false; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const bool ready = _storage && _storage->isInitialized();
         const bool ok = ready && _storage->openFile(filename) && 
                         _storage->writeFile(filename, data, length) && 
@@ -466,7 +510,8 @@ bool RocketModel::storageWriteFile(const char* filename, const uint8_t* data, si
 bool RocketModel::storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs) {
     if (filename == nullptr || data == nullptr || length == 0) return false;
 
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("storageAppendFile"); return false; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const bool ready = _storage && _storage->isInitialized();
         const bool ok = ready && _storage->appendFile(filename, data, length);
         xSemaphoreGive(_storageMutex);
@@ -477,7 +522,8 @@ bool RocketModel::storageAppendFile(const char* filename, const uint8_t* data, s
 
 size_t RocketModel::storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs) {
     if (files == nullptr || capacity == 0) return 0;
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("storageListFiles"); return 0; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const size_t count = (_storage && _storage->isInitialized()) ? _storage->listFiles(files, capacity) : 0;
         xSemaphoreGive(_storageMutex);
         return count;
@@ -488,7 +534,8 @@ size_t RocketModel::storageListFiles(StorageFileInfo* files, size_t capacity, ui
 bool RocketModel::storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
                                        size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs) {
     if (filename == nullptr || buffer == nullptr || capacity == 0) return false;
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("storageReadFileChunk"); return false; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const bool ok = _storage && _storage->isInitialized() &&
                         _storage->readFileChunk(filename, offset, buffer, capacity, bytesRead, fileSize);
         xSemaphoreGive(_storageMutex);
@@ -499,7 +546,8 @@ bool RocketModel::storageReadFileChunk(const char* filename, size_t offset, uint
 
 bool RocketModel::storageDeleteFile(const char* filename, uint32_t timeoutMs) {
     if (filename == nullptr) return false;
-    if (_storageMutex && xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
+    if (!_storageMutex) { reportMissingMutex("storageDeleteFile"); return false; }
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
         const bool ok = _storage && _storage->isInitialized() && _storage->deleteFile(filename);
         xSemaphoreGive(_storageMutex);
         return ok;
