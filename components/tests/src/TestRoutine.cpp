@@ -136,7 +136,7 @@ bool TestRoutine::startGroundTest(int id, char* error, size_t error_size)
     _hasPendingVerdict = false;
     if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
 
-    if (xTaskCreate(webTestTaskEntry, "ground_test", 8192, this, 5, &_webTask) != pdPASS) {
+    if (xTaskCreate(webTestTaskEntry, "ground_test", 4096, this, 5, &_webTask) != pdPASS) {
         if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
         _webStatus.running = false;
         snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "failed");
