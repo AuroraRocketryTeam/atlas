@@ -6,6 +6,7 @@
 #include "GPSData.hpp"
 #include "IMUData.hpp"
 #include "PressureSensorData.hpp"
+#include "utils.h"
 
 /**
  * @brief Lightweight struct for internal system logs (INFO, WARN, ERROR)
@@ -14,6 +15,7 @@ struct SystemLog {
     char level[10] = {0};
     char source[24] = {0};
     char message[96] = {0};
+    uint32_t timestamp = 0;
 
     SystemLog() = default;
 
@@ -26,13 +28,15 @@ struct SystemLog {
         
         std::strncpy(message, msg, sizeof(message) - 1); 
         message[sizeof(message) - 1] = '\0';
+
+        timestamp = Utils::millis();
     }
 
     // Writes up to maxLength. Returns the true required size (excluding null terminator).
     size_t serializeJson(char* buffer, size_t maxLength) const {
-        return snprintf(buffer, maxLength, 
-            "{\"type\":\"%s\",\"source\":\"%s\",\"content\":{\"message\":\"%s\"}}\n", 
-            level, source, message);
+        return snprintf(buffer, maxLength,
+            "{\"type\":\"%s\",\"source\":\"%s\",\"content\":{\"message\":\"%s\",\"timestamp\":%lu}}\n",
+            level, source, message, static_cast<unsigned long>(timestamp));
     }
 };
 

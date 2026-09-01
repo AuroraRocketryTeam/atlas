@@ -52,15 +52,27 @@ void RocketLogger::pushToQueue(const LogPayload& payload) {
 }
 
 void RocketLogger::logInfo(const std::string& message) {
-    pushToQueue(SystemLog{"INFO", "RocketLogger", message.c_str()});
+    logInfo("RocketLogger", message.c_str());
+}
+
+void RocketLogger::logInfo(const char* source, const char* message) {
+    pushToQueue(SystemLog{"INFO", source, message});
 }
 
 void RocketLogger::logWarning(const std::string& message) {
-    pushToQueue(SystemLog{"WARNING", "RocketLogger", message.c_str()});
+    logWarning("RocketLogger", message.c_str());
+}
+
+void RocketLogger::logWarning(const char* source, const char* message) {
+    pushToQueue(SystemLog{"WARNING", source, message});
 }
 
 void RocketLogger::logError(const std::string& message) {
-    pushToQueue(SystemLog{"ERROR", "RocketLogger", message.c_str()});
+    logError("RocketLogger", message.c_str());
+}
+
+void RocketLogger::logError(const char* source, const char* message) {
+    pushToQueue(SystemLog{"ERROR", source, message});
 }
 
 void RocketLogger::logSensorData(const LogPayload& payload) {

@@ -56,6 +56,7 @@ public:
      * @param message The warning message to log.
      */
     void logWarning(const std::string& message);
+    void logWarning(const char* source, const char* message);
 
     /**
      * @brief Log an error message.
@@ -63,6 +64,7 @@ public:
      * @param message The error message to log.
      */
     void logError(const std::string& message);
+    void logError(const char* source, const char* message);
 
     /**
      * @brief Log sensor data.

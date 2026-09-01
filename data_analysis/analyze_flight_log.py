@@ -16,7 +16,8 @@ import numpy as np
 
 
 G0 = 9.80665
-FSM_RE = re.compile(r"FSM transition t=(\d+) ms:\s*(\S+)\s*->\s*(\S+)")
+LEGACY_FSM_RE = re.compile(r"FSM transition t=(\d+) ms:\s*(\S+)\s*->\s*(\S+)")
+FSM_RE = re.compile(r"(?:FSM transition t=\d+ ms:\s*)?(\S+)\s*->\s*(\S+)")
 
 
 def load_records(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -61,9 +62,11 @@ def load_records(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]
 
             source = str(obj.get("source") or obj.get("type") or "UNKNOWN")
             timestamp_ms = payload.get("timestamp", payload.get("t"))
-            fsm_match = FSM_RE.search(str(payload.get("message", "")))
-            if timestamp_ms is None and fsm_match:
-                timestamp_ms = int(fsm_match.group(1))
+            message = str(payload.get("message", ""))
+            legacy_fsm_match = LEGACY_FSM_RE.search(message)
+            fsm_match = FSM_RE.search(message)
+            if timestamp_ms is None and legacy_fsm_match:
+                timestamp_ms = int(legacy_fsm_match.group(1))
 
             try:
                 timestamp_ms = float(timestamp_ms) if timestamp_ms is not None else None
@@ -77,8 +80,9 @@ def load_records(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]
                     "timestamp_ms": timestamp_ms,
                     "payload": payload,
                     "type": obj.get("type"),
+                    "is_event": isinstance(obj.get("type"), str) and isinstance(obj.get("content"), dict),
                     "fsm": (
-                        (fsm_match.group(2), fsm_match.group(3))
+                        (fsm_match.group(1), fsm_match.group(2))
                         if fsm_match
                         else None
                     ),
@@ -86,6 +90,15 @@ def load_records(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]
             )
 
     return records, malformed
+
+
+def split_records(records: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split sensor data records from recorder events without changing JSONL storage."""
+    datalog: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
+    for record in records:
+        (events if record["is_event"] else datalog).append(record)
+    return datalog, events
 
 
 def group_records(records: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -121,9 +134,20 @@ def source_has_fields(source_records: list[dict[str, Any]], *fields: str) -> boo
 def event_times(records: list[dict[str, Any]], origin_ms: float) -> list[tuple[float, str]]:
     events: list[tuple[float, str]] = []
     for record in records:
-        if record["fsm"] and record["timestamp_ms"] is not None:
+        if record["timestamp_ms"] is None:
+            continue
+        if record["fsm"]:
             old_state, new_state = record["fsm"]
             events.append(((record["timestamp_ms"] - origin_ms) / 1000.0, f"{old_state} → {new_state}"))
+        else:
+            message = str(record["payload"].get("message", ""))
+            if message:
+                events.append(
+                    (
+                        (record["timestamp_ms"] - origin_ms) / 1000.0,
+                        f"{record['type']}: {record['source']}: {message}",
+                    )
+                )
     return events
 
 
@@ -204,6 +228,7 @@ def timing_statistics(source_records: list[dict[str, Any]]) -> dict[str, float |
 def print_report(
     path: Path,
     records: list[dict[str, Any]],
+    events: list[dict[str, Any]],
     malformed: list[dict[str, Any]],
     grouped: dict[str, list[dict[str, Any]]],
 ) -> None:
@@ -212,6 +237,8 @@ def print_report(
     print(f"File:               {path}")
     print(f"Size:               {path.stat().st_size:,} bytes")
     print(f"Valid records:      {len(records):,}")
+    print(f"Data records:       {len(records) - len(events):,}")
+    print(f"Event records:      {len(events):,}")
     print(f"Malformed records:  {len(malformed):,}")
     print(f"Without timestamp:  {sum(record['timestamp_ms'] is None for record in records):,}")
     if timestamps:
@@ -242,11 +269,19 @@ def print_report(
             print(f"    {excerpt}")
         if len(malformed) > 20:
             print(f"  ... {len(malformed) - 20} additional malformed records")
+
+    if events:
+        print("\nEvent timeline:")
+        for event in events:
+            timestamp = event["timestamp_ms"]
+            timestamp_text = f"{timestamp:.0f} ms" if timestamp is not None else "no timestamp"
+            print(f"  {timestamp_text:>12}  {event['type']:<7} {event['source']}: {event['payload'].get('message', '')}")
     print("=============================================\n")
 
 
 def create_plots(
     records: list[dict[str, Any]],
+    events: list[dict[str, Any]],
     malformed: list[dict[str, Any]],
     grouped: dict[str, list[dict[str, Any]]],
 ) -> list[tuple[str, Any]]:
@@ -254,7 +289,7 @@ def create_plots(
     if not timestamps:
         return []
     origin_ms = min(timestamps)
-    events = event_times(records, origin_ms)
+    event_markers = event_times(events, origin_ms)
     plots: list[tuple[str, Any]] = []
 
     imu_sources = [source for source, values in grouped.items() if source_has_fields(values, "ax", "ay", "az", "qw")]
@@ -276,8 +311,8 @@ def create_plots(
     axes[0].set_title(f"Record timeline ({len(records)} valid, {len(malformed)} malformed)")
     axes[0].set_xlabel("Time since first timestamp [s]")
     axes[0].grid(True, axis="x", alpha=0.3)
-    mark_events(axes[0], events, annotate=True)
-    finish_axis(axes[1], "Per-source record intervals", "Δ timestamp [ms]", events)
+    mark_events(axes[0], event_markers, annotate=True)
+    finish_axis(axes[1], "Per-source record intervals", "Δ timestamp [ms]", event_markers)
     counts = Counter(record["source"] for record in records)
     axes[2].bar(list(counts), list(counts.values()))
     axes[2].set_title("Record count by source")
@@ -309,10 +344,10 @@ def create_plots(
                 axes[1].plot(time_s, np.sqrt(ax**2 + ay**2 + az**2) / G0, "--", label=f"{source}: |a|")
         plot_fields(axes[2], grouped, imu_sources, ("lax", "lay", "laz"), origin_ms)
         plot_fields(axes[3], grouped, imu_sources, ("gx", "gy", "gz"), origin_ms)
-        finish_axis(axes[0], "IMU measured acceleration", "Acceleration [g]", events)
-        finish_axis(axes[1], "Dedicated accelerometer", "Acceleration [g]", events)
-        finish_axis(axes[2], "IMU linear acceleration", "Acceleration [m/s²]", events)
-        finish_axis(axes[3], "IMU gravity vector", "Acceleration [m/s²]", events)
+        finish_axis(axes[0], "IMU measured acceleration", "Acceleration [g]", event_markers)
+        finish_axis(axes[1], "Dedicated accelerometer", "Acceleration [g]", event_markers)
+        finish_axis(axes[2], "IMU linear acceleration", "Acceleration [m/s²]", event_markers)
+        finish_axis(axes[3], "IMU gravity vector", "Acceleration [m/s²]", event_markers)
         plots.append(("motion", fig))
 
     if imu_sources:
@@ -327,11 +362,11 @@ def create_plots(
             if arrays and all(len(values) == len(time_s) for values in arrays):
                 axes[3].plot(time_s, np.sqrt(sum(values**2 for values in arrays)), "--", label=f"{source}: |q|")
         plot_fields(axes[4], grouped, imu_sources, ("csys", "cgyro", "caccel", "cmag"), origin_ms)
-        finish_axis(axes[0], "Euler attitude", "Angle [deg]", events)
-        finish_axis(axes[1], "Angular velocity", "Angular velocity [rad/s]", events)
-        finish_axis(axes[2], "Magnetometer", "Magnetic field [µT]", events)
-        finish_axis(axes[3], "Orientation quaternion and norm", "Quaternion", events)
-        finish_axis(axes[4], "IMU calibration status", "Status [0..3]", events)
+        finish_axis(axes[0], "Euler attitude", "Angle [deg]", event_markers)
+        finish_axis(axes[1], "Angular velocity", "Angular velocity [rad/s]", event_markers)
+        finish_axis(axes[2], "Magnetometer", "Magnetic field [µT]", event_markers)
+        finish_axis(axes[3], "Orientation quaternion and norm", "Quaternion", event_markers)
+        finish_axis(axes[4], "IMU calibration status", "Status [0..3]", event_markers)
         axes[4].set_yticks([0, 1, 2, 3])
         plots.append(("imu", fig))
 
@@ -348,10 +383,10 @@ def create_plots(
                 axes[2].plot(time_s, relative_altitude, label=f"{source}: pressure altitude")
         plot_fields(axes[2], grouped, gps_sources, ("altitude",), origin_ms)
         plot_fields(axes[3], grouped, imu_sources, ("te",), origin_ms)
-        finish_axis(axes[0], "Barometer pressure", "Pressure [stored units]", events)
-        finish_axis(axes[1], "Barometer temperature", "Temperature [°C]", events)
-        finish_axis(axes[2], "Altitude comparison", "Altitude / relative altitude [m]", events)
-        finish_axis(axes[3], "IMU temperature", "Temperature [°C]", events)
+        finish_axis(axes[0], "Barometer pressure", "Pressure [stored units]", event_markers)
+        finish_axis(axes[1], "Barometer temperature", "Temperature [°C]", event_markers)
+        finish_axis(axes[2], "Altitude comparison", "Altitude / relative altitude [m]", event_markers)
+        finish_axis(axes[3], "IMU temperature", "Temperature [°C]", event_markers)
         plots.append(("environment", fig))
 
     for gps_source in gps_sources:
@@ -375,11 +410,11 @@ def create_plots(
         axes[0, 0].grid(True, alpha=0.3)
         axes[0, 0].legend()
         axes[0, 1].plot(time_s, altitude, label="altitude")
-        finish_axis(axes[0, 1], "GPS altitude", "Altitude [m]", events)
+        finish_axis(axes[0, 1], "GPS altitude", "Altitude [m]", event_markers)
         plot_fields(axes[1, 0], grouped, [gps_source], ("ground_speed", "hdop"), origin_ms, include_source=False)
-        finish_axis(axes[1, 0], "GPS speed and HDOP", "Reported value", events)
+        finish_axis(axes[1, 0], "GPS speed and HDOP", "Reported value", event_markers)
         plot_fields(axes[1, 1], grouped, [gps_source], ("satellites", "fixType"), origin_ms, include_source=False)
-        finish_axis(axes[1, 1], "GPS fix quality", "Count / fix type", events)
+        finish_axis(axes[1, 1], "GPS fix quality", "Count / fix type", event_markers)
         plots.append((f"gps_{gps_source}", fig))
 
         fig = plt.figure(figsize=(11, 8), constrained_layout=True)
@@ -421,9 +456,10 @@ def main() -> int:
         return 2
 
     records, malformed = load_records(args.log)
-    grouped = group_records(records)
-    print_report(args.log, records, malformed, grouped)
-    plots = create_plots(records, malformed, grouped)
+    datalog, events = split_records(records)
+    grouped = group_records(datalog)
+    print_report(args.log, records, events, malformed, grouped)
+    plots = create_plots(datalog, events, malformed, grouped)
 
     if args.save_dir:
         args.save_dir.mkdir(parents=True, exist_ok=True)

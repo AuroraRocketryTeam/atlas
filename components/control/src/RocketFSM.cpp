@@ -288,6 +288,9 @@ void RocketFSM::deployMain()
     }
 
     LOG_INFO("RocketFSM", "Deploying MAIN");
+    if (_logger) {
+        _logger->logInfo("RocketFSM", "Main deployment commanded");
+    }
 
     gpio_set_level(_board->get_main_actuator_pin(), HIGH);
     _mainDeploymentCommanded = true;
@@ -307,6 +310,9 @@ void RocketFSM::deployDrogue()
 
     
     LOG_INFO("RocketFSM", "Deploying DROGUE");
+    if (_logger) {
+        _logger->logInfo("RocketFSM", "Drogue deployment commanded");
+    }
     
     gpio_set_level(_board->get_drogue_actuator_pin(), HIGH);
     _drogueDeploymentCommanded = true;
@@ -634,6 +640,12 @@ void RocketFSM::transitionTo(RocketState newState)
         LOG_INFO("RocketFSM", "[TRANSITION] %s -> %s",
                  getStateString(_currentState),
                  getStateString(newState));
+        if (_logger) {
+            char message[64];
+            snprintf(message, sizeof(message), "%.24s -> %.24s",
+                     getStateString(_currentState), getStateString(newState));
+            _logger->logInfo("RocketFSM", message);
+        }
 
         // Execute exit action for current state
         if (_stateActions[_currentState])

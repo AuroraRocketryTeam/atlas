@@ -1,5 +1,6 @@
 #include "StorageLoggingTask.hpp"
 #include "esp_task_wdt.h"
+#include <cstdio>
 
 StorageLoggingTask::StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
                        std::shared_ptr<RocketLogger> logger)
@@ -10,7 +11,7 @@ StorageLoggingTask::StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
     storageInitialized = this->rocketModel && this->rocketModel->isStorageInitialized();
 
     if (!storageInitialized) {
-        LOG_INFO("StorageLoggingTask", "Storage initialization failed or no storage provided!");
+        LOG_ERROR("StorageLoggingTask", "Storage initialization failed or no storage provided!");
     } else {
         LOG_INFO("StorageLoggingTask", "Storage initialized successfully. Ready for JSONL logging.");
     }
@@ -25,11 +26,27 @@ void StorageLoggingTask::taskFunction() {
     TickType_t lastWriteTicks = xTaskGetTickCount();
     TickType_t lastStatsTicks = lastWriteTicks;
     uint32_t lastDroppedCount = logger ? logger->getDroppedCount() : 0;
+    bool storageWasAvailable = storageInitialized;
+
+    if (logger && storageWasAvailable) {
+        logger->logInfo("StorageLoggingTask", "Flight recorder active");
+    }
 
     while (running) {
         esp_task_wdt_reset();
 
         storageInitialized = rocketModel && rocketModel->isStorageInitialized();
+
+        if (storageInitialized != storageWasAvailable) {
+            if (storageInitialized) {
+                if (logger) {
+                    logger->logInfo("StorageLoggingTask", "Flight recorder storage restored");
+                }
+            } else {
+                LOG_ERROR("StorageLoggingTask", "Flight recorder storage unavailable");
+            }
+            storageWasAvailable = storageInitialized;
+        }
 
         // Handle Storage Disconnection
         if (!storageInitialized) {            
@@ -56,6 +73,12 @@ void StorageLoggingTask::taskFunction() {
                             static_cast<unsigned>(droppedDelta),
                             static_cast<unsigned>(statsElapsedMs),
                             static_cast<unsigned>(droppedTotal));
+                char message[96];
+                snprintf(message, sizeof(message), "Lost %u records in %u ms (total=%u)",
+                         static_cast<unsigned>(droppedDelta),
+                         static_cast<unsigned>(statsElapsedMs),
+                         static_cast<unsigned>(droppedTotal));
+                logger->logWarning("StorageLoggingTask", message);
             }
             lastDroppedCount = droppedTotal;
             lastStatsTicks = currentTicks;
