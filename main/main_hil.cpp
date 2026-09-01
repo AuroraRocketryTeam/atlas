@@ -11,6 +11,7 @@
 // WiFi and communication
 #include <esp_now.h>
 #include <esp_err.h>
+#include <esp_heap_caps.h>
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -246,14 +247,15 @@ void loopHil()
 {
     resetHilSimulationIfRequested();
 
+    static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
     static unsigned long lastStateLog = 0;
     static bool ledState = false;
     static RocketState lastLoggedState = RocketState::INACTIVE;
     static bool stateLogged = false;
 
-    // Heartbeat every 2 seconds
-    if (Utils::realMillis() - lastHeartbeat > 2000)
+    // Heartbeat every HEARTBEAT_INTERVAL_MS
+    if (Utils::realMillis() - lastHeartbeat > HEARTBEAT_INTERVAL_MS)
     {
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
         lastHeartbeat = Utils::realMillis();
@@ -261,6 +263,12 @@ void loopHil()
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
         LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
+        const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        LOG_INFO("Main", "Health: internal free=%u min=%u largest=%u tasks=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_minimum_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
+                 static_cast<unsigned>(uxTaskGetNumberOfTasks()));
 
         // Monitor RocketLogger memory usage
         if (logger)
