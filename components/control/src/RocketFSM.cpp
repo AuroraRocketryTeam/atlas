@@ -431,7 +431,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Launch", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Launch", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Launch", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Launch", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Launch", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
@@ -446,7 +446,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Accel", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Accel", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Accel", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Accel", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
 
@@ -460,7 +460,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ballistic", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ballistic", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Ballistic", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Ballistic", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Ballistic", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Ballistic", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Ballistic", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
@@ -480,7 +480,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Apogee", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Apogee", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Apogee", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Apogee", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Apogee", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Apogee", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
 
@@ -499,7 +499,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Stabilization", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Stabilization", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Stabilization", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Stabilization", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Stabilization", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Stabilization", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
 
@@ -514,7 +514,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Deceleration", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Deceleration", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Deceleration_8", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Deceleration_8", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Deceleration", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Deceleration", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
     _stateActions[RocketState::LANDING] = std::make_unique<StateAction>(RocketState::LANDING);
@@ -528,7 +528,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Landing", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Landing", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Landing", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
     _stateActions[RocketState::RECOVERED] = std::make_unique<StateAction>(RocketState::RECOVERED);
