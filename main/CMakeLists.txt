@@ -35,6 +35,12 @@ idf_component_register(
     REQUIRES espressif__arduino-esp32
 )
 
+# The serializer is header-only and instantiated by these two entry points.
+# Keep their object files dependent on its implementation headers even if
+# generated compiler depfiles are unavailable.
+set_source_files_properties(main.cpp main_hil.cpp PROPERTIES OBJECT_DEPENDS
+    "${CMAKE_CURRENT_LIST_DIR}/../components/logger/serializations/src/PayloadSerializer.hpp;${CMAKE_CURRENT_LIST_DIR}/../components/logger/rocket_logger/src/LogPayload.hpp")
+
 
 # Note: by default, all the components are compiled, but if we want just some ("data" in this case):
 # idf_component_register(
