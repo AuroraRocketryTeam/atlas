@@ -368,7 +368,7 @@ void RocketFSM::setupStateActions()
         .setExitAction([this]()
                        { LOG_INFO("RocketFSM", "Exiting CALIBRATING"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Calib", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Calib", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -395,7 +395,7 @@ void RocketFSM::setupStateActions()
          */
         .addTask(TaskConfig(TaskType::GROUND_SERVICES, "GroundServices", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ground", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ground", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ground", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ground", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -409,7 +409,7 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH"); })
         #if CONFIG_AURORA_HIL_SIMULATION
         // TODO: do not treat HilSimulationTask as a normal fsm task, start in ONCE from rocketfsm.
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ready", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ready", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ready", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -426,7 +426,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LAUNCH"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Launch", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Launch", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Launch", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -441,7 +441,7 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT"); })
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Accel", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Accel", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Accel", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Accel", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -455,7 +455,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering BALLISTIC_FLIGHT"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ballistic", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ballistic", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ballistic", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ballistic", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -474,7 +474,7 @@ void RocketFSM::setupStateActions()
                             // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
                         })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Apogee", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Apogee", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Apogee", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Apogee", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -493,7 +493,7 @@ void RocketFSM::setupStateActions()
                             // tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
                         })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Stabilization", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Stabilization", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Stabilization", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Stabilization", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -508,7 +508,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering DECELERATION"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Deceleration", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Deceleration", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Deceleration", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Deceleration", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -522,7 +522,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LANDING"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Landing", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Landing", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Landing", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
