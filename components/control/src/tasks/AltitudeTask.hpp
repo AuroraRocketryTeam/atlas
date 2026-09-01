@@ -26,6 +26,7 @@ struct AltitudeConfig {
     uint32_t apogee_window_size;
     float apogee_sample_rate_hz;
     float apogee_trigger_velocity_mps;
+    uint8_t apogee_confirmation_windows;
     uint8_t selected_barometer;
 };
 
@@ -67,82 +68,121 @@ private:
 };
 
 /**
- * @brief RTOS-Safe Windowed Ordinary Least Squares Apogee Detector
- * Calculates the slope of the line of best fit over the last N altitude samples.
+ * @brief Estimates vertical velocity from a bounded window of altitude samples.
+ *
+ * Given timestamped samples $(t_i, h_i)$, the detector fits:
+ *
+ * $$ h_i = v t_i + b $$
+ *
+ * by ordinary least squares. The fitted slope $v$ is vertical velocity.
+ * Real barometer timestamps are used, so a delayed sample changes the sample
+ * interval instead of producing a false velocity estimate.
+ *
  */
-template <size_t WindowSize>
+template <size_t MaxWindowSize>
 class OLSApogeeDetector {
 public:
-    /**
-     * @param sample_rate_hz Expected frequency of the task calling update()
-     * @param trigger_velocity_ms Vertical velocity threshold (m/s) to trigger apogee. 
-     * Set slightly negative to avoid false positives at apex.
-     */
-    OLSApogeeDetector(float sample_rate_hz = 50.0f, float trigger_velocity_ms = -1.0f) 
-        : _dt(1.0f / sample_rate_hz), _trigger_velocity(trigger_velocity_ms) 
+    OLSApogeeDetector()
     {
-        _y_buffer.fill(0.0f);
-        
-        // Precompute the X-axis (time/index) constants for the OLS formula:
-        // slope = [ N*sum(xy) - sum(x)*sum(y) ] / [ N*sum(x^2) - (sum(x))^2 ]
-        _sum_x = (WindowSize * (WindowSize - 1)) / 2.0f;
-        _sum_x2 = (WindowSize * (WindowSize - 1) * (2 * WindowSize - 1)) / 6.0f;
-        _denominator = (WindowSize * _sum_x2) - (_sum_x * _sum_x);
+        _altitudeSamplesM.fill(0.0f);
+        _sampleTimestampsMs.fill(0);
     }
 
-    void update(float newAltitude) {
-        _y_buffer[_head] = newAltitude;
-        _head++;
-        
-        if (_head >= WindowSize) {
-            _head = 0;
-            _is_full = true;
+    // The caller supplies RuntimeConfig-validated values before the first sample.
+    void configure(size_t windowSize, float apogeeTriggerVelocityMps,
+                   uint8_t confirmationWindows)
+    {
+        _activeWindowSize = windowSize;
+        _apogeeTriggerVelocityMps = apogeeTriggerVelocityMps;
+        _confirmationWindows = confirmationWindows;
+        reset();
+    }
+
+    void update(float altitudeM, uint32_t timestampMs)
+    {
+        const size_t windowSize = _activeWindowSize;
+
+        // `_nextWriteIndex` always points to the oldest element after a full
+        // circular buffer wraps.  Iterating from it restores chronological order.
+        _altitudeSamplesM[_nextWriteIndex] = altitudeM;
+        _sampleTimestampsMs[_nextWriteIndex] = timestampMs;
+        _nextWriteIndex = (_nextWriteIndex + 1) % windowSize;
+        if (_sampleCount < windowSize) ++_sampleCount;
+
+        // A partially filled regression window has a changing response; do not
+        // use it for apogee decisions.
+        if (_sampleCount < windowSize) return;
+
+        const uint32_t oldestTimestampMs = _sampleTimestampsMs[_nextWriteIndex];
+        float sumTimeS = 0.0f;
+        float sumAltitudeM = 0.0f;
+        float sumTimeSquaredS2 = 0.0f;
+        float sumTimeAltitudeMS = 0.0f;
+
+        for (size_t sampleOffset = 0; sampleOffset < windowSize; ++sampleOffset) {
+            const size_t sampleIndex = (_nextWriteIndex + sampleOffset) % windowSize;
+            // Unsigned subtraction also handles millis() wrap for this short window.
+            const float timeSinceOldestS = static_cast<float>(
+                _sampleTimestampsMs[sampleIndex] - oldestTimestampMs) / 1000.0f;
+            const float sampleAltitudeM = _altitudeSamplesM[sampleIndex];
+
+            sumTimeS += timeSinceOldestS;
+            sumAltitudeM += sampleAltitudeM;
+            sumTimeSquaredS2 += timeSinceOldestS * timeSinceOldestS;
+            sumTimeAltitudeMS += timeSinceOldestS * sampleAltitudeM;
         }
 
-        // Do not calculate velocity until we have a full window of data
-        if (!_is_full) return;
+        // Least-squares slope of altitude over time:
+        //
+        // $$ v = \frac{N\sum(t_i h_i) - \sum t_i \sum h_i}{N\sum(t_i^2) - (\sum t_i)^2} $$
+        //
+        // `timeSinceOldestS` is seconds and altitude is metres, so v is m/s.
+        const float slopeDenominator =
+            (windowSize * sumTimeSquaredS2) - (sumTimeS * sumTimeS);
+        if (slopeDenominator > 0.000001f) {
+            _estimatedVelocityMps =
+                ((windowSize * sumTimeAltitudeMS) - (sumTimeS * sumAltitudeM)) /
+                slopeDenominator;
 
-        float sum_y = 0.0f;
-        float sum_xy = 0.0f;
-
-        // Iterate through buffer from oldest (x=0) to newest (x=WindowSize-1)
-        for (size_t i = 0; i < WindowSize; ++i) {
-            size_t idx = (_head + i) % WindowSize;
-            float y = _y_buffer[idx];
-            
-            sum_y += y;
-            sum_xy += (i * y);
+            // Require consecutive descending OLS fits to reject a one-window
+            // noise excursion. The configured threshold remains the definition
+            // of a descending fit (normally a small negative velocity).
+            if (_estimatedVelocityMps <= _apogeeTriggerVelocityMps) {
+                if (_consecutiveDescendingFits < _confirmationWindows) {
+                    ++_consecutiveDescendingFits;
+                }
+            } else {
+                _consecutiveDescendingFits = 0;
+            }
         }
-
-        // Calculate slope (change in altitude per sample)
-        float slope_per_sample = ((WindowSize * sum_xy) - (_sum_x * sum_y)) / _denominator;
-
-        // Convert sample slope to physical velocity (m/s)
-        _estimated_velocity = slope_per_sample / _dt;
     }
 
-    // Returns true if the rocket is still going up (velocity is > trigger threshold)
-    bool isRising() const {
-        if (!_is_full) return true; 
-        return _estimated_velocity > _trigger_velocity;
+    bool isRising() const
+    {
+        // Remain safely "rising" until enough descending fits confirm apogee.
+        return _sampleCount < _activeWindowSize ||
+               _consecutiveDescendingFits < _confirmationWindows;
     }
 
-    float getVelocity() const { return _estimated_velocity; }
-    bool isReady() const { return _is_full; }
-    void reset() { _head = 0; _is_full = false; _estimated_velocity = 0.0f; }
+    float getVelocity() const { return _estimatedVelocityMps; }
+    void reset()
+    {
+        _nextWriteIndex = 0;
+        _sampleCount = 0;
+        _consecutiveDescendingFits = 0;
+        _estimatedVelocityMps = 0.0f;
+    }
 
 private:
-    std::array<float, WindowSize> _y_buffer;
-    size_t _head = 0;
-    bool _is_full = false;
-
-    float _dt;
-    float _trigger_velocity;
-    float _estimated_velocity = 0.0f;
-    
-    float _sum_x;
-    float _sum_x2;
-    float _denominator;
+    std::array<float, MaxWindowSize> _altitudeSamplesM;
+    std::array<uint32_t, MaxWindowSize> _sampleTimestampsMs;
+    size_t _nextWriteIndex = 0;
+    size_t _sampleCount = 0;
+    size_t _activeWindowSize = MaxWindowSize;
+    float _apogeeTriggerVelocityMps = -0.5f;
+    uint8_t _confirmationWindows = 3;
+    uint8_t _consecutiveDescendingFits = 0;
+    float _estimatedVelocityMps = 0.0f;
 };
 
 /**
@@ -174,12 +214,11 @@ private:
     FixedMedianFilter<ALTITUDE_FILTER_MAX_WINDOW> pressureFilter;
     
     // OLS Apogee Detector: 
-    // Uses the window size defined in config.h. Assuming 50Hz task rate (20ms delay).
-    // Triggers when estimated vertical velocity drops below -0.5 m/s.
+    // Window, sample rate, and trigger velocity come from RuntimeConfig.
     // We could switch the -0.5 to something positive like 1.0/2.0 to try triggering 
     // it before the apogee, but we should be carefull at the end of the motor burnout, 
     // as there is a strong drag force (which should be covered by the RuntimeConfig apogee lockout)
-    OLSApogeeDetector<APOGEE_DETECTION_WINDOW_SIZE> apogeeDetector{50.0f, -0.5f};
+    OLSApogeeDetector<APOGEE_DETECTOR_MAX_WINDOW> apogeeDetector;
 
     // Atmospheric Constants
     static constexpr float TEMP_GRADIENT = 0.0065f; // [K/m]
@@ -189,10 +228,6 @@ private:
     // Precomputed inverse exponent for the altitude formula
     static constexpr float N_INV = (AIR_GAS_CONST * TEMP_GRADIENT) / GRAVITY;
 
-    // Maximum physically possible pressure change per 20ms tick.
-    // 80 Pa ≈ 6.8 meters ≈ 340 m/s (Mach 1).
-    static constexpr float MAX_DELTA_P_PER_TICK = 80.0f; 
-
     /**
      * @brief Calculates altitude using the hypsometric formula.
      */
@@ -201,5 +236,5 @@ private:
     /**
      * @brief Updates the trend buffer and evaluates if the rocket is still rising.
      */
-    void updateRisingTrend(float currentAltitude);
+    void updateRisingTrend(float currentAltitude, uint32_t timestamp);
 };

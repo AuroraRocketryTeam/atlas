@@ -72,7 +72,7 @@
 // Barometer filter and apogee-window defaults are owned by AltitudeConfig.
 // Keep the legacy defines commented while older users are migrated.
 // #define ALTITUDE_FILTER_WINDOW 11
-#define APOGEE_DETECTION_WINDOW_SIZE 35
+// #define APOGEE_DETECTION_WINDOW_SIZE 35
 
 #define STATE_INDEX_ALTITUDE 0
 #define STATE_INDEX_VELOCITY 1
