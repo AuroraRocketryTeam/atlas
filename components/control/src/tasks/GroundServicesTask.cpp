@@ -64,6 +64,10 @@
 #include "utils.h"
 
 static const char *TAG = "GroundServices";
+// Live Data is best-effort operator monitoring; 10 Hz is responsive without
+// creating unnecessary HTTPD and Wi-Fi load on the flight controller.
+static constexpr uint32_t GROUND_SERVICES_LOOP_PERIOD_MS = 100;
+static constexpr uint32_t GROUND_STACK_LOG_PERIOD_MS = 5000;
 
 #ifndef CONFIG_GROUND_SERVICES_AUTH_TOKEN
 #error "CONFIG_GROUND_SERVICES_AUTH_TOKEN must be configured. It is used as the HMAC shared secret for Ground Services."
@@ -79,6 +83,7 @@ static constexpr size_t LOG_RESPONSE_BUFFER_SIZE = 4096;
 static constexpr size_t MAX_HTTP_CLIENTS = 4;
 static constexpr size_t MAX_WS_CLIENTS = 2;
 static constexpr size_t REGISTERED_URI_HANDLERS = 31;
+static constexpr size_t HTTPD_STACK_SIZE = 5120;
 static constexpr size_t LOG_WS_PREFIX_SPACE = 16;
 static constexpr suseconds_t WS_SEND_TIMEOUT_US = 200000;
 static constexpr uint32_t AUTH_NONCE_TTL_MS = 30000;
@@ -89,6 +94,7 @@ static_assert(STREAM_CHUNK_SIZE <= RESPONSE_BUFFER_SIZE, "Stream chunks must fit
 // so request, response, and log payloads can share one buffer.
 alignas(StorageFileInfo) static char s_responseBuffer[RESPONSE_BUFFER_SIZE];
 static std::atomic_bool s_wsBroadcastQueued{false};
+static std::atomic_bool s_httpdStackWarningIssued{false};
 static size_t s_nextLogClient = 0;
 static std::atomic_uint32_t s_wsSendFailures{0};
 static std::atomic_uint32_t s_wsSlowClientDrops{0};
@@ -586,10 +592,16 @@ void GroundServicesTask::onTaskStop()
 
 void GroundServicesTask::taskFunction()
 {
+    uint32_t lastStackLogMs = millis() - GROUND_STACK_LOG_PERIOD_MS;
     while (running) {
         esp_task_wdt_reset();
         queueWebSocketBroadcast();
-        vTaskDelay(pdMS_TO_TICKS(100));
+        const uint32_t now = millis();
+        if (now - lastStackLogMs >= GROUND_STACK_LOG_PERIOD_MS) {
+            LOG_INFO(TAG, "Stack remaining: %lu bytes", static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
+            lastStackLogMs = now;
+        }
+        vTaskDelay(pdMS_TO_TICKS(GROUND_SERVICES_LOOP_PERIOD_MS));
     }
 }
 
@@ -610,6 +622,17 @@ void GroundServicesTask::queueWebSocketBroadcast()
 void GroundServicesTask::webSocketBroadcastWork(void *arg)
 {
     auto *self = static_cast<GroundServicesTask *>(arg);
+    static uint32_t lastStackCheckMs = 0;
+    const uint32_t now = Utils::realMillis();
+    if (now - lastStackCheckMs >= 5000) {
+        lastStackCheckMs = now;
+        const uint32_t stackRemaining = uxTaskGetStackHighWaterMark(nullptr);
+        if (stackRemaining * 100U < HTTPD_STACK_SIZE * 15U &&
+            !s_httpdStackWarningIssued.exchange(true, std::memory_order_relaxed)) {
+            LOG_WARNING(TAG, "HTTPD stack usage above 85%% (remaining=%lu/%u bytes)",
+                        static_cast<unsigned long>(stackRemaining), static_cast<unsigned>(HTTPD_STACK_SIZE));
+        }
+    }
     if (self->_server != nullptr && !self->_otaExclusive.load(std::memory_order_acquire)) {
         self->broadcastLiveData();
         self->broadcastLogs();
@@ -623,7 +646,7 @@ esp_err_t GroundServicesTask::startServer()
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_uri_handlers = REGISTERED_URI_HANDLERS;
-    config.stack_size = 4096;
+    config.stack_size = HTTPD_STACK_SIZE;
     config.max_open_sockets = MAX_HTTP_CLIENTS;
     config.backlog_conn = 2;
     config.recv_wait_timeout = 20;
@@ -991,6 +1014,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
 esp_err_t GroundServicesTask::healthGetHandler(httpd_req_t *req)
 {
     auto *self = fromReq(req);
+    if (!self) return ESP_ERR_INVALID_ARG;
 
     IMUData imu = {};
     AccelerometerSensorData acc = {};
