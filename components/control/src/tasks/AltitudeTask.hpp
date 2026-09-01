@@ -9,31 +9,48 @@
 #include <array>
 #include <algorithm>
 
-// Toggle to switch between Baro 1 and Baro 2
-#define BARO_1
+// Barometer noise filtering
+// ALTITUDE_FILTER_WINDOW: Size of median filter window for pressure/altitude smoothing
+// Smaller = faster response but more noise (1 = no filtering)
+// Larger = smoother but more lag (recommended: 3-7)
+// At 10Hz sampling: window=5 adds 50ms lag
+inline constexpr size_t ALTITUDE_FILTER_MAX_WINDOW = 31;
+inline constexpr size_t APOGEE_DETECTOR_MAX_WINDOW = 64;
+inline constexpr uint32_t ALTITUDE_FILTER_DEFAULT_WINDOW = 11;
+inline constexpr uint32_t APOGEE_DETECTOR_DEFAULT_WINDOW = 35;
+
+// TODO: ApogeeDetectorConfig?
+struct AltitudeConfig {
+    uint32_t filter_window;
+    float max_pressure_rate_pa_per_s;
+    uint32_t apogee_window_size;
+    float apogee_sample_rate_hz;
+    float apogee_trigger_velocity_mps;
+    uint8_t selected_barometer;
+};
 
 /**
  * @brief RTOS-Safe Median Filter using fixed-size arrays.
  */
-template <size_t WindowSize>
+template <size_t MaxWindowSize>
 class FixedMedianFilter {
 public:
     FixedMedianFilter() { buffer.fill(0.0f); }
 
-    float update(float newValue) {
+    float update(float newValue, size_t windowSize) {
         buffer[head] = newValue;
-        head = (head + 1) % WindowSize;
+        head = (head + 1) % windowSize;
         
-        if (count < WindowSize) {
+        if (count < windowSize) {
             count++;
             return newValue; 
         }
 
-        std::array<float, WindowSize> sorted = buffer;
-        std::sort(sorted.begin(), sorted.end());
+        std::array<float, MaxWindowSize> sorted = buffer;
+        std::sort(sorted.begin(), sorted.begin() + windowSize);
 
-        constexpr size_t mid = WindowSize / 2;
-        if constexpr (WindowSize % 2 == 0) {
+        const size_t mid = windowSize / 2;
+        if (windowSize % 2 == 0) {
             return (sorted[mid - 1] + sorted[mid]) / 2.0f;
         } else {
             return sorted[mid];
@@ -41,10 +58,10 @@ public:
     }
     
     void reset() { count = 0; head = 0; }
-    bool isReady() const { return count >= WindowSize; }
+    bool isReady(size_t windowSize) const { return count >= windowSize; }
     
 private:
-    std::array<float, WindowSize> buffer;
+    std::array<float, MaxWindowSize> buffer;
     size_t head = 0;
     size_t count = 0;
 };
@@ -154,7 +171,7 @@ private:
     float _max_altitude_read;
     
     // RTOS-Safe Filters
-    FixedMedianFilter<ALTITUDE_FILTER_WINDOW> pressureFilter;
+    FixedMedianFilter<ALTITUDE_FILTER_MAX_WINDOW> pressureFilter;
     
     // OLS Apogee Detector: 
     // Uses the window size defined in config.h. Assuming 50Hz task rate (20ms delay).

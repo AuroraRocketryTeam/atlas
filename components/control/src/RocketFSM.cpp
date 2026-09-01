@@ -7,7 +7,6 @@
 
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
-static constexpr RecoveryMode RECOVERY_MODE = AURORA_RECOVERY_MODE;
 
 RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
                      std::shared_ptr<SD> sd,
@@ -323,13 +322,14 @@ void RocketFSM::deployDrogue()
 
 void RocketFSM::deployApogeeRecovery()
 {
-    if constexpr (RECOVERY_MODE == RecoveryMode::OneParachuteMode)
+    const auto recoveryMode = static_cast<RecoveryMode>(runtime_config_get_flight_snapshot().recovery.mode);
+    if (recoveryMode == RecoveryMode::OneParachuteMode)
     {
         LOG_INFO("RocketFSM", "APOGEE recovery policy: OneParachuteMode -> deploy MAIN (and DROGUE)");
         deployMain();
         deployDrogue(); // the parachute is attached to both main-pin and drogue-pin. so for safety command both.
     }
-    else if constexpr (RECOVERY_MODE == RecoveryMode::TwoParachuteMode)
+    else if (recoveryMode == RecoveryMode::TwoParachuteMode)
     {
         LOG_INFO("RocketFSM", "APOGEE recovery policy: TwoParachuteMode -> deploy DROGUE");
         deployDrogue();
@@ -339,12 +339,13 @@ void RocketFSM::deployApogeeRecovery()
 
 void RocketFSM::deployStabilizationExitRecovery()
 {
-    if constexpr (RECOVERY_MODE == RecoveryMode::OneParachuteMode)
+    const auto recoveryMode = static_cast<RecoveryMode>(runtime_config_get_flight_snapshot().recovery.mode);
+    if (recoveryMode == RecoveryMode::OneParachuteMode)
     {
         LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: OneParachuteMode -> no deployment");
         return;
     }
-    else if constexpr (RECOVERY_MODE == RecoveryMode::TwoParachuteMode)
+    else if (recoveryMode == RecoveryMode::TwoParachuteMode)
     {
         LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: TwoParachuteMode -> deploy MAIN");
         deployMain();
@@ -535,12 +536,12 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering RECOVERED"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Recovered", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Recovered", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Recovered", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Recovered", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Recovered", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Recovered", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Recovered", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Recovered", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
     LOG_INFO("RocketFSM", "State actions setup complete");
@@ -791,7 +792,7 @@ void RocketFSM::checkTransitions()
         accZ = outBno055Data.acceleration_z;
     }
 
-    const RuntimeConfig &runtimeCfg = runtime_config_get_flight_snapshot();
+    const RuntimeConfig runtimeCfg = runtime_config_get_flight_snapshot();
 
     // Fast state-based checks
     switch (_currentState)
@@ -807,8 +808,10 @@ void RocketFSM::checkTransitions()
     case RocketState::CALIBRATING:
     {
         PressureSensorData outBaroData;
-        const SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outBaroData);
-        bool useBaroSample = baro1Status == SensorReadStatus::OK;
+        const SensorReadStatus baroStatus = runtimeCfg.altitude.selected_barometer == 1
+            ? _rocketModel->getMS561101BA03Data_1(outBaroData)
+            : _rocketModel->getMS561101BA03Data_2(outBaroData);
+        bool useBaroSample = baroStatus == SensorReadStatus::OK;
 
 #if CONFIG_AURORA_HIL_SIMULATION
         static bool hasLastBaroTimestamp = false;
@@ -830,10 +833,10 @@ void RocketFSM::checkTransitions()
         {
             if (outBaroData.pressure > 0.0f)
             {
-                _rocketModel->addBarometerSample(outBaroData.pressure);
+                _rocketModel->addBarometerSample(outBaroData.pressure, runtimeCfg.calibration.barometer_samples);
             }
 
-            _rocketModel->addTemperatureSample(outBaroData.temperature + 273.15f);
+            _rocketModel->addTemperatureSample(outBaroData.temperature + 273.15f, runtimeCfg.calibration.temperature_samples);
         }
 
         const bool isBaroReady = _rocketModel->isBarometerZeroed();
@@ -850,7 +853,7 @@ void RocketFSM::checkTransitions()
             LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed & IMU calibrated.");
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
-        else if (Utils::millis() - _stateStartTime > 10000U)
+        else if (Utils::millis() - _stateStartTime > runtimeCfg.calibration.timeout_ms)
         {
             LOG_WARNING("RocketFSM", "Calibration timeout! Forcing completion. Baro Ready: %d, IMU Ready: %d",
                         isBaroReady, isBnoReady);
@@ -863,13 +866,13 @@ void RocketFSM::checkTransitions()
         try {
             auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
 
-            if (accMag > runtimeCfg.liftoff_accel_threshold_mps2)
+            if (accMag > runtimeCfg.flight.liftoff_accel_threshold_mps2)
             {
                 if (launchHighSince == 0)
                 {
                     launchHighSince = Utils::millis();
                 }
-                else if (Utils::millis() - launchHighSince >= runtimeCfg.liftoff_timeout_ms)
+                else if (Utils::millis() - launchHighSince >= runtimeCfg.flight.liftoff_timeout_ms)
                 {
                     _launchDetectionTime = Utils::millis();
                     sendEvent(FSMEvent::LAUNCH_DETECTED);
@@ -893,7 +896,7 @@ void RocketFSM::checkTransitions()
 
     case RocketState::ACCELERATED_FLIGHT:
         
-        if (Utils::millis() - _launchDetectionTime >= runtimeCfg.launch_to_ballistic_threshold_ms)
+        if (Utils::millis() - _launchDetectionTime >= runtimeCfg.flight.launch_to_ballistic_threshold_ms)
         {
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);
         }
@@ -904,16 +907,16 @@ void RocketFSM::checkTransitions()
         auto elapsed = Utils::millis() - _launchDetectionTime;
         
         // Ignore all sensor apogee logic until the initial chaotic burn phase ends
-        if (elapsed > runtimeCfg.apogee_lockout_ms)
+        if (elapsed > runtimeCfg.flight.apogee_lockout_ms)
         {
-            if (!_rocketModel->getIsRising() || (elapsed >= runtimeCfg.launch_to_apogee_threshold_ms))
+            if (!_rocketModel->getIsRising() || (elapsed >= runtimeCfg.flight.launch_to_apogee_threshold_ms))
             {
                 LOG_INFO("RocketFSM", "Apogee detected! Elapsed: %lu ms", elapsed);
                 sendEvent(FSMEvent::APOGEE_REACHED);
             }
         } 
         // If we somehow haven't hit the lockout but the max time elapsed, trigger anyway
-        else if (elapsed >= runtimeCfg.launch_to_apogee_threshold_ms)
+        else if (elapsed >= runtimeCfg.flight.launch_to_apogee_threshold_ms)
         {
             LOG_WARNING("RocketFSM", "Apogee Lockout bypassed due to absolute max time limit!");
             sendEvent(FSMEvent::APOGEE_REACHED);
@@ -924,7 +927,7 @@ void RocketFSM::checkTransitions()
 
     case RocketState::APOGEE:
         LOG_INFO("RocketFSM", "Drogue Opened! %d", Utils::millis()-_launchDetectionTime);
-        if (Utils::millis() - _stateStartTime >= runtimeCfg.drogue_apogee_timeout_ms)
+        if (Utils::millis() - _stateStartTime >= runtimeCfg.flight.drogue_apogee_timeout_ms)
         {
             sendEvent(FSMEvent::DROGUE_READY);
         }
@@ -936,7 +939,7 @@ void RocketFSM::checkTransitions()
         
         // LOG_INFO("RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight);
         
-        if (currentHeight < runtimeCfg.main_altitude_threshold_m)
+        if (currentHeight < runtimeCfg.flight.main_altitude_threshold_m)
         {
             LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", currentHeight, Utils::millis() - _stateStartTime);
             sendEvent(FSMEvent::STABILIZATION_COMPLETE);
@@ -947,13 +950,9 @@ void RocketFSM::checkTransitions()
 
     case RocketState::DECELERATION:
     {
-        // In DECELERATION state, vertical velocity in heightGainSpeed will still be tracked, but it should be negative (falling)
-        // !!! choose if chenge the control to be with negative values or to invert the value here
         const float currentHeight = _rocketModel->getCurrentHeight();
-        const float verticalSpeedAbs = std::fabs(_rocketModel->getHeightGainSpeed());
 
-        if (currentHeight < runtimeCfg.touchdown_altitude_threshold_m)
-        // && verticalSpeedAbs <= runtimeCfg.touchdown_velocity_threshold_mps)
+        if (currentHeight < runtimeCfg.flight.touchdown_altitude_threshold_m)
         {
             sendEvent(FSMEvent::DECELERATION_COMPLETE);
         }

@@ -518,38 +518,38 @@ bool RocketModel::isSensorSystemCalibrated() {
     return true; 
 }
 
-void RocketModel::addBarometerSample(float pressure) {
+void RocketModel::addBarometerSample(float pressure, size_t requiredSamples) {
     if (_barometerZeroed) return;
 
-    if (_barometerSamples.size() < REQUIRED_BARO_SAMPLES) {
+    if (_barometerSamples.size() < requiredSamples) {
         _barometerSamples.push_back(pressure);
     }
 
-    if (_barometerSamples.size() >= REQUIRED_BARO_SAMPLES) {
+    if (_barometerSamples.size() >= requiredSamples) {
         float sum = 0.0f;
         for (float p : _barometerSamples) {
             sum += p;
         }
-        _launchpadBasePressure = sum / REQUIRED_BARO_SAMPLES;
+        _launchpadBasePressure = sum / requiredSamples;
         _barometerZeroed = true;
         
         LOG_INFO("RocketModel", "Barometer zeroed. Base pressure set to: %.2f", _launchpadBasePressure);
     }
 }
 
-void RocketModel::addTemperatureSample(float temperature) {
+void RocketModel::addTemperatureSample(float temperature, size_t requiredSamples) {
     if (_temperatureZeroed) return;
 
-    if (_temperatureSamples.size() < REQUIRED_TEMPERATURE_SAMPLES) {
+    if (_temperatureSamples.size() < requiredSamples) {
         _temperatureSamples.push_back(temperature);
     }
 
-    if (_temperatureSamples.size() >= REQUIRED_TEMPERATURE_SAMPLES) {
+    if (_temperatureSamples.size() >= requiredSamples) {
         float sum = 0.0f;
         for (float p : _temperatureSamples) {
             sum += p;
         }
-        _launchpadBaseTemperature = sum / REQUIRED_TEMPERATURE_SAMPLES;
+        _launchpadBaseTemperature = sum / requiredSamples;
         _temperatureZeroed = true;
         
         LOG_INFO("RocketModel", "Temperature zeroed. Base temperature set to: %.2f", _launchpadBaseTemperature);

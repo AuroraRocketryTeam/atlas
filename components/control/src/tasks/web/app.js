@@ -1253,9 +1253,20 @@ function configInput(key, value) {
   return `<label class="${classes}">
     <span class="config-label"><strong>${esc(meta.label || key)}</strong>${badges}</span>
     <span class="config-control">${input}${meta.unit ? `<small>${esc(meta.unit)}</small>` : ''}</span>
-    <span class="config-desc">${esc(meta.description || '')}</span>
+    <span class="config-desc">${esc(meta.description || '')}${meta.source ? ` · Source: ${esc(meta.source)}` : ''}</span>
     ${issue ? `<span class="config-message">${esc(issue.message)}</span>` : ''}
   </label>`;
+}
+
+function configReadOnlyTable(fields) {
+  return `<div class="config-table-wrap"><table class="config-table">
+    <thead><tr><th>Parameter</th><th>Value</th><th>Source</th></tr></thead>
+    <tbody>${fields.map(field => {
+      const value = runtimeConfig[field.key];
+      const display = `${value === undefined ? '—' : value}${field.unit ? ` ${field.unit}` : ''}`;
+      return `<tr><td><strong>${esc(field.label || field.key)}</strong><small>${esc(field.description || '')}</small></td><td>${esc(display)}</td><td>${esc(field.source || 'unknown')}</td></tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
 }
 
 async function loadConfig() {
@@ -1267,20 +1278,28 @@ async function loadConfig() {
   runtimeConfig = cfg;
   runtimeSchema = schema.ok ? schema : { fields: [] };
   runtimeValidation = validation.ok === false || validation.ok === true ? validation : { items: [] };
-  const groups = (runtimeSchema.fields || []).reduce((acc, field) => {
+  const editableFields = (runtimeSchema.fields || []).filter(field => field.editable);
+  const editableGroups = editableFields.reduce((acc, field) => {
     if (!acc[field.group]) acc[field.group] = [];
     acc[field.group].push(field);
     return acc;
   }, {});
-  document.getElementById('configEditor').innerHTML = Object.entries(groups).map(([group, fields]) =>
-    `<section class="config-group"><h3>${esc(group)}</h3><div class="config-grid">
+  const readOnlyGroups = (runtimeSchema.fields || []).filter(field => !field.editable).reduce((acc, field) => {
+    if (!acc[field.group]) acc[field.group] = [];
+    acc[field.group].push(field);
+    return acc;
+  }, {});
+  document.getElementById('configEditor').innerHTML = `
+    ${Object.entries(editableGroups).map(([group, fields]) => `<section class="config-group"><h3>${esc(group)}</h3><p class="config-intro">Editable before the flight lock.</p><div class="config-grid">
       ${fields.map(field => configInput(field.key, runtimeConfig[field.key])).join('')}
-    </div></section>`
-  ).join('');
+    </div></section>`).join('')}
+    <section class="config-group"><h3>Configuration inspection</h3><p class="config-intro">Compiled, hardware, and algorithm values are read-only. Expand a table only when needed.</p>
+      ${Object.entries(readOnlyGroups).map(([group, fields]) => `<details class="config-inspection"><summary>${esc(group)} <span>${fields.length}</span></summary>${configReadOnlyTable(fields)}</details>`).join('')}
+    </section>`;
   const locked = runtimeConfig.config_locked ? 'LOCKED FOR FLIGHT' : 'Editable in Ground Services';
   const valid = runtimeValidation.ok ? 'valid' : 'invalid';
-  document.getElementById('configStatus').textContent = `${locked} - ${valid}\n${JSON.stringify(runtimeValidation, null, 2)}`;
-  document.getElementById('unlockConfig').disabled = !runtimeConfig.config_locked;
+  document.getElementById('configStatus').textContent = `${locked} - ${valid} - schema v${runtimeConfig.schema_version}, revision ${runtimeConfig.config_revision}\n${JSON.stringify(runtimeValidation, null, 2)}`;
+  document.getElementById('unlockConfig').classList.toggle('hidden', runtimeConfig.config_locked !== true);
 }
 
 async function saveConfig() {

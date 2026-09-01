@@ -14,6 +14,12 @@
 #include <Arduino.h>
 #include <config.h>
 
+// Telemetry cadence is a compiled implementation setting: inspectable, but
+// deliberately not an operator-editable mission parameter.
+struct TelemetryConfig {
+    uint32_t period_ms;
+};
+
 /**
  * @brief Binary telemetry packet structure for efficient transmission.
  *

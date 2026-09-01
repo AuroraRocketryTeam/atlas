@@ -550,15 +550,6 @@ void GroundServicesTask::onTaskStart()
     }
 
     if (_board != nullptr) {
-        if (!_board->initNvs()) {
-            LOG_ERROR(TAG, "Failed to initialize board NVS");
-            return;
-        }
-    }
-
-    ESP_ERROR_CHECK(runtime_config_init(_board));
-
-    if (_board != nullptr) {
         if (!_board->startWifiSoftAp()) {
             LOG_ERROR(TAG, "Failed to start Ground Services SoftAP");
             return;
@@ -1430,11 +1421,11 @@ static const char *recoveryModeToChecklistMessage(RecoveryMode mode)
 {
     switch (mode) {
         case RecoveryMode::OneParachuteMode:
-            return "Compiled recovery mode: one parachute";
+            return "Runtime recovery mode: one parachute";
         case RecoveryMode::TwoParachuteMode:
-            return "Compiled recovery mode: two parachutes";
+            return "Runtime recovery mode: two parachutes";
         default:
-            return "Compiled recovery mode: unknown";
+            return "Runtime recovery mode: unknown";
     }
 }
 
@@ -1442,15 +1433,13 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
 {
     if (self == nullptr || body == nullptr || ok_out == nullptr) return ESP_ERR_INVALID_ARG;
 
-    RuntimeConfig cfg;
+    RuntimeConfig cfg = runtime_config_defaults();
     char reason[128] = {};
     const bool config_loaded = runtime_config_get(&cfg) == ESP_OK;
     const bool config_valid = config_loaded && runtime_config_validate(&cfg, reason, sizeof(reason)) == ESP_OK;
     const bool config_unlocked = config_loaded && !cfg.config_locked;
     const bool barometer_ready = self->_rocketModel && self->_rocketModel->isBarometerZeroed();
     const bool imu_ready = self->_rocketModel && self->_rocketModel->isSensorSystemCalibrated();
-    const bool telemetry_enabled = config_loaded && cfg.telemetry_enabled;
-    const bool logging_enabled = config_loaded && cfg.logging_enabled;
 
     bool all_ok = true;
     size_t offset = 0;
@@ -1462,9 +1451,8 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, config_unlocked, "config_unlocked", "Config not already locked", "error", config_unlocked ? "Configuration can be locked for flight" : "Configuration is already locked")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, barometer_ready, "barometer_baseline", "Barometer baseline available", "error", barometer_ready ? "Barometer baseline is available" : "Barometer baseline is not ready")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, imu_ready, "imu_calibrated", "IMU calibrated", "error", imu_ready ? "IMU calibration is ready" : "IMU calibration is not ready")) return ESP_ERR_NO_MEM;
-    if (!appendChecklistItem(body, body_size, &offset, &all_ok, telemetry_enabled, "telemetry_enabled", "Telemetry enabled", "error", telemetry_enabled ? "Telemetry is enabled for flight" : "Telemetry must be enabled for flight")) return ESP_ERR_NO_MEM;
-    if (!appendChecklistItem(body, body_size, &offset, &all_ok, logging_enabled, "logging_enabled", "Logging enabled", "error", logging_enabled ? "Logging is enabled for flight" : "Logging must be enabled for flight")) return ESP_ERR_NO_MEM;
-    if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "recovery_mode", "Recovery mode", "info", recoveryModeToChecklistMessage(AURORA_RECOVERY_MODE))) return ESP_ERR_NO_MEM;
+    if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "recovery_mode", "Recovery mode", "info",
+                             recoveryModeToChecklistMessage(static_cast<RecoveryMode>(cfg.recovery.mode)))) return ESP_ERR_NO_MEM;
 
     written = snprintf(body + offset, body_size - offset, "],\"ok\":%s}", all_ok ? "true" : "false");
     if (written < 0 || static_cast<size_t>(written) >= body_size - offset) return ESP_ERR_NO_MEM;

@@ -13,10 +13,11 @@ void AltitudeTask::taskFunction()
     uint32_t lastTimestamp = 0;
     uint32_t last_packet_log_ms = Utils::realMillis() - ALTITUDE_LOG_PERIOD_MS;
     
-    const RuntimeConfig &flightConfig = runtime_config_get_flight_snapshot();
+    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+    const TickType_t taskPeriod = pdMS_TO_TICKS(static_cast<uint32_t>(1000.0f / runtimeConfig.altitude.apogee_sample_rate_hz));
     
     // Baseline for the slew rate limiter
-    static float lastValidPressure = -1.0f; 
+    static float lastValidPressure = -1.0f;
 
     while (running)
     {
@@ -24,11 +25,9 @@ void AltitudeTask::taskFunction()
         if(!running) break;
 
         PressureSensorData baroData;
-#ifdef BARO_1
-        SensorReadStatus baro_status = _rocketModel->getMS561101BA03Data_1(baroData);
-#else
-        SensorReadStatus baro_status = _rocketModel->getMS561101BA03Data_2(baroData);
-#endif
+        SensorReadStatus baro_status = runtimeConfig.altitude.selected_barometer == 1
+            ? _rocketModel->getMS561101BA03Data_1(baroData)
+            : _rocketModel->getMS561101BA03Data_2(baroData);
         // Reject identical simulated packets
         if ((baro_status != SensorReadStatus::OK) || baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
             vTaskDelay(pdMS_TO_TICKS(10));
@@ -38,15 +37,11 @@ void AltitudeTask::taskFunction()
         lastTimestamp = baroData.timestamp;
         float rawPressure = baroData.pressure;
 
-        // Physics Lock, if the pressure change is too extreme, clamp it 
-        // to a maximum plausible change based on physical limits of the 
-        // atmosphere and the sampling rate (prevents spikes instability errors)
+        // Clamp pressure steps to suppress corrupt sensor samples.
         if (lastValidPressure < 0.0f) {
             lastValidPressure = rawPressure;
         } else {
             float deltaP = rawPressure - lastValidPressure;
-            
-            // Clamp the pressure change to physical reality
             if (deltaP > MAX_DELTA_P_PER_TICK) {
                 rawPressure = lastValidPressure + MAX_DELTA_P_PER_TICK;
             } else if (deltaP < -MAX_DELTA_P_PER_TICK) {
@@ -56,10 +51,10 @@ void AltitudeTask::taskFunction()
         }
         
         // Median Filter (removes isolated outliers)
-        float filteredPressure = pressureFilter.update(rawPressure);
+        float filteredPressure = pressureFilter.update(rawPressure, runtimeConfig.altitude.filter_window);
 
-        if (!pressureFilter.isReady()) {
-            vTaskDelay(pdMS_TO_TICKS(20));
+        if (!pressureFilter.isReady(runtimeConfig.altitude.filter_window)) {
+            vTaskDelay(taskPeriod);
             continue;
         }
         
@@ -68,8 +63,8 @@ void AltitudeTask::taskFunction()
         if (_rocketModel->isBarometerZeroed()) {
             currentAltitude = calculateAltitude(filteredPressure, _rocketModel->getLaunchpadBasePressure());
         } else {
-            const float seaLevelPressurePa = flightConfig.sea_level_pressure_hpa * 100.0f;
-            currentAltitude = calculateAltitude(filteredPressure, seaLevelPressurePa) - flightConfig.launch_site_altitude_m;
+            const float seaLevelPressurePa = runtimeConfig.mission.sea_level_pressure_hpa * 100.0f;
+            currentAltitude = calculateAltitude(filteredPressure, seaLevelPressurePa) - runtimeConfig.mission.launch_site_altitude_m;
         }
 
         // Apogee & Trend Detection
@@ -92,8 +87,8 @@ void AltitudeTask::taskFunction()
                  currentAltitude, currentVelocity, _max_altitude_read);
             last_packet_log_ms = now_ms;
         }
-        
-        vTaskDelay(pdMS_TO_TICKS(20));
+
+        vTaskDelay(taskPeriod);
     }
 }
 
@@ -111,6 +106,6 @@ float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
 
 void AltitudeTask::updateRisingTrend(float currentAltitude)
 {
-    apogeeDetector.update(currentAltitude);   
+    apogeeDetector.update(currentAltitude);
     _rocketModel->setIsRising(apogeeDetector.isRising());
 }

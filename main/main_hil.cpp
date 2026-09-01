@@ -48,6 +48,7 @@
 
 // Main system
 #include <RocketFSM.hpp>
+#include <RuntimeConfig.hpp>
 #include <E220LoRaTransmitter.hpp>
 
 // Board hardware instance
@@ -111,6 +112,7 @@ void setupHil()
 
     // Initialize NVS
     ESP_ERROR_CHECK(board.initNvs() ? ESP_OK : ESP_FAIL);
+    ESP_ERROR_CHECK(runtime_config_init(&board));
 
     // Initialize components
     // LOG_INFO("Main", "Initializing sensors...");

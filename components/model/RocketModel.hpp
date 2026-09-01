@@ -350,7 +350,7 @@ public:
      * @brief Feed a pressure reading into the zeroing algorithm
      * @param pressure The current pressure reading
      */
-    void addBarometerSample(float pressure);
+    void addBarometerSample(float pressure, size_t requiredSamples);
 
     /**
      * @brief Get the number of barometer samples collected for zeroing
@@ -376,7 +376,7 @@ public:
      * @brief Add a temperature sample for zeroing
      * @param temperature The current temperature reading
      */
-    void addTemperatureSample(float temperature);
+    void addTemperatureSample(float temperature, size_t requiredSamples);
 
     /**
      * @brief Get the calculated launchpad baseline temperature
@@ -434,10 +434,8 @@ private:
     std::vector<float> _barometerSamples;
     float _launchpadBasePressure = 0.0f;
     bool _barometerZeroed = false;
-    static constexpr size_t REQUIRED_BARO_SAMPLES = 100;
 
     std::vector<float> _temperatureSamples;
     float _launchpadBaseTemperature = 0.0f;
     bool _temperatureZeroed = false;
-    static constexpr size_t REQUIRED_TEMPERATURE_SAMPLES = 100;
 };

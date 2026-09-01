@@ -622,6 +622,28 @@ pre {
   margin: 0 0 10px;
   font-size: 16px;
 }
+.config-intro {
+  margin: -4px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.config-inspection {
+  margin-bottom: 8px;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.config-inspection summary {
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+.config-inspection summary span {
+  float: right;
+  color: var(--muted);
+  font-size: 11px;
+}
 .config-table-wrap { overflow-x: auto; }
 .config-table {
   width: 100%;
@@ -638,9 +660,9 @@ pre {
 .config-table th { color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .config-table td:nth-child(2),
 .config-table td:nth-child(3) { white-space: nowrap; }
+.config-table small { display: block; margin-top: 2px; color: var(--muted); font-weight: 400; }
 .file-table td:last-child { white-space: nowrap; }
 .file-table button { min-height: 32px; padding: 5px 8px; }
-
 .config-field {
   display: grid;
   gap: 7px;

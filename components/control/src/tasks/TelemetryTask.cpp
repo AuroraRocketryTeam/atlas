@@ -50,9 +50,9 @@ void TelemetryTask::onTaskStop()
 void TelemetryTask::taskFunction()
 {
     uint32_t loopCount = 0;
-    const RuntimeConfig &flightConfig = runtime_config_get_flight_snapshot();
-    const uint32_t transmitIntervalMs = flightConfig.telemetry_period_ms;
-    LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", transmitIntervalMs);
+    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+    const uint32_t transmitIntervalMs = runtimeConfig.telemetry.period_ms;
+    LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", static_cast<unsigned long>(transmitIntervalMs));
 
     while (running)
     {
