@@ -15,7 +15,8 @@
 static const char *TAG = "HilSimulationTask";
 
 static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
-static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 1000;
+static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 5000;
+static constexpr uint32_t HIL_STACK_LOG_PERIOD_MS = 5000;
 static constexpr uint32_t HIL_SENSOR_LOG_PERIOD_MS = 200;
 /* ===================== PACKETS ===================== */
 
@@ -334,6 +335,7 @@ void HilSimulationTask::taskFunction() {
 
         LOG_INFO(TAG, "Client connected");
         uint32_t last_packet_log_ms = Utils::realMillis() - HIL_PACKET_LOG_PERIOD_MS;
+        uint32_t last_stack_log_ms = Utils::realMillis() - HIL_STACK_LOG_PERIOD_MS;
         uint32_t last_sensor_log_ms = Utils::realMillis() - HIL_SENSOR_LOG_PERIOD_MS;
 
         /* ================= CONNECTION LOOP ================= */
@@ -476,6 +478,10 @@ void HilSimulationTask::taskFunction() {
             gps.setSensorName("GPS_SIM");
 
             const uint32_t now_ms = Utils::realMillis();
+            if (now_ms - last_stack_log_ms >= HIL_STACK_LOG_PERIOD_MS) {
+                LOG_INFO(TAG, "Stack remaining: %lu bytes", static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
+                last_stack_log_ms = now_ms;
+            }
             if (now_ms - last_packet_log_ms >= HIL_PACKET_LOG_PERIOD_MS) {
                 LOG_INFO(TAG, "Received sim packet: time=%" PRIu32 " ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
                          sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt);
