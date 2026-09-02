@@ -11,6 +11,12 @@
 #include <Arduino.h>
 #include <config.h>
 
+// Telemetry cadence is a compiled implementation setting: inspectable, but
+// deliberately not an operator-editable mission parameter.
+struct TelemetryConfig {
+    uint32_t period_ms;
+};
+
 /**
  * @brief Binary telemetry packet structure for efficient transmission.
  *
@@ -119,6 +125,19 @@ private:
      * @return true if data collection successful, false on mutex timeout or error.
      */
     bool collectSensorData(TelemetryPacket &packet);
+
+    /**
+     * @brief Print one throttled line with every sensor value in the packet.
+     *
+     * Replaces the per-sensor log statements: one readout every
+     * TELEMETRY_SENSOR_LOG_PERIOD_MS, marking unread sensors as "n/a" so a
+     * failed read is not mistaken for a genuine zero.
+     */
+    void logSensorValues(const TelemetryPacket &packet,
+                         SensorReadStatus imuStatus,
+                         SensorReadStatus baro1Status,
+                         SensorReadStatus baro2Status,
+                         SensorReadStatus gpsStatus) const;
 
     /**
      * @brief Poll the LoRa receiver for commands, automatically dispaches them.

@@ -4,6 +4,7 @@
 #include <inttypes.h>
 #include <cstdio>
 #include <cstring>
+#include <atomic>
 #include <utils.h>
 
 // TODO: should the SerialLogger be disabled during flight?
@@ -32,8 +33,18 @@ static size_t recentLogUsed = 0;
 // poll "logs since sequence N" without receiving the whole ring every time.
 static uint32_t recentLogSequence = 0;
 
+// Flight state prefixed to every log line. Written from the FSM task and read
+// from every logging task, so it is atomic; only static string literals are
+// stored, which keeps the read side safe without taking a lock.
+static std::atomic<const char *> currentStateTag{"NO_STATE"};
+
 namespace SerialLogger
 {
+
+    void setStateTag(const char *state)
+    {
+        currentStateTag.store(state != nullptr ? state : "NO_STATE", std::memory_order_relaxed);
+    }
 
     /**
      * @brief Lazily create the logger mutexes.
@@ -108,12 +119,14 @@ namespace SerialLogger
             }
 
             vsnprintf(buffer, sizeof(buffer), format, args);
+
+            const char *stateStr = currentStateTag.load(std::memory_order_relaxed);
 #if CONFIG_AURORA_HIL_SIMULATION            
-            snprintf(line, sizeof(line), "[%8" PRIu32 "][%8" PRIu32 "][%s][%s] %s",
-                     real_timestamp, timestamp, levelStr, tag, buffer);
+            snprintf(line, sizeof(line), "[%s][%8" PRIu32 "][%8" PRIu32 "][%s][%s] %s",
+                     stateStr, real_timestamp, timestamp, levelStr, tag, buffer);
 #else
-            snprintf(line, sizeof(line), "[%8" PRIu32 "][%s][%s] %s",
-                     timestamp, levelStr, tag, buffer);
+            snprintf(line, sizeof(line), "[%s][%8" PRIu32 "][%s][%s] %s",
+                     stateStr, timestamp, levelStr, tag, buffer);
 #endif
             printf("%s\n", line);
 

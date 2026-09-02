@@ -31,10 +31,11 @@ endmenu
 menu "Ground Services Configuration"
 
     config GROUND_SERVICES_AUTH_TOKEN
-        string "Ground Services bearer token"
+        string "Ground Services HMAC shared secret"
         default "CHANGE_ME_GROUND_SERVICES_TOKEN"
         help
-            Bearer token required for Ground Services API requests.
+            Shared secret used to sign safety-critical Ground Services requests.
+            This is separate from the WiFi SoftAP password.
             Do not commit real tokens. Set the private value with
             idf.py menuconfig; ESP-IDF writes it to sdkconfig, which is ignored.
 
@@ -54,9 +55,16 @@ menu "Rocket Access Point Configuration"
         string "Rocket SoftAP password"
         default "CHANGE_ME_ROCKET_AP_PASSWORD"
         help
-            Leave empty for an open AP. Non-empty passwords must be at least 8 characters.
+            Non-empty passwords must be at least 8 characters.
             Do not commit real passwords. Set the private value with
             idf.py menuconfig; ESP-IDF writes it to sdkconfig, which is ignored.
+
+    config ROCKET_AP_ALLOW_OPEN_DEVELOPMENT
+        bool "Allow an open SoftAP for development"
+        default n
+        help
+            Explicit development-only escape hatch. Operational builds leave
+            this disabled and require a WPA2 password of at least 8 characters.
 
     config ROCKET_AP_CHANNEL
         int "Rocket SoftAP channel"

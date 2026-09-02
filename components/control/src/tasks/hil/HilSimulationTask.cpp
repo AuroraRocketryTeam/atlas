@@ -1,7 +1,9 @@
 #include "HilSimulationTask.hpp"
 #include "protocol.hpp"
+#include "SensorTask.hpp"
 
 #include <inttypes.h>
+#include <cmath>
 #include <cstring>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -14,8 +16,15 @@
 static const char *TAG = "HilSimulationTask";
 
 static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
-static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 1000;
+static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 5000;
+static constexpr uint32_t HIL_PACKET_PERIOD_MS = 20;
+static constexpr uint32_t HIL_STACK_LOG_PERIOD_MS = 5000;
 
+// The simulator drives one packet per acquisition cycle at the same 50 Hz the
+// real SensorTask loop runs at, so recording every SENSOR_LOG_INTERVAL_LOOPS-th
+// packet reproduces the flight recorder cadence (25 Hz) in simulation.
+static_assert(HIL_PACKET_PERIOD_MS == SENSOR_LOOP_PERIOD_MS,
+              "HIL packet cadence must match the sensor loop period");
 /* ===================== PACKETS ===================== */
 
 typedef struct __attribute__((packed)) {
@@ -25,12 +34,18 @@ typedef struct __attribute__((packed)) {
     float ax;               // acceleration x
     float ay;               // acceleration y
     float az;               // acceleration z
+    float qw;               // body-to-inertial attitude quaternion
+    float qx;
+    float qy;
+    float qz;
     float p;                // pressure
     float t;                // temperature
     float lat;              // latitude
     float lon;              // longitude
     float alt;              // altitude
 } sim_packet_t;
+
+static_assert(sizeof(sim_packet_t) == 60, "HIL simulator packet layout mismatch");
 
 /* ===================== SOCKET HELPERS ===================== */
 
@@ -168,8 +183,8 @@ void HilSimulationTask::onTaskStart() {
         /* ===== SO_RCVTIMEO ===== */
         if (success) {
             struct timeval timeout;
-            timeout.tv_sec = 1;
-            timeout.tv_usec = 0;
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 500000;
 
             if (setsockopt(_listen_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
                 LOG_ERROR(TAG, "setsockopt(SO_RCVTIMEO) failed: %s", strerror(errno));
@@ -326,6 +341,7 @@ void HilSimulationTask::taskFunction() {
         
 
         LOG_INFO(TAG, "Client connected");
+        uint32_t sensorLogCounter = 0;
 
         /* ================= CONNECTION LOOP ================= */
 
@@ -425,6 +441,24 @@ void HilSimulationTask::taskFunction() {
             bnoData.acceleration_x = pkt.ax;
             bnoData.acceleration_y = pkt.ay;
             bnoData.acceleration_z = pkt.az;
+            bnoData.quaternion_w = pkt.qw;
+            bnoData.quaternion_x = pkt.qx;
+            bnoData.quaternion_y = pkt.qy;
+            bnoData.quaternion_z = pkt.qz;
+
+            constexpr float RADIANS_TO_DEGREES = 180.0f / 3.14159265358979323846f;
+            const float roll = std::atan2(
+                2.0f * (pkt.qw * pkt.qx + pkt.qy * pkt.qz),
+                1.0f - 2.0f * (pkt.qx * pkt.qx + pkt.qy * pkt.qy));
+            const float pitchInput = 2.0f * (pkt.qw * pkt.qy - pkt.qz * pkt.qx);
+            const float pitch = std::asin(std::fmax(-1.0f, std::fmin(1.0f, pitchInput)));
+            float heading = std::atan2(
+                2.0f * (pkt.qw * pkt.qz + pkt.qx * pkt.qy),
+                1.0f - 2.0f * (pkt.qy * pkt.qy + pkt.qz * pkt.qz)) * RADIANS_TO_DEGREES;
+            if (heading < 0.0f) heading += 360.0f;
+            bnoData.orientation_x = heading;
+            bnoData.orientation_y = roll * RADIANS_TO_DEGREES;
+            bnoData.orientation_z = pitch * RADIANS_TO_DEGREES;
             bnoData.setSensorName("BNO055_SIM");
 
             lis3dhData.timestamp = sim_time_ms;
@@ -435,11 +469,11 @@ void HilSimulationTask::taskFunction() {
 
             ms1.timestamp = sim_time_ms;
             ms1.pressure = pkt.p;
-            ms1.temperature = pkt.t;
+            ms1.temperature = pkt.t - 273.15f;
             ms1.setSensorName("MS56_1_SIM");
             ms2.timestamp = sim_time_ms;
             ms2.pressure = pkt.p;
-            ms2.temperature = pkt.t;
+            ms2.temperature = pkt.t - 273.15f;
             ms2.setSensorName("MS56_2_SIM");
 
             gps.timestamp = sim_time_ms;
@@ -448,6 +482,8 @@ void HilSimulationTask::taskFunction() {
             gps.altitude  = pkt.alt;
             gps.setSensorName("GPS_SIM");
 
+            LOG_EVERY_MS(HIL_STACK_LOG_PERIOD_MS, INFO, TAG, "Stack remaining: %lu bytes",
+                         static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
             LOG_EVERY_MS(HIL_PACKET_LOG_PERIOD_MS, INFO, TAG,
                          "Received sim packet: time=%" PRIu32 " ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
                          sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt);
@@ -460,18 +496,23 @@ void HilSimulationTask::taskFunction() {
             _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
             _rocketModel->setSimulatedGPSData(gps);
 
-            if (_logger) {
-                _logger->logSensorData(bnoData);
-                _logger->logSensorData(lis3dhData);
-                _logger->logSensorData(ms1);
-                _logger->logSensorData(ms2);
-                _logger->logSensorData(gps);
+            // Record every second acquisition cycle, exactly as SensorTask does.
+            if (++sensorLogCounter >= SENSOR_LOG_INTERVAL_LOOPS) {
+                sensorLogCounter = 0;
+                if (_logger) {
+                    _logger->logSensorData(bnoData);
+                    _logger->logSensorData(lis3dhData);
+                    _logger->logSensorData(ms1);
+                    _logger->logSensorData(ms2);
+                    _logger->logSensorData(gps);
+                }
             }
 
             Utils::setSimMillis(sim_time_ms);
 
             // yield in order to let the other task to set the command
-            vTaskDelay(pdMS_TO_TICKS(20)); // 20ms -> 50Hz, because Python runs at default --sampling-rate=50Hz (WARNING: mixing real and simulated time)
+            // HIL_PACKET_PERIOD_MS -> 50Hz, because Python runs at default --sampling-rate=50Hz (WARNING: mixing real and simulated time)
+            vTaskDelay(pdMS_TO_TICKS(HIL_PACKET_PERIOD_MS));
             if(!running) break;
 
             /* ================= READ COMMAND FROM MODEL ================= */

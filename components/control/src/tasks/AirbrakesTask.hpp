@@ -8,6 +8,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+// Airbrake tuning belongs to this task; RuntimeConfig only composes it for
+// persistence and inspection.  It is not a generic system-wide bag of fields.
+struct AirbrakesConfig {
+    float open_altitude_m;
+    float close_altitude_m;
+    float open_rate_per_s;
+    float close_rate_per_s;
+};
+
 class AirbrakesTask : public BaseTask
 {
 public:

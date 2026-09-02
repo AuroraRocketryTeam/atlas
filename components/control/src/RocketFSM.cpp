@@ -8,7 +8,6 @@
 
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
-static constexpr RecoveryMode RECOVERY_MODE = AURORA_RECOVERY_MODE;
 
 RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
                      std::shared_ptr<SD> sd,
@@ -101,6 +100,7 @@ void RocketFSM::init()
     _currentState = RocketState::INACTIVE;
     _previousState = RocketState::INACTIVE;
     _stateStartTime = Utils::millis();
+    SerialLogger::setStateTag(getStateString(_currentState));
 
     LOG_INFO("RocketFSM", "Initialization complete - Free heap: %u bytes", esp_get_free_heap_size());
 }
@@ -289,6 +289,9 @@ void RocketFSM::deployMain()
     }
 
     LOG_INFO("RocketFSM", "Deploying MAIN");
+    if (_logger) {
+        _logger->logInfo("RocketFSM", "Main deployment commanded");
+    }
 
     gpio_set_level(_board->get_main_actuator_pin(), HIGH);
     _mainDeploymentCommanded = true;
@@ -308,6 +311,9 @@ void RocketFSM::deployDrogue()
 
     
     LOG_INFO("RocketFSM", "Deploying DROGUE");
+    if (_logger) {
+        _logger->logInfo("RocketFSM", "Drogue deployment commanded");
+    }
     
     gpio_set_level(_board->get_drogue_actuator_pin(), HIGH);
     _drogueDeploymentCommanded = true;
@@ -318,13 +324,14 @@ void RocketFSM::deployDrogue()
 
 void RocketFSM::deployApogeeRecovery()
 {
-    if constexpr (RECOVERY_MODE == RecoveryMode::OneParachuteMode)
+    const auto recoveryMode = static_cast<RecoveryMode>(runtime_config_get_flight_snapshot().recovery.mode);
+    if (recoveryMode == RecoveryMode::OneParachuteMode)
     {
         LOG_INFO("RocketFSM", "APOGEE recovery policy: OneParachuteMode -> deploy MAIN (and DROGUE)");
         deployMain();
         deployDrogue(); // the parachute is attached to both main-pin and drogue-pin. so for safety command both.
     }
-    else if constexpr (RECOVERY_MODE == RecoveryMode::TwoParachuteMode)
+    else if (recoveryMode == RecoveryMode::TwoParachuteMode)
     {
         LOG_INFO("RocketFSM", "APOGEE recovery policy: TwoParachuteMode -> deploy DROGUE");
         deployDrogue();
@@ -334,12 +341,13 @@ void RocketFSM::deployApogeeRecovery()
 
 void RocketFSM::deployStabilizationExitRecovery()
 {
-    if constexpr (RECOVERY_MODE == RecoveryMode::OneParachuteMode)
+    const auto recoveryMode = static_cast<RecoveryMode>(runtime_config_get_flight_snapshot().recovery.mode);
+    if (recoveryMode == RecoveryMode::OneParachuteMode)
     {
         LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: OneParachuteMode -> no deployment");
         return;
     }
-    else if constexpr (RECOVERY_MODE == RecoveryMode::TwoParachuteMode)
+    else if (recoveryMode == RecoveryMode::TwoParachuteMode)
     {
         LOG_INFO("RocketFSM", "STABILIZATION exit recovery policy: TwoParachuteMode -> deploy MAIN");
         deployMain();
@@ -358,18 +366,23 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::CALIBRATING] = std::make_unique<StateAction>(RocketState::CALIBRATING);
     _stateActions[RocketState::CALIBRATING]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering CALIBRATING"); })
+                         {
+                             LOG_INFO("RocketFSM", "Entering CALIBRATING");
+                             const RuntimeConfig cfg = runtime_config_get_flight_snapshot();
+                             _rocketModel->setCalibrationSampleTargets(cfg.calibration.barometer_samples,
+                                                                      cfg.calibration.temperature_samples);
+                         })
         .setExitAction([this]()
                        { LOG_INFO("RocketFSM", "Exiting CALIBRATING"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Calib", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Calib", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Calib1", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Calib", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Calib", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
-        //.addTask(TaskConfig(TaskType::STORAGE, "Storage_Calib", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        //.addTask(TaskConfig(TaskType::STORAGE, "Storage_Calib", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         ;
     // GROUND_SERVICES state
     _stateActions[RocketState::GROUND_SERVICES] = std::make_unique<StateAction>(RocketState::GROUND_SERVICES);
@@ -387,9 +400,9 @@ void RocketFSM::setupStateActions()
          * server needs contiguous internal RAM per open socket on the
          * ESP32-S3-WROOM-1-N16.
          */
-        .addTask(TaskConfig(TaskType::GROUND_SERVICES, "GroundServices", 8192, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::GROUND_SERVICES, "GroundServices", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ground", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ground", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ground", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ground", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
@@ -403,12 +416,12 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH"); })
         #if CONFIG_AURORA_HIL_SIMULATION
         // TODO: do not treat HilSimulationTask as a normal fsm task, start in ONCE from rocketfsm.
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ready", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ready", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ready", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        //.addTask(TaskConfig(TaskType::STORAGE, "Storage_Ready", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        //.addTask(TaskConfig(TaskType::STORAGE, "Storage_Ready", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Ready", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask((TaskConfig(TaskType::TELEMETRY, "Telemetry_Ready", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true)))
@@ -420,12 +433,12 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LAUNCH"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Launch", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Launch", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Launch", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Launch", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Launch", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Launch", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Launch", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Launch", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
@@ -435,12 +448,12 @@ void RocketFSM::setupStateActions()
                          { LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT"); })
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Accel", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Accel", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Accel", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Accel", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Accel", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Accel", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Accel", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Accel", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
 
@@ -449,12 +462,12 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering BALLISTIC_FLIGHT"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ballistic", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ballistic", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ballistic", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ballistic", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Ballistic", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Ballistic", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Ballistic", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Ballistic", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Ballistic", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
@@ -468,13 +481,13 @@ void RocketFSM::setupStateActions()
                             // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
                         })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Apogee", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Apogee", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Apogee", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Apogee", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Apogee", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Apogee", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Apogee", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Apogee", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Apogee", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
 
@@ -487,13 +500,13 @@ void RocketFSM::setupStateActions()
                             // tone(BUZZER_PIN, 1000, 500);           // Sound buzzer at 1kHz for 500ms
                         })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Stabilization", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Stabilization", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Stabilization", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Stabilization", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Stabilization", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Stabilization", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Stabilization", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Stabilization", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Stabilization", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
 
@@ -502,13 +515,13 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering DECELERATION"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Deceleration", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Deceleration", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Deceleration", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Deceleration", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Deceleration", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Deceleration_8", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Deceleration_8", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Deceleration", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Deceleration", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
     _stateActions[RocketState::LANDING] = std::make_unique<StateAction>(RocketState::LANDING);
@@ -516,13 +529,13 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering LANDING"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Landing", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Landing", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Landing", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Landing", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Landing", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Landing", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Landing", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
     _stateActions[RocketState::RECOVERED] = std::make_unique<StateAction>(RocketState::RECOVERED);
@@ -530,12 +543,12 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                          { LOG_INFO("RocketFSM", "Entering RECOVERED"); })
         #if CONFIG_AURORA_HIL_SIMULATION
-        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Recovered", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Recovered", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Recovered", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Recovered", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Recovered", 8192, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
+        // .addTask(TaskConfig(TaskType::STORAGE, "Storage_Recovered", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Recovered", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Recovered", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
     LOG_INFO("RocketFSM", "State actions setup complete");
@@ -635,6 +648,12 @@ void RocketFSM::transitionTo(RocketState newState)
         LOG_INFO("RocketFSM", "[TRANSITION] %s -> %s",
                  getStateString(_currentState),
                  getStateString(newState));
+        if (_logger) {
+            char message[64];
+            snprintf(message, sizeof(message), "%.24s -> %.24s",
+                     getStateString(_currentState), getStateString(newState));
+            _logger->logInfo("RocketFSM", message);
+        }
 
         // Execute exit action for current state
         if (_stateActions[_currentState])
@@ -680,6 +699,8 @@ void RocketFSM::transitionTo(RocketState newState)
         _previousState = _currentState;
         _currentState = newState;
         _stateStartTime = Utils::millis();
+        // Every log line from here on carries the new state.
+        SerialLogger::setStateTag(getStateString(_currentState));
 
         // Execute entry action for new state
         if (_stateActions[_currentState])
@@ -733,7 +754,17 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
         return;
     }
 
-    if (_currentState == RocketState::GROUND_SERVICES && eventData.event == FSMEvent::START_READY_FOR_LAUNCH && !runtime_config_is_locked())
+    // Find valid transition
+    auto newState = _transitionManager->findTransition(_currentState, eventData.event);
+    if (!newState.has_value())
+    {
+        LOG_WARNING("RocketFSM", "No valid transition for event %d in state %s",
+                    static_cast<int>(eventData.event),
+                    getStateString(_currentState));
+        return;
+    }
+
+    if (_currentState == RocketState::GROUND_SERVICES && eventData.event == FSMEvent::START_READY_FOR_LAUNCH)
     {
         char reason[128] = {};
         if (runtime_config_lock_for_flight(reason, sizeof(reason)) != ESP_OK)
@@ -743,18 +774,7 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
         }
     }
 
-    // Find valid transition
-    auto newState = _transitionManager->findTransition(_currentState, eventData.event);
-    if (newState.has_value())
-    {
-        transitionTo(newState.value());
-    }
-    else
-    {
-        LOG_WARNING("RocketFSM", "No valid transition for event %d in state %s",
-                    static_cast<int>(eventData.event),
-                    getStateString(_currentState));
-    }
+    transitionTo(newState.value());
 }
 
 void RocketFSM::checkTransitions()
@@ -781,7 +801,7 @@ void RocketFSM::checkTransitions()
         accZ = outBno055Data.acceleration_z;
     }
 
-    const RuntimeConfig &runtimeCfg = runtime_config_get_flight_snapshot();
+    const RuntimeConfig runtimeCfg = runtime_config_get_flight_snapshot();
 
     const auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
     LOG_EVERY_MS(500, INFO, "RocketFSM", "ax: %.5f ay: %.5f az: %.5f mag: %.5f", accX, accY, accZ, accMag);
@@ -800,8 +820,10 @@ void RocketFSM::checkTransitions()
     case RocketState::CALIBRATING:
     {
         PressureSensorData outBaroData;
-        const SensorReadStatus baro1Status = _rocketModel->getMS561101BA03Data_1(outBaroData);
-        bool useBaroSample = baro1Status == SensorReadStatus::OK;
+        const SensorReadStatus baroStatus = runtimeCfg.altitude.selected_barometer == 1
+            ? _rocketModel->getMS561101BA03Data_1(outBaroData)
+            : _rocketModel->getMS561101BA03Data_2(outBaroData);
+        bool useBaroSample = baroStatus == SensorReadStatus::OK;
 
 #if CONFIG_AURORA_HIL_SIMULATION
         static bool hasLastBaroTimestamp = false;
@@ -843,7 +865,7 @@ void RocketFSM::checkTransitions()
             LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed & IMU calibrated.");
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
-        else if (Utils::millis() - _stateStartTime > 10000U)
+        else if (Utils::millis() - _stateStartTime > runtimeCfg.calibration.timeout_ms)
         {
             LOG_WARNING("RocketFSM", "Calibration timeout! Forcing completion. Baro Ready: %d, IMU Ready: %d",
                         isBaroReady, isBnoReady);
@@ -855,7 +877,7 @@ void RocketFSM::checkTransitions()
     case RocketState::READY_FOR_LAUNCH:
         try {
             auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
-            const bool accelAboveThreshold = accMag > runtimeCfg.liftoff_accel_threshold_mps2;
+            const bool accelAboveThreshold = accMag > runtimeCfg.flight.liftoff_accel_threshold_mps2;
 
             if (accelAboveThreshold)
             {
@@ -863,7 +885,7 @@ void RocketFSM::checkTransitions()
                 {
                     launchHighSince = Utils::millis();
                 }
-                else if (Utils::millis() - launchHighSince >= runtimeCfg.liftoff_timeout_ms)
+                else if (Utils::millis() - launchHighSince >= runtimeCfg.flight.liftoff_timeout_ms)
                 {
                     _launchDetectionTime = Utils::millis();
                     sendEvent(FSMEvent::LAUNCH_DETECTED);
@@ -889,7 +911,7 @@ void RocketFSM::checkTransitions()
     {
         const uint32_t accelElapsed = Utils::millis() - _launchDetectionTime;
 
-        if (accelElapsed >= runtimeCfg.launch_to_ballistic_threshold_ms)
+        if (accelElapsed >= runtimeCfg.flight.launch_to_ballistic_threshold_ms)
         {
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);
         }
@@ -899,9 +921,9 @@ void RocketFSM::checkTransitions()
     case RocketState::BALLISTIC_FLIGHT:
     {
         auto elapsed = Utils::millis() - _launchDetectionTime;
-        const bool lockoutExpired = elapsed > runtimeCfg.apogee_lockout_ms;
+        const bool lockoutExpired = elapsed > runtimeCfg.flight.apogee_lockout_ms;
         const bool isRising       = _rocketModel->getIsRising();
-        const bool maxTimeReached = elapsed >= runtimeCfg.launch_to_apogee_threshold_ms;
+        const bool maxTimeReached = elapsed >= runtimeCfg.flight.launch_to_apogee_threshold_ms;
         const float verticalSpeed = _rocketModel->getHeightGainSpeed();
         const float currentHeight = _rocketModel->getCurrentHeight();
 
@@ -926,7 +948,7 @@ void RocketFSM::checkTransitions()
 
     case RocketState::APOGEE:
         LOG_EVERY_MS(500, INFO, "RocketFSM", "Drogue Opened! %d", Utils::millis()-_launchDetectionTime);
-        if (Utils::millis() - _stateStartTime >= runtimeCfg.drogue_apogee_timeout_ms)
+        if (Utils::millis() - _stateStartTime >= runtimeCfg.flight.drogue_apogee_timeout_ms)
         {
             sendEvent(FSMEvent::DROGUE_READY);
         }
@@ -938,7 +960,7 @@ void RocketFSM::checkTransitions()
         
         LOG_EVERY_MS(500, INFO, "RocketFSM", "STABILIZATION: altitude=%.3f", currentHeight);
 
-        if (currentHeight < runtimeCfg.main_altitude_threshold_m)
+        if (currentHeight < runtimeCfg.flight.main_altitude_threshold_m)
         {
             LOG_INFO("RocketFSM", "STABILIZATION: condition met (altitude=%.3f, elapsed=%lu ms)", currentHeight, Utils::millis() - _stateStartTime);
             sendEvent(FSMEvent::STABILIZATION_COMPLETE);
@@ -949,11 +971,9 @@ void RocketFSM::checkTransitions()
 
     case RocketState::DECELERATION:
     {
-        // In DECELERATION state, vertical velocity in heightGainSpeed will still be tracked, but it should be negative (falling)
-        // !!! choose if chenge the control to be with negative values or to invert the value here
         const float currentHeight = _rocketModel->getCurrentHeight();
 
-        if (currentHeight < runtimeCfg.touchdown_altitude_threshold_m)
+        if (currentHeight < runtimeCfg.flight.touchdown_altitude_threshold_m)
         {
             sendEvent(FSMEvent::DECELERATION_COMPLETE);
         }

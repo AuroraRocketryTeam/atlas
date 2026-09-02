@@ -12,6 +12,7 @@
 #include <map>
 #include <RocketModel.hpp>
 #include <IBoardHardware.hpp>
+#include "tasks/FlightParametersConfig.hpp"
 
 class IGroundTestRunner;
 

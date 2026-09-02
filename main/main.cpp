@@ -12,6 +12,7 @@
 // ESP-IDF helpers
 #include <esp_err.h>
 #include "esp_ota_ops.h"
+#include <esp_heap_caps.h>
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -147,6 +148,23 @@ void setupFlight()
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
     LOG_INFO("Main", "Initializing system...");
 
+    // Initialize NVS
+    // Never abort here: a persistently unwritable NVS would turn every boot into
+    // a panic reboot. The flight tasks fall back to the compiled defaults instead.
+    if (!board.initNvs())
+    {
+        LOG_ERROR("Main", "Failed to initialize NVS; continuing on compiled defaults");
+    }
+    else
+    {
+        const esp_err_t cfg_err = runtime_config_init(&board);
+        if (cfg_err != ESP_OK)
+        {
+            LOG_ERROR("Main", "Failed to initialize runtime config (%s); continuing on compiled defaults",
+                      esp_err_to_name(cfg_err));
+        }
+    }
+
     // Initialize components
     LOG_INFO("Main", "Initializing sensors...");
     std::shared_ptr<BNO055Sensor> bno055 = nullptr;
@@ -223,11 +241,18 @@ void setupFlight()
 
 void loopFlight()
 {
+    static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
     static bool ledState = false;
 
-    // Heartbeat every 2 seconds
-    if (Utils::millis() - lastHeartbeat > 2000)
+    if (!rocketFSM)
+    {
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        return;
+    }
+
+    // Heartbeat every HEARTBEAT_INTERVAL_MS
+    if (Utils::millis() - lastHeartbeat > HEARTBEAT_INTERVAL_MS)
     {
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::millis());
         lastHeartbeat = Utils::millis();
@@ -235,6 +260,12 @@ void loopFlight()
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
         LOG_INFO("Main", "Free heap: %u bytes", esp_get_free_heap_size());
+        const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        LOG_INFO("Main", "Health: internal free=%u min=%u largest=%u tasks=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_minimum_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
+                 static_cast<unsigned>(uxTaskGetNumberOfTasks()));
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -249,9 +280,6 @@ void loopFlight()
             }
         }
 
-        // Print the state only when it actually moves
-        RocketState currentState = rocketFSM->getCurrentState();
-        LOG_ON_CHANGE(currentState, INFO, "Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
     }
 
     // Small delay to prevent watchdog issues
@@ -281,7 +309,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize barometers
-    baro1 = std::make_shared<MS561101BA03>("MS561101BA03_1", board.get_spi_bus(), MANNY_BAROMETER_CS_PIN);
+    baro1 = std::make_shared<MS561101BA03>("MS561101BA03_1", board.get_spi_bus(), board.get_barometer_cs_pin());
     if (baro1 && baro1->init())
     {
         LOG_INFO("Init", "Barometer 1 initialized");
@@ -291,14 +319,21 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
-    baro2 = std::make_shared<MS561101BA03>("MS561101BA03_2", board.get_spi_bus(), board.get_barometer2_cs_pin());
-    if (baro2 && baro2->init())
+    if (board.get_barometer2_cs_pin() != GPIO_NUM_NC)
     {
-        LOG_INFO("Init", "Barometer 2 initialized");
+        baro2 = std::make_shared<MS561101BA03>("MS561101BA03_2", board.get_spi_bus(), board.get_barometer2_cs_pin());
+        if (baro2 && baro2->init())
+        {
+            LOG_INFO("Init", "Barometer 2 initialized");
+        }
+        else
+        {
+            LOG_ERROR("Init", "Failed to initialize Barometer 2");
+        }
     }
     else
     {
-        LOG_ERROR("Init", "Failed to initialize Barometer 2");
+        LOG_INFO("Init", "Barometer 2 not configured on this board");
     }
 
     // Initialize accelerometer
@@ -386,7 +421,7 @@ void GPSfix(std::shared_ptr<GPS> gps)
                     LOG_INFO("GPS", "GPS lock acquired. Satellites: %d", satellites);
                 }
             }
-            vTaskDelay(GPS_FIX_LOOKUP_INTERVAL_MS / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(GPS_FIX_LOOKUP_INTERVAL_MS));
         }
 
         if (!gpsLocked)

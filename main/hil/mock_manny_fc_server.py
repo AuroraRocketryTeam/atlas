@@ -95,7 +95,7 @@ MAGIC = 0xA5A55A5A
 HEADER_FMT = "!IHH"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
-PAYLOAD_FMT = "<IfIffffffff"
+PAYLOAD_FMT = "<IfIffffffffffff"
 PAYLOAD_SIZE = struct.calcsize(PAYLOAD_FMT)
 
 COMMAND_FMT = "<fBBfB"
@@ -146,6 +146,10 @@ class SimInput:
     accel_x_m_s2: float
     accel_y_m_s2: float
     accel_z_m_s2: float
+    quaternion_w: float
+    quaternion_x: float
+    quaternion_y: float
+    quaternion_z: float
     pressure_pa: float
     temperature_k: float
     latitude_deg: float

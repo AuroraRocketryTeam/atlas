@@ -15,6 +15,7 @@
 // ESP-IDF helpers (WiFi/netif/NVS are owned by the board abstraction)
 #include <esp_err.h>
 #include "esp_ota_ops.h"
+#include <esp_heap_caps.h>
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -51,7 +52,9 @@
 
 // Main system
 #include <RocketFSM.hpp>
+#include <RuntimeConfig.hpp>
 #include <E220LoRaTransmitter.hpp>
+#include <TestRoutine.hpp>
 
 // Board hardware instance
 static Board board;
@@ -72,6 +75,7 @@ static std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
 static std::unique_ptr<RocketFSM> rocketFSM;
+static std::shared_ptr<TestRoutine> testRoutine = nullptr;
 
 // Utility functions
 void printSystemInfo();
@@ -142,6 +146,23 @@ void setupHil()
 
     LOG_INFO("Main", "Initializing system...");
 
+    // Initialize NVS
+    // Never abort here: a persistently unwritable NVS would turn every boot into
+    // a panic reboot. The flight tasks fall back to the compiled defaults instead.
+    if (!board.initNvs())
+    {
+        LOG_ERROR("Main", "Failed to initialize NVS; continuing on compiled defaults");
+    }
+    else
+    {
+        const esp_err_t cfg_err = runtime_config_init(&board);
+        if (cfg_err != ESP_OK)
+        {
+            LOG_ERROR("Main", "Failed to initialize runtime config (%s); continuing on compiled defaults",
+                      esp_err_to_name(cfg_err));
+        }
+    }
+
     // Initialize components
     // LOG_INFO("Main", "Initializing sensors...");
     std::shared_ptr<BNO055Sensor> bno055 = nullptr;
@@ -172,6 +193,15 @@ void setupHil()
     // Create Nemesis instance (constructor expects: bno, lis3dh, ms56_1, ms56_2, gps, sdCard, flash)
     rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
     LOG_INFO("Main", "RocketModel system model created");
+
+    testRoutine = std::make_shared<TestRoutine>(
+        board,
+        rocketModel,
+        sdCard,
+        flash,
+        statusManager,
+        ledController,
+        buzzerController);
 
     // Print system information
     printSystemInfo();
@@ -208,7 +238,7 @@ static void createAndStartFSM()
 {
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
 
-    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board, testRoutine);
     rocketFSM->init();
 
     vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -280,9 +310,9 @@ void loopHil()
 {
     resetHilSimulationIfRequested();
 
+    static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
     static bool ledState = false;
-    static RocketState lastLoggedState = RocketState::INACTIVE;
 
     if (!rocketFSM)
     {
@@ -290,8 +320,8 @@ void loopHil()
         return;
     }
 
-    // Heartbeat every 2 seconds
-    if (Utils::realMillis() - lastHeartbeat > 2000)
+    // Heartbeat every HEARTBEAT_INTERVAL_MS
+    if (Utils::realMillis() - lastHeartbeat > HEARTBEAT_INTERVAL_MS)
     {
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
         lastHeartbeat = Utils::realMillis();
@@ -299,6 +329,12 @@ void loopHil()
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
         LOG_INFO("Main", "Free heap: %u bytes", esp_get_free_heap_size());
+        const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        LOG_INFO("Main", "Health: internal free=%u min=%u largest=%u tasks=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_minimum_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
+                 static_cast<unsigned>(uxTaskGetNumberOfTasks()));
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -313,14 +349,6 @@ void loopHil()
             }
         }
 
-        // Print the state only when it actually moves
-        RocketState currentState = rocketFSM->getCurrentState();
-
-        if (currentState != lastLoggedState)
-        {
-            LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-            lastLoggedState = currentState;
-        }
     }
 
     // Small delay to prevent watchdog issues

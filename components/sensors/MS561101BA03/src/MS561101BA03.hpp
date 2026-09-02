@@ -46,19 +46,35 @@ private:
     uint16_t _calibrationData[8];
 
     bool readCalibrationData();
-    void reset();
-    uint32_t readADC();
-    uint16_t readPROM(uint8_t address);
-    void writeCommand(uint8_t command);
-    uint32_t readRawPressure();
-    uint32_t readRawTemperature();
-    void calculatePressureAndTemperature(uint32_t D1, uint32_t D2, float& pressure, float& temperature);
+    bool reset();
+    bool readADC(uint32_t& value, const char* conversion, uint32_t conversionElapsedMs);
+    bool readPROM(uint8_t address, uint16_t& value);
+    bool writeCommand(uint8_t command);
+    bool startPressureConversion();
+    bool calculatePressureAndTemperature(uint32_t D1, uint32_t D2, float& pressure, float& temperature);
+    bool isPlausibleMeasurement(float pressure, float temperature, uint32_t timestamp) const;
+    uint8_t calculatePromCrc4() const;
+    bool shouldLogFailure();
+    void reportReadFailure(const char* operation, esp_err_t error = ESP_OK);
+    void reportInvalidAdcValue(const char* conversion, uint32_t value, uint32_t conversionElapsedMs);
 
     PressureSensorData _data;
     
     enum class BaroState { IDLE, WAIT_D1, WAIT_D2 };
     BaroState _state = BaroState::IDLE;
     uint32_t _conv_start_time = 0;
+    uint32_t _d1_measurement_timestamp = 0;
     static constexpr uint32_t CONV_TIME_NEEDED = 10; // 10ms
+    static constexpr uint32_t ERROR_LOG_INTERVAL_MS = 5000;
+    static constexpr uint32_t SLOW_SPI_TRANSACTION_MS = 2;
+    static constexpr uint32_t ADC_MAX = 0xFFFFFF;
+    static constexpr float MIN_PRESSURE_PA = 1000.0f;
+    static constexpr float MAX_PRESSURE_PA = 120000.0f;
+    static constexpr float MIN_TEMPERATURE_C = -40.0f;
+    static constexpr float MAX_TEMPERATURE_C = 85.0f;
+    // Diagnostic only: high-dynamic flight data must not be rejected by this guard.
+    static constexpr float MAX_PRESSURE_RATE_PA_PER_SECOND = 30000.0f;
+    static constexpr float MAX_TEMPERATURE_RATE_C_PER_SECOND = 100.0f;
     uint32_t _d1 = 0;
+    uint32_t _lastErrorLogMs = 0;
 };

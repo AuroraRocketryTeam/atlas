@@ -8,6 +8,17 @@
 #include "RocketModel.hpp"
 #include "config.h"
 
+// Acquisition and recording cadence. HilSimulationTask mirrors these so a
+// simulated run produces the same recording rate as a real sensor run.
+static constexpr uint32_t SENSOR_LOOP_RATE_HZ = 50;
+static constexpr uint32_t SENSOR_LOG_RATE_HZ = 25;
+static constexpr uint32_t SENSOR_LOOP_PERIOD_MS = 1000 / SENSOR_LOOP_RATE_HZ;
+static constexpr uint32_t SENSOR_LOG_INTERVAL_LOOPS = SENSOR_LOOP_RATE_HZ / SENSOR_LOG_RATE_HZ;
+static constexpr uint32_t SENSOR_LOG_PERIOD_MS = 1000 / SENSOR_LOG_RATE_HZ;
+
+static_assert(SENSOR_LOOP_RATE_HZ % SENSOR_LOG_RATE_HZ == 0,
+              "Sensor log rate must divide the sensor loop rate");
+
 /**
  * @brief Class to implement a Sensor task.
  * 

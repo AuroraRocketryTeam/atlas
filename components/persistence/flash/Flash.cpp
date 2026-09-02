@@ -1,6 +1,9 @@
 #include "Flash.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <sys/stat.h>
+#include <dirent.h>
+#include <unistd.h>
 #include <cstring>
 #include <utility>
 
@@ -341,4 +344,47 @@ bool Flash::fileExists(const char* filename) {
 
     struct stat st;
     return stat(getFullPath(filename).c_str(), &st) == 0;
+}
+
+size_t Flash::listFiles(StorageFileInfo* files, size_t capacity) {
+    if (files == nullptr || capacity == 0 || (!_initialized && !init())) return 0;
+    DIR* dir = opendir(_mount_point.c_str());
+    if (dir == nullptr) return 0;
+
+    size_t count = 0;
+    while (count < capacity) {
+        dirent* entry = readdir(dir);
+        if (entry == nullptr) break;
+        struct stat st = {};
+        if (stat(getFullPath(entry->d_name).c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        snprintf(files[count].name, sizeof(files[count].name), "%s", entry->d_name);
+        files[count].size = static_cast<size_t>(st.st_size);
+        ++count;
+    }
+    closedir(dir);
+    return count;
+}
+
+bool Flash::readFileChunk(const char* filename, size_t offset, uint8_t* buffer,
+                          size_t capacity, size_t& bytesRead, size_t& fileSize) {
+    bytesRead = 0;
+    fileSize = 0;
+    if (filename == nullptr || buffer == nullptr || capacity == 0 || (!_initialized && !init())) return false;
+    FILE* file = fopen(getFullPath(filename).c_str(), "rb");
+    if (file == nullptr) return false;
+    if (fseek(file, 0, SEEK_END) != 0) { fclose(file); return false; }
+    const long size = ftell(file);
+    if (size < 0 || offset > static_cast<size_t>(size) || fseek(file, static_cast<long>(offset), SEEK_SET) != 0) {
+        fclose(file);
+        return false;
+    }
+    fileSize = static_cast<size_t>(size);
+    bytesRead = fread(buffer, 1, std::min(capacity, fileSize - offset), file);
+    const bool ok = !ferror(file);
+    fclose(file);
+    return ok;
+}
+
+bool Flash::deleteFile(const char* filename) {
+    return filename != nullptr && _initialized && unlink(getFullPath(filename).c_str()) == 0;
 }

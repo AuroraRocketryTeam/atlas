@@ -41,7 +41,9 @@ private:
     uint8_t writeBuffer[WRITE_BUFFER_SIZE];
     
     // Tracks how many bytes in the buffer are currently waiting to be written
-    size_t pendingBytesToWrite = 0; 
+    size_t pendingBytesToWrite = 0;
+
+    static constexpr uint32_t FLUSH_TIMEOUT_MS = 1000;
+    static constexpr int BATCH_ENTRY_THRESHOLD = 10;
     
-    const uint32_t FLUSH_TIMEOUT_MS = 1000;
 };

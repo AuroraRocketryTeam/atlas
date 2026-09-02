@@ -20,6 +20,13 @@ namespace SerialLogger
     /// @brief Initialize the logger (creates the serial mutex if not already created).
     void init();
 
+    /// @brief Set the flight state shown at the start of every log line.
+    ///
+    /// Call this on each FSM transition. The pointer is stored, not copied, so
+    /// it must reference a string with static lifetime (the literals returned by
+    /// rocketStateToString qualify). Passing nullptr restores the placeholder.
+    void setStateTag(const char *state);
+
     /// @brief Thread-safe log function with printf-style formatting.
     /// @param level Log severity level
     /// @param tag Identifier for the log source

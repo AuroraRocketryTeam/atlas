@@ -189,6 +189,11 @@ public:
      */
     bool storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs = 200);
 
+    size_t storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs = 200);
+    bool storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
+                              size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs = 200);
+    bool storageDeleteFile(const char* filename, uint32_t timeoutMs = 200);
+
 #if CONFIG_AURORA_HIL_SUPPORT
     // Simulation
      /**
@@ -343,6 +348,19 @@ public:
     bool isSensorSystemCalibrated();
 
     /**
+     * @brief Set how many samples the barometer/temperature zeroing needs.
+     *
+     * Called once before calibration starts (the values come from
+     * RuntimeConfig, which this component cannot include). Until then the
+     * compiled defaults apply. Ignores zero targets, which would make
+     * zeroing complete on the first sample.
+     *
+     * @param barometerSamples Samples averaged for the base pressure
+     * @param temperatureSamples Samples averaged for the base temperature
+     */
+    void setCalibrationSampleTargets(size_t barometerSamples, size_t temperatureSamples);
+
+    /**
      * @brief Feed a pressure reading into the zeroing algorithm
      * @param pressure The current pressure reading
      */
@@ -390,11 +408,11 @@ private:
     std::shared_ptr<Flash> _flash;
 
     // Critical mutexes
-    SemaphoreHandle_t _imuMutex;
-    SemaphoreHandle_t _baro1Mutex;
-    SemaphoreHandle_t _baro2Mutex;
-    SemaphoreHandle_t _gpsMutex;
-    SemaphoreHandle_t _stateMutex;
+    SemaphoreHandle_t _imuMutex = nullptr;
+    SemaphoreHandle_t _baro1Mutex = nullptr;
+    SemaphoreHandle_t _baro2Mutex = nullptr;
+    SemaphoreHandle_t _gpsMutex = nullptr;
+    SemaphoreHandle_t _stateMutex = nullptr;
 
     adc_oneshot_unit_handle_t _adc1_handle;
     int _batteryAdc;
@@ -427,13 +445,15 @@ private:
     Command _cmd;
 
     // Calibration and Zeroing variables
+    static constexpr size_t DEFAULT_CALIBRATION_SAMPLES = 100;
+    size_t _requiredBarometerSamples = DEFAULT_CALIBRATION_SAMPLES;
+    size_t _requiredTemperatureSamples = DEFAULT_CALIBRATION_SAMPLES;
+
     std::vector<float> _barometerSamples;
     float _launchpadBasePressure = 0.0f;
     bool _barometerZeroed = false;
-    static constexpr size_t REQUIRED_BARO_SAMPLES = 100;
 
     std::vector<float> _temperatureSamples;
     float _launchpadBaseTemperature = 0.0f;
     bool _temperatureZeroed = false;
-    static constexpr size_t REQUIRED_TEMPERATURE_SAMPLES = 100;
 };

@@ -3,6 +3,10 @@
 #include <cstddef>
 #include <cstdint>
 #include "esp_err.h"
+#include "AirbrakesTask.hpp"
+#include "AltitudeTask.hpp"
+#include "TelemetryTask.hpp"
+#include "FlightParametersConfig.hpp"
 
 class IBoardHardware;
 
@@ -13,20 +17,24 @@ class IBoardHardware;
  * read-only firmware or hardware facts. Keep that distinction clear whenever
  * adding fields:
  *
- * Editable, persisted parameter workflow:
- * 1. Add the field to RuntimeConfig below. Prefer fixed-size primitive types or
- *    fixed-size char arrays because the struct is persisted as one NVS blob.
+ * Persisted flight-parameter workflow:
+ * 1. Add the field to the owning area struct (for example AirbrakesConfig or
+ *    AltitudeConfig), then compose that struct in RuntimeConfig. Prefer
+ *    fixed-size primitive types or char arrays because the whole value is one
+ *    NVS blob.
  * 2. Increment the schema_version assigned in make_default_config().
  * 3. Set a safe firmware default in make_default_config(), usually from
  *    config.h while legacy code is still sharing those constants.
  * 4. Add validation in runtime_config_validate_each(). Keep the validation
  *    limits aligned with the schema min/max values.
- * 5. Add parsing in runtime_config_update_from_json(). Only editable fields
- *    should be copied from dashboard JSON.
+ * 5. For an operator-editable field in MissionConfig, FlightParametersConfig,
+ *    AltitudeConfig, or RecoveryConfig, add parsing in
+ *    runtime_config_update_from_json(). Calibration and telemetry remain
+ *    inspection-only unless deliberately promoted later.
  * 6. Add serialization in runtime_config_to_json().
- * 7. Add field metadata in runtime_config_schema_json() with editable=true,
- *    useful unit/min/max values, and locked_after_ready=true for parameters
- *    that must not change after the ready-for-launch transition.
+ * 7. Add field metadata in runtime_config_schema_json() with its owning source,
+ *    useful unit/min/max values, and editable=true plus
+ *    locked_after_ready=true only for launch-ramp adjustments.
  * 8. Update any task/class to read the value from
  *    runtime_config_get_flight_snapshot(), not directly from config.h.
  *
@@ -35,7 +43,8 @@ class IBoardHardware;
  * 2. Add serialization in runtime_config_to_json() from the owning source:
  *    config.h for compiled constants, IBoardHardware for board facts, or a
  *    task-owned helper when the value belongs to one task.
- * 3. Add field metadata in runtime_config_schema_json() with editable=false.
+ * 3. Add field metadata in runtime_config_schema_json() with editable=false
+ *    and its owning source.
  *    This is the right path for values such as the selected barometer,
  *    compiled recovery mode, protocol addresses, or board pins.
  * 4. If operators must verify the value before launch, add a checklist item in
@@ -62,31 +71,29 @@ class IBoardHardware;
 /**
  * @brief Runtime mission configuration persisted in NVS.
  *
- * Values in this struct are editable ground-service settings that can change
- * per launch without recompiling firmware. Compile-time constants from
- * config.h and read-only board hardware details are exposed through the JSON
- * helpers, but they are not stored in this struct.
+ * The struct is a small composition of area-owned values. Mission, flight,
+ * altitude, and recovery values are editable before the flight lock and saved
+ * as one NVS snapshot. Calibration and telemetry are inspection-only; board
+ * facts and driver internals remain outside this type.
  */
-struct RuntimeConfig {
-    uint32_t schema_version;
-    uint32_t config_revision;
+struct MissionConfig {
     char rocket_name[32];
     char launch_site[32];
     char operator_note[96];
     float launch_site_altitude_m;
     float sea_level_pressure_hpa;
-    float liftoff_accel_threshold_mps2;
-    uint32_t liftoff_timeout_ms;
-    uint32_t apogee_lockout_ms;
-    uint32_t drogue_apogee_timeout_ms;
-    float main_altitude_threshold_m;
-    float touchdown_velocity_threshold_mps;
-    uint32_t launch_to_ballistic_threshold_ms;
-    uint32_t launch_to_apogee_threshold_ms;
-    float touchdown_altitude_threshold_m;
-    bool telemetry_enabled;
-    uint32_t telemetry_period_ms;
-    bool logging_enabled;
+};
+
+struct RuntimeConfig {
+    uint32_t schema_version;
+    uint32_t config_revision;
+    MissionConfig mission;
+    FlightParametersConfig flight;
+    AirbrakesConfig airbrakes;
+    AltitudeConfig altitude;
+    CalibrationConfig calibration;
+    RecoveryConfig recovery;
+    TelemetryConfig telemetry;
     bool config_locked;
     uint32_t checksum;
 };
@@ -138,13 +145,14 @@ esp_err_t runtime_config_get(RuntimeConfig *out);
 bool runtime_config_is_locked();
 
 /**
- * @brief Return the immutable flight snapshot when available.
+ * @brief Return a synchronized copy of the immutable flight snapshot when available.
  *
  * The nominal workflow is: edit config in Ground Services, validate checklist,
  * lock for flight, then tasks read this snapshot so later unlock/reset actions
- * cannot mutate parameters used by an active flight.
+ * cannot mutate parameters used by an active flight. Returning by value avoids
+ * retaining a reference that changes meaning when the flight lock is created.
  */
-const RuntimeConfig &runtime_config_get_flight_snapshot();
+RuntimeConfig runtime_config_get_flight_snapshot();
 
 /**
  * @brief Validate, checksum, persist, and activate a RuntimeConfig.

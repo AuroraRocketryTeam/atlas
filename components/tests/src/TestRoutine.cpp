@@ -141,7 +141,7 @@ bool TestRoutine::startGroundTest(int id, char* error, size_t error_size)
     _hasPendingVerdict = false;
     if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
 
-    if (xTaskCreate(webTestTaskEntry, "ground_test", 8192, this, 5, &_webTask) != pdPASS) {
+    if (xTaskCreate(webTestTaskEntry, "ground_test", 4096, this, 5, &_webTask) != pdPASS) {
         if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
         _webStatus.running = false;
         snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "failed");
@@ -412,7 +412,9 @@ bool TestRoutine::testSensors()
 
     PressureSensorData baro2Data;
     SensorReadStatus baro2Status = _model->getMS561101BA03Data_2(baro2Data);
-    if (baro2Status != SensorReadStatus::OK) {
+    if (baro2Status == SensorReadStatus::NOT_PRESENT) {
+        LOG_INFO("Test", "Barometer 2 not configured on this board.");
+    } else if (baro2Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO2_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato. Read status: %d", static_cast<int>(baro2Status));
     } else {

@@ -1,7 +1,10 @@
 #include "TelemetryTask.hpp"
 #include "esp_system.h"
+#include <cstdio>
 #include <utils.h>
 #include "RuntimeConfig.hpp"
+
+static constexpr uint32_t TELEMETRY_SENSOR_LOG_PERIOD_MS = 500;
 
 constexpr float TROPOSPHERE_HEIGHT = 11000.f; // Troposphere height [m]
 constexpr float a = 0.0065f;                  // Troposphere temperature gradient [deg/m]
@@ -45,9 +48,9 @@ void TelemetryTask::onTaskStop()
 void TelemetryTask::taskFunction()
 {
     uint32_t loopCount = 0;
-    const RuntimeConfig &flightConfig = runtime_config_get_flight_snapshot();
-    const uint32_t transmitIntervalMs = flightConfig.telemetry_period_ms;
-    LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", transmitIntervalMs);
+    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+    const uint32_t transmitIntervalMs = runtimeConfig.telemetry.period_ms;
+    LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", static_cast<unsigned long>(transmitIntervalMs));
 
     while (running)
     {
@@ -77,7 +80,7 @@ void TelemetryTask::taskFunction()
                 std::vector<uint8_t> message(sizeof(TelemetryPacket));
                 memcpy(message.data(), &packet, sizeof(TelemetryPacket));
 
-                LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
+                // LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
 
                 // Transmit via LoRa
                 if (_loraTransmitter && running)
@@ -147,12 +150,9 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.imu.accel_x = outBnoData.acceleration_x;
             packet.imu.accel_y = outBnoData.acceleration_y;
             packet.imu.accel_z = outBnoData.acceleration_z;
-            LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
             packet.imu.gyro_x = outBnoData.orientation_x;
             packet.imu.gyro_y = outBnoData.orientation_y;
             packet.imu.gyro_z = outBnoData.orientation_z;
-        } else {
-            LOG_EVERY_MS(5000, WARNING, "Telemetry", "BNO055 data not available");
         }
 
         PressureSensorData outMs56Data1;
@@ -163,8 +163,6 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.baro_altitude = relAltitude_tele(outMs56Data1.pressure,
                                                     _rocketModel->getLaunchpadBasePressure(),
                                                     _rocketModel->getLaunchpadBaseTemperature());
-        } else {
-            LOG_EVERY_MS(5000, WARNING, "Telemetry", "Barometer 1 data not available");
         }
 
         PressureSensorData outMs56Data2;
@@ -172,8 +170,6 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         if (baro2Status == SensorReadStatus::OK) {
             packet.baro2.pressure = outMs56Data2.pressure;
             packet.baro2.temperature = outMs56Data2.temperature;
-        } else {
-            LOG_EVERY_MS(5000, WARNING, "Telemetry", "Barometer 2 data not available");
         }
 
         GPSData gpsData;
@@ -182,13 +178,13 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.gps.latitude = gpsData.latitude;
             packet.gps.longitude = gpsData.longitude;
             packet.gps.altitude = gpsData.altitude;
-            LOG_DEBUG("Telemetry", "GPS ALT: %.2f LAT: %.6f LON: %.6f",
-                      packet.gps.altitude, packet.gps.latitude, packet.gps.longitude);
-        } else {
-            LOG_EVERY_MS(5000, WARNING, "Telemetry", "GPS data not available");
         }
 
         packet.velocity = _rocketModel->getHeightGainSpeed();
+
+        // Single periodic readout of everything this packet carries. A sensor
+        // that failed to read is reported as "n/a" rather than as a zeroed value.
+        logSensorValues(packet, bnoStatus, baro1Status, baro2Status, gpsStatus);
     }
     catch (const std::exception &e)
     {
@@ -199,9 +195,48 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
     return true;
 }
 
+void TelemetryTask::logSensorValues(const TelemetryPacket &packet,
+                                    SensorReadStatus imuStatus,
+                                    SensorReadStatus baro1Status,
+                                    SensorReadStatus baro2Status,
+                                    SensorReadStatus gpsStatus) const
+{
+    const bool imuOk = imuStatus == SensorReadStatus::OK;
+    const bool baro1Ok = baro1Status == SensorReadStatus::OK;
+    const bool baro2Ok = baro2Status == SensorReadStatus::OK;
+    const bool gpsOk = gpsStatus == SensorReadStatus::OK;
+
+    char imuText[80] = "n/a";
+    char baro1Text[64] = "n/a";
+    char baro2Text[64] = "n/a";
+    char gpsText[64] = "n/a";
+
+    if (imuOk) {
+        snprintf(imuText, sizeof(imuText), "a=%.2f/%.2f/%.2f g=%.2f/%.2f/%.2f",
+                 packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z,
+                 packet.imu.gyro_x, packet.imu.gyro_y, packet.imu.gyro_z);
+    }
+    if (baro1Ok) {
+        snprintf(baro1Text, sizeof(baro1Text), "%.1fPa %.2fC alt=%.2fm",
+                 packet.baro1.pressure, packet.baro1.temperature, packet.baro_altitude);
+    }
+    if (baro2Ok) {
+        snprintf(baro2Text, sizeof(baro2Text), "%.1fPa %.2fC",
+                 packet.baro2.pressure, packet.baro2.temperature);
+    }
+    if (gpsOk) {
+        snprintf(gpsText, sizeof(gpsText), "%.6f,%.6f %.2fm",
+                 packet.gps.latitude, packet.gps.longitude, packet.gps.altitude);
+    }
+
+    LOG_EVERY_MS(TELEMETRY_SENSOR_LOG_PERIOD_MS, INFO, "Telemetry",
+                 "Sensors | IMU %s | Baro1 %s | Baro2 %s | GPS %s | v=%.2fm/s",
+                 imuText, baro1Text, baro2Text, gpsText, packet.velocity);
+}
+
 void TelemetryTask::pollLoRaRx()
 {
-    LOG_DEBUG("Telemetry", "Polling LoRa RX for commands");
+    // LOG_DEBUG("Telemetry", "Polling LoRa RX for commands");
     CommandPacket cmd;
     while (_loraTransmitter->receive(&cmd))
     {
