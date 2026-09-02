@@ -83,7 +83,7 @@ namespace SerialLogger
             // Add timestamp, log level, and tag
             unsigned long timestamp = Utils::millis();
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
             // HIL logs include both wall-clock time and simulated mission time.
             unsigned long real_timestamp = Utils::realMillis();
 #endif
@@ -109,7 +109,7 @@ namespace SerialLogger
             }
 
             vsnprintf(buffer, sizeof(buffer), format, args);
-#if CONFIG_AURORA_HIL_SIMULATION            
+#if AURORA_HIL_ENABLED
             snprintf(line, sizeof(line), "[%8" PRIu32 "][%8" PRIu32 "][%s][%s] %s",
                      real_timestamp, timestamp, levelStr, tag, buffer);
 #else

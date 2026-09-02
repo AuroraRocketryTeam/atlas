@@ -84,7 +84,7 @@ void TaskManager::initializeTasks()
         _rocketModel,
         _logger);
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
         _logger,

@@ -15,7 +15,7 @@ set(INCLUDE_DIRS
 )
 
 # HIL sources are picked up by GLOB_RECURSE. Keep them only for HIL builds.
-if(CONFIG_AURORA_HIL_SUPPORT)
+if(AURORA_HIL_ENABLED)
     list(APPEND INCLUDE_DIRS "src/tasks/hil")
 else()
     list(FILTER SRCS EXCLUDE REGEX ".*/src/tasks/hil/.*")
@@ -56,3 +56,6 @@ idf_component_register(
         nvs_flash
         spi_flash
 )
+
+target_compile_definitions(${COMPONENT_LIB} PUBLIC
+    AURORA_HIL_ENABLED=$<BOOL:${AURORA_HIL_ENABLED}>)

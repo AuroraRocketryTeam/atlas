@@ -956,7 +956,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
         "\"configured_boot\":{\"label\":\"%s\",\"address\":%lu,\"size\":%lu}},"
         "\"network\":{\"ssid\":\"%s\",\"ip\":\"%s\",\"mac\":\"%s\"},"
         "\"security\":{\"secure_boot\":%s,\"flash_encryption\":%s},"
-        "\"hil\":{\"support\":%s,\"simulation\":%s,\"mode\":\"%s\"},"
+        "\"hil\":{\"enabled\":%s,\"mode\":\"%s\"},"
         "\"runtime_config\":{\"schema_version\":%lu,\"config_revision\":%lu,\"config_locked\":%s}}",
         self->_fsm ? rocketStateToString(self->_fsm->getCurrentState()) : "unknown",
         static_cast<long long>(esp_timer_get_time() / 1000),
@@ -993,12 +993,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
 #else
         "false",
 #endif
-#if CONFIG_AURORA_HIL_SUPPORT
-        "true",
-#else
-        "false",
-#endif
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
         "true",
         "simulation",
 #else

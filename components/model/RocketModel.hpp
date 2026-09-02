@@ -193,7 +193,7 @@ public:
                               size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs = 200);
     bool storageDeleteFile(const char* filename, uint32_t timeoutMs = 200);
 
-#if CONFIG_AURORA_HIL_SUPPORT
+#if AURORA_HIL_ENABLED
     // Simulation
      /**
      * @brief Setter of simulation reset flag.
@@ -422,7 +422,7 @@ private:
     bool _ms561101ba03Data_2_Valid = false;
     bool _gpsDataValid = false;
 
-#if CONFIG_AURORA_HIL_SUPPORT
+#if AURORA_HIL_ENABLED
     bool _reset_simulation;
 #endif
 

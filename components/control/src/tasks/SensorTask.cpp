@@ -38,7 +38,7 @@ void SensorTask::onTaskStop()
 void SensorTask::taskFunction()
 {
     uint32_t healthCheckCounter = 0;
-#ifndef CONFIG_AURORA_HIL_SIMULATION
+#if !AURORA_HIL_ENABLED
     uint32_t sensorLogCounter = 0;
 #endif
     TickType_t lastWakeTime = xTaskGetTickCount();
@@ -73,7 +73,7 @@ void SensorTask::taskFunction()
             }
         }
 
-#ifndef CONFIG_AURORA_HIL_SIMULATION
+#if !AURORA_HIL_ENABLED
         // Record every second acquisition cycle: 25 Hz from the 50 Hz outer loop.
         if (++sensorLogCounter >= SENSOR_LOG_INTERVAL_LOOPS)
         {

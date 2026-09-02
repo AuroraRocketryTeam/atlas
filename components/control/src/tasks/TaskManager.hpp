@@ -17,7 +17,7 @@
 #include "StorageLoggingTask.hpp"
 #include "GpsTask.hpp"
 
-#if CONFIG_AURORA_HIL_SUPPORT
+#if AURORA_HIL_ENABLED
 #include "HilSimulationTask.hpp"
 #endif
 

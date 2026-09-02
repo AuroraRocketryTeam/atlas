@@ -439,13 +439,12 @@ function updateFsmBar(status) {
   fsmState.className = `state-pill state-${state.toLowerCase()}`;
 
   const hil = (status && status.hil) || {};
-  const hasHilMode = typeof hil.simulation === 'boolean';
+  const hasHilMode = typeof hil.enabled === 'boolean';
   if (hasHilMode) {
-    const simulation = hil.simulation === true;
-    const support = hil.support === true;
+    const simulation = hil.enabled === true;
     const modeLabel = simulation ? 'SIMULATION MODE' : 'FLIGHT MODE';
-    hilMode.textContent = support && !simulation ? `${modeLabel} / HIL READY` : modeLabel;
-    hilMode.className = `mode-pill ${simulation ? 'mode-simulation' : 'mode-flight'}${support && !simulation ? ' mode-hil-ready' : ''}`;
+    hilMode.textContent = modeLabel;
+    hilMode.className = `mode-pill ${simulation ? 'mode-simulation' : 'mode-flight'}`;
     simulationWarning.classList.toggle('hidden', !simulation);
   } else {
     hilMode.textContent = 'UNKNOWN';

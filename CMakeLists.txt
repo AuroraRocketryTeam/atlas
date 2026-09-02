@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Development build profile. ON compiles and starts the HIL simulator; OFF
+# omits all HIL code from the flight firmware. Edit this value, then build.
+set(AURORA_HIL_ENABLED ON)
+
 # Each entry must point directly to a component folder (one that has a CMakeLists.txt)
 set(EXTRA_COMPONENT_DIRS
     # common

@@ -14,7 +14,7 @@
 
 static const char *TAG = "HilSimulationTask";
 
-static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
+static constexpr int HIL_SERVER_PORT = 5000;
 static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 5000;
 static constexpr uint32_t HIL_STACK_LOG_PERIOD_MS = 5000;
 static constexpr uint32_t HIL_SENSOR_LOG_PERIOD_MS = 200;
