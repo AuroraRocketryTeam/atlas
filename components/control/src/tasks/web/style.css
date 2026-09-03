@@ -570,6 +570,10 @@ pre {
   background: #111827;
   border-radius: 8px;
 }
+#configStatus.config-save-success {
+  color: #d1fae5;
+  border-left: 5px solid var(--green);
+}
 .action-status {
   margin: 0 28px 18px;
 }

@@ -1269,6 +1269,7 @@ function configReadOnlyTable(fields) {
 }
 
 async function loadConfig() {
+  document.getElementById('configStatus').classList.remove('config-save-success');
   const [cfg, schema, validation] = await Promise.all([
     api('/api/config/runtime'),
     api('/api/config/schema'),
@@ -1321,8 +1322,14 @@ async function saveConfig() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updated)
   });
-  document.getElementById('configStatus').textContent = JSON.stringify(s, null, 2);
-  loadConfig();
+  const status = document.getElementById('configStatus');
+  if (s.ok) {
+    await loadConfig();
+    status.textContent = `✓ Configuration saved to NVS.\n${status.textContent}`;
+    status.classList.add('config-save-success');
+  } else {
+    status.textContent = JSON.stringify(s, null, 2);
+  }
 }
 
 async function resetConfig() {
