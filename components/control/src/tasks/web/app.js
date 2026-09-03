@@ -1570,6 +1570,8 @@ document.getElementById('filesContent').addEventListener('click', event => {
   if (remove) deleteStoredFile(remove.dataset.fileDelete);
 });
 document.getElementById('reboot').addEventListener('click', async () => {
+  const prompt = 'The board will reboot into the uploaded firmware.\n\nType REBOOT_TO_NEW_FIRMWARE to continue.';
+  if (window.prompt(prompt) !== 'REBOOT_TO_NEW_FIRMWARE') return;
   const s = await api('/api/ota/reboot', {
     method: 'POST',
     headers: { 'X-Confirm': 'REBOOT_TO_NEW_FIRMWARE' },
