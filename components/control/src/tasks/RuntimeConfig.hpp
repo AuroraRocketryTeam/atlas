@@ -6,6 +6,7 @@
 #include "AirbrakesTask.hpp"
 #include "AltitudeTask.hpp"
 #include "TelemetryTask.hpp"
+#include "StorageLoggingTask.hpp"
 #include "FlightParametersConfig.hpp"
 
 class IBoardHardware;
@@ -96,6 +97,8 @@ struct RuntimeConfig {
     TelemetryConfig telemetry;
     bool config_locked;
     uint32_t checksum;
+    // Keep new persisted fields after the v6 layout to allow in-place migration.
+    StorageLoggingConfig storage_logging;
 };
 
 struct RuntimeConfigValidationItem {
@@ -159,9 +162,20 @@ RuntimeConfig runtime_config_get_flight_snapshot();
  *
  * The config is stored as a single NVS blob in the RuntimeConfig namespace.
  * Callers should prefer update/reset helpers unless they already have a fully
- * validated RuntimeConfig instance.
+ * validated RuntimeConfig instance. Writes are rejected after flight locking;
+ * recovery unlock is the only explicit exception.
  */
 esp_err_t runtime_config_save(const RuntimeConfig *cfg);
+
+/**
+ * @brief Persist recorder-owned filename metadata discovered during boot.
+ *
+ * This updates only the incumbent and last-flight filenames. It remains
+ * available while flight settings are locked because these fields describe
+ * storage state; they cannot alter flight behavior.
+ */
+esp_err_t runtime_config_record_flight_files(const char *flight_filename,
+                                             const char *last_flight_filename);
 
 /**
  * @brief Replace the active config with firmware defaults.

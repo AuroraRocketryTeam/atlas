@@ -719,6 +719,7 @@ pre {
   text-transform: uppercase;
 }
 .badge.readonly { color: #46515f; background: #e5e7eb; }
+.badge.latest { color: #166534; background: #dcfce7; }
 .status-strip {
   padding: 0;
   margin: 0;

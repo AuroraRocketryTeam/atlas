@@ -1825,7 +1825,29 @@ esp_err_t GroundServicesTask::filesListGetHandler(httpd_req_t *req)
     auto *files = reinterpret_cast<StorageFileInfo *>(s_responseBuffer);
     constexpr size_t MAX_LISTED_FILES = 32;
     for (size_t i = 0; i < MAX_LISTED_FILES; ++i) new (&files[i]) StorageFileInfo{};
-    const size_t count = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
+    size_t count = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
+    RuntimeConfig config;
+    char latestFile[40] = {};
+    if (runtime_config_get(&config) == ESP_OK) {
+        const char *latest = self->_rocketModel->storageFileExists(config.storage_logging.flight_filename)
+            ? config.storage_logging.flight_filename
+            : config.storage_logging.last_flight_filename;
+        snprintf(latestFile, sizeof(latestFile), "%s", latest);
+    }
+    bool latestListed = latestFile[0] == '\0';
+    for (size_t i = 0; i < count && !latestListed; ++i) {
+        latestListed = strcmp(files[i].name, latestFile) == 0;
+    }
+    if (!latestListed) {
+        uint8_t firstByte = 0;
+        size_t bytesRead = 0;
+        size_t fileSize = 0;
+        if (self->_rocketModel->storageReadFileChunk(latestFile, 0, &firstByte, 1, bytesRead, fileSize)) {
+            const size_t index = count < MAX_LISTED_FILES ? count++ : MAX_LISTED_FILES - 1;
+            snprintf(files[index].name, sizeof(files[index].name), "%s", latestFile);
+            files[index].size = fileSize;
+        }
+    }
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -1841,9 +1863,10 @@ esp_err_t GroundServicesTask::filesListGetHandler(httpd_req_t *req)
             safe = std::isalnum(*p) || *p == '.' || *p == '_' || *p == '-';
         }
         if (!safe) continue;
-        const int written = snprintf(item, sizeof(item), "%s{\"name\":\"%.63s\",\"size\":%lu}",
+        const int written = snprintf(item, sizeof(item), "%s{\"name\":\"%.63s\",\"size\":%lu,\"latest\":%s}",
                                      first ? "" : ",", safeName,
-                                     static_cast<unsigned long>(files[i].size));
+                                     static_cast<unsigned long>(files[i].size),
+                                     strcmp(safeName, latestFile) == 0 ? "true" : "false");
         if (written < 0 || static_cast<size_t>(written) >= sizeof(item) ||
             httpd_resp_send_chunk(req, item, written) != ESP_OK) return ESP_FAIL;
         first = false;

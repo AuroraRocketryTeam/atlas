@@ -772,6 +772,11 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
     if (_currentState == RocketState::GROUND_SERVICES && eventData.event == FSMEvent::START_READY_FOR_LAUNCH)
     {
         char reason[128] = {};
+        if (!_taskManager || !_taskManager->prepareStorageLogging())
+        {
+            LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: flight recorder filename is not prepared");
+            return;
+        }
         if (runtime_config_lock_for_flight(reason, sizeof(reason)) != ESP_OK)
         {
             LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: config lock failed: %s", reason);

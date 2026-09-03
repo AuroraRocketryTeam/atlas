@@ -113,6 +113,12 @@ public:
      */
     void printTaskStatus() const;
 
+    /**
+     * @brief Prepare flight-recorder state while RuntimeConfig is still editable
+     * @return true if successful, false otherwise
+     */
+    bool prepareStorageLogging();
+
 private:
     // Map of task type to task instance
     std::map<TaskType, std::unique_ptr<ITask>> _tasks;

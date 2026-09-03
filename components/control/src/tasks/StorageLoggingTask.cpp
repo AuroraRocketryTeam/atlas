@@ -1,4 +1,5 @@
 #include "StorageLoggingTask.hpp"
+#include "RuntimeConfig.hpp"
 #include "esp_task_wdt.h"
 #include <cstdio>
 
@@ -13,12 +14,56 @@ StorageLoggingTask::StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
     if (!storageInitialized) {
         LOG_ERROR("StorageLoggingTask", "Storage initialization failed or no storage provided!");
     } else {
+        prepareTelemetryFilename();
         LOG_INFO("StorageLoggingTask", "Storage initialized successfully. Ready for JSONL logging.");
     }
 }
 
 StorageLoggingTask::~StorageLoggingTask() {
     stop();
+}
+
+bool StorageLoggingTask::prepareTelemetryFilename() {
+    RuntimeConfig config;
+    if (runtime_config_get(&config) != ESP_OK) {
+        LOG_ERROR("StorageLoggingTask", "Cannot select flight filename: RuntimeConfig unavailable");
+        return false;
+    }
+
+    unsigned long parsedFlightNumber = 1;
+    (void)sscanf(config.storage_logging.flight_filename,
+                 "flight_telemetry_%lu.jsonl", &parsedFlightNumber);
+    uint32_t flightNumber = parsedFlightNumber <= UINT32_MAX
+        ? static_cast<uint32_t>(parsedFlightNumber) : 1;
+    bool configChanged = false;
+    while (flightNumber != 0) {
+        snprintf(telemetryFilename, sizeof(telemetryFilename),
+                 "flight_telemetry_%06lu.jsonl", static_cast<unsigned long>(flightNumber));
+        if (!rocketModel->storageFileExists(telemetryFilename)) {
+            if (strcmp(config.storage_logging.flight_filename, telemetryFilename) != 0) {
+                snprintf(config.storage_logging.flight_filename,
+                         sizeof(config.storage_logging.flight_filename), "%s", telemetryFilename);
+                configChanged = true;
+            }
+            if (configChanged &&
+                runtime_config_record_flight_files(config.storage_logging.flight_filename,
+                                                   config.storage_logging.last_flight_filename) != ESP_OK) {
+                telemetryFilename[0] = '\0';
+                LOG_ERROR("StorageLoggingTask", "Could not persist flight filename");
+                return false;
+            }
+            LOG_INFO("StorageLoggingTask", "Recording flight to %s", telemetryFilename);
+            return true;
+        }
+        snprintf(config.storage_logging.last_flight_filename,
+                 sizeof(config.storage_logging.last_flight_filename), "%s", telemetryFilename);
+        configChanged = true;
+        ++flightNumber;
+    }
+
+    telemetryFilename[0] = '\0';
+    LOG_ERROR("StorageLoggingTask", "No available flight telemetry filename");
+    return false;
 }
 
 void StorageLoggingTask::taskFunction() {
@@ -30,6 +75,9 @@ void StorageLoggingTask::taskFunction() {
 
     if (logger && storageWasAvailable) {
         logger->logInfo("StorageLoggingTask", "Flight recorder active");
+    }
+    if (telemetryFilename[0] == '\0') {
+        LOG_ERROR("StorageLoggingTask", "Flight recorder has no filename prepared at boot");
     }
 
     while (running) {
@@ -90,14 +138,14 @@ void StorageLoggingTask::taskFunction() {
                         (currentLogCount >= BATCH_ENTRY_THRESHOLD);
 
         // Execute Write
-        if (shouldWrite && running) {
+        if (shouldWrite && running && telemetryFilename[0] != '\0') {
             if (pendingBytesToWrite == 0 && logger) {
                 // Just hand over the entire available buffer space!
                 pendingBytesToWrite = logger->consumeBatch(writeBuffer, WRITE_BUFFER_SIZE);
             }
 
             if (pendingBytesToWrite > 0) {
-                if (rocketModel->storageAppendFile(TELEMETRY_FILENAME, writeBuffer, pendingBytesToWrite)) {
+                if (rocketModel->storageAppendFile(telemetryFilename, writeBuffer, pendingBytesToWrite)) {
                     pendingBytesToWrite = 0;
                     lastWriteTicks = xTaskGetTickCount();
                 } else {
@@ -106,6 +154,6 @@ void StorageLoggingTask::taskFunction() {
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(pdMS_TO_TICKS(80)); // 12.5 Hz
     }
 }

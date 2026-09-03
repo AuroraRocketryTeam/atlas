@@ -315,7 +315,7 @@ async function loadFiles() {
   const files = result.files || [];
   content.innerHTML = files.length ? `<div class="config-table-wrap"><table class="config-table file-table">
     <thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>
-    <tbody>${files.map(file => `<tr><td><strong>${esc(file.name)}</strong></td><td>${esc(fmtBytes(file.size))}</td><td>
+    <tbody>${files.map(file => `<tr><td><strong>${esc(file.name)}</strong>${file.latest ? ' <em class="badge latest">Latest</em>' : ''}</td><td>${esc(fmtBytes(file.size))}</td><td>
       <button type="button" data-file-download="${esc(file.name)}">Download</button>
       <button type="button" class="danger-action" data-file-delete="${esc(file.name)}">Delete</button>
     </td></tr>`).join('')}</tbody></table></div>` : '<p>No stored files.</p>';

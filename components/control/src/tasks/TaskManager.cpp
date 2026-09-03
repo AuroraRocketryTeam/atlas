@@ -262,6 +262,13 @@ void TaskManager::printTaskStatus() const
     LOG_INFO("TaskManager", "=================");
 }
 
+bool TaskManager::prepareStorageLogging()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    if (it == _tasks.end() || !it->second) return false;
+    return static_cast<StorageLoggingTask *>(it->second.get())->prepareTelemetryFilename();
+}
+
 int TaskManager::getRunningTaskCount()
 {
     int count = 0;
