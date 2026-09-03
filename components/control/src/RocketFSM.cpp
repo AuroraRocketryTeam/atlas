@@ -7,6 +7,20 @@
 
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
+static constexpr uint32_t ACTUATOR_PULSE_COUNT = 3;
+static constexpr uint32_t ACTUATOR_PULSE_DURATION_MS = 3;
+
+namespace {
+void fireActuator(gpio_num_t pin)
+{
+    for (uint32_t pulse = 0; pulse < ACTUATOR_PULSE_COUNT; ++pulse)
+    {
+        gpio_set_level(pin, HIGH);
+        vTaskDelay(pdMS_TO_TICKS(ACTUATOR_PULSE_DURATION_MS));
+        gpio_set_level(pin, LOW);
+    }
+}
+} // namespace
 
 RocketFSM::RocketFSM(std::shared_ptr<RocketModel> rocketModel,
                      std::shared_ptr<SD> sd,
@@ -291,7 +305,7 @@ void RocketFSM::deployMain()
         _logger->logInfo("RocketFSM", "Main deployment commanded");
     }
 
-    gpio_set_level(_board->get_main_actuator_pin(), HIGH);
+    fireActuator(_board->get_main_actuator_pin());
     _mainDeploymentCommanded = true;
 
     _rocketModel->setOpenMainCommand();
@@ -313,7 +327,7 @@ void RocketFSM::deployDrogue()
         _logger->logInfo("RocketFSM", "Drogue deployment commanded");
     }
     
-    gpio_set_level(_board->get_drogue_actuator_pin(), HIGH);
+    fireActuator(_board->get_drogue_actuator_pin());
     _drogueDeploymentCommanded = true;
     
     _rocketModel->setOpenDrogueCommand();
