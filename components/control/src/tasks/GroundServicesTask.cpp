@@ -91,8 +91,9 @@ static_assert(MAX_HTTP_CLIENTS >= MAX_WS_CLIENTS + 2, "WebSockets must leave roo
 static_assert(STREAM_CHUNK_SIZE <= RESPONSE_BUFFER_SIZE, "Stream chunks must fit in the shared response buffer");
 
 // HTTP handlers and queued WebSocket work execute serially in HTTPD context,
-// so request, response, and log payloads can share one buffer.
-alignas(StorageFileInfo) static char s_responseBuffer[RESPONSE_BUFFER_SIZE];
+// so request, response, and log payloads can share one lifecycle-owned buffer.
+// It is allocated only while Ground Services is active so flight can reclaim it.
+static char *s_responseBuffer = nullptr;
 static std::atomic_bool s_wsBroadcastQueued{false};
 static std::atomic_bool s_httpdStackWarningIssued{false};
 static size_t s_nextLogClient = 0;
@@ -548,6 +549,14 @@ static esp_err_t sendAsset(httpd_req_t *req, const unsigned char *start, const u
 
 void GroundServicesTask::onTaskStart()
 {
+    s_responseBuffer = static_cast<char *>(heap_caps_malloc(
+        RESPONSE_BUFFER_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (s_responseBuffer == nullptr) {
+        LOG_ERROR(TAG, "Failed to allocate %u-byte Ground Services response buffer",
+                  static_cast<unsigned>(RESPONSE_BUFFER_SIZE));
+        return;
+    }
+
     _otaMutex = xSemaphoreCreateMutex();
     _authMutex = xSemaphoreCreateMutex();
     if (_otaMutex == nullptr || _authMutex == nullptr) {
@@ -588,6 +597,8 @@ void GroundServicesTask::onTaskStop()
         vSemaphoreDelete(_authMutex);
         _authMutex = nullptr;
     }
+    heap_caps_free(s_responseBuffer);
+    s_responseBuffer = nullptr;
 }
 
 void GroundServicesTask::taskFunction()
