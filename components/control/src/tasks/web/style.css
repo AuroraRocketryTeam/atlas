@@ -578,6 +578,26 @@ pre {
   color: #d1fae5;
   border-left: 5px solid var(--green);
 }
+.config-save-state {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.config-save-state.success { color: var(--green); }
+.config-save-state.error { color: var(--red); }
+#saveConfig.config-dirty {
+  color: #111827;
+  background: #fef3c7;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, .18);
+}
+.ready-config-guard {
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
 .action-status {
   margin: 0 28px 18px;
 }

@@ -50,6 +50,7 @@
           <div id="hilMode" class="mode-pill mode-unknown">UNKNOWN</div>
         </div>
       </div>
+      <span id="readyConfigGuard" class="ready-config-guard hidden">Save configuration changes before READY FOR LAUNCH.</span>
       <button id="fsmAdvance" class="primary hidden">Advance</button>
     </header>
     <div id="simulationWarning" class="simulation-warning hidden">
@@ -72,6 +73,7 @@
         <div class="section-head">
           <h2>Runtime Config</h2>
           <div class="actions">
+            <span id="configSaveState" class="config-save-state" aria-live="polite"></span>
             <button id="saveConfig">Save</button>
             <button id="resetConfig">Reset Defaults</button>
             <button id="unlockConfig" class="warning-action hidden">Unlock After Recovery</button>

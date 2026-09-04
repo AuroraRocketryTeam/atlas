@@ -18,6 +18,7 @@ const fileName = document.getElementById('fileName');
 const fsmState = document.getElementById('fsmState');
 const hilMode = document.getElementById('hilMode');
 const fsmAdvance = document.getElementById('fsmAdvance');
+const readyConfigGuard = document.getElementById('readyConfigGuard');
 const simulationWarning = document.getElementById('simulationWarning');
 const logOutput = document.getElementById('logOutput');
 const testLogOutput = document.getElementById('testLogOutput');
@@ -29,6 +30,8 @@ let tests = [];
 let runtimeConfig = {};
 let runtimeSchema = { fields: [] };
 let runtimeValidation = { items: [] };
+let persistedConfigSignature = '';
+let configDirty = false;
 let selectedFile = null;
 let latestStatus = null;
 let sdkconfigText = null;
@@ -463,9 +466,15 @@ function updateFsmBar(status) {
     fsmAdvance.textContent = 'Go To Ready For Launch';
     fsmAdvance.classList.remove('hidden');
     fsmAdvance.classList.add('danger-action');
+    fsmAdvance.disabled = configDirty;
+    fsmAdvance.title = configDirty ? 'Save configuration changes before READY FOR LAUNCH.' : '';
+    readyConfigGuard.classList.toggle('hidden', !configDirty);
   } else {
     fsmAdvance.classList.add('hidden');
     fsmAdvance.classList.remove('danger-action');
+    fsmAdvance.disabled = false;
+    fsmAdvance.title = '';
+    readyConfigGuard.classList.add('hidden');
   }
 }
 
@@ -1314,6 +1323,38 @@ function configReadOnlyTable(fields) {
   </table></div>`;
 }
 
+function configSignature(values) {
+  const editable = (runtimeSchema.fields || []).filter(field => field.editable);
+  return JSON.stringify(Object.fromEntries(editable.map(field => [field.key, values[field.key]])));
+}
+
+function editedConfigValues() {
+  const values = { ...runtimeConfig };
+  document.querySelectorAll('[data-config]').forEach(input => {
+    if (input.disabled) return;
+    const key = input.dataset.config;
+    values[key] = input.type === 'checkbox' ? input.checked
+      : input.type === 'number' ? Number(input.value) : input.value;
+  });
+  return values;
+}
+
+function setConfigSaveState(message = '', state = '') {
+  const button = document.getElementById('saveConfig');
+  const feedback = document.getElementById('configSaveState');
+  button.classList.toggle('config-dirty', configDirty);
+  button.textContent = configDirty ? 'Save Changes' : 'Save';
+  feedback.textContent = message;
+  feedback.className = `config-save-state ${state}`;
+}
+
+function updateConfigDirtyState() {
+  if (!persistedConfigSignature) return;
+  configDirty = configSignature(editedConfigValues()) !== persistedConfigSignature;
+  setConfigSaveState(configDirty ? 'Unsaved changes' : '');
+  if (latestStatus) updateFsmBar(latestStatus);
+}
+
 async function loadConfig() {
   document.getElementById('configStatus').classList.remove('config-save-success');
   const [cfg, schema, validation] = await Promise.all([
@@ -1346,6 +1387,10 @@ async function loadConfig() {
   const valid = runtimeValidation.ok ? 'valid' : 'invalid';
   document.getElementById('configStatus').textContent = `${locked} - ${valid} - schema v${runtimeConfig.schema_version}, revision ${runtimeConfig.config_revision}\n${JSON.stringify(runtimeValidation, null, 2)}`;
   document.getElementById('unlockConfig').classList.toggle('hidden', runtimeConfig.config_locked !== true);
+  persistedConfigSignature = configSignature(runtimeConfig);
+  configDirty = false;
+  setConfigSaveState();
+  if (latestStatus) updateFsmBar(latestStatus);
 }
 
 async function saveConfig() {
@@ -1355,14 +1400,7 @@ async function saveConfig() {
     invalid.reportValidity();
     return;
   }
-  const updated = { ...runtimeConfig };
-  inputs.forEach(input => {
-    if (input.disabled) return;
-    const key = input.dataset.config;
-    if (input.type === 'checkbox') updated[key] = input.checked;
-    else if (input.type === 'number') updated[key] = Number(input.value);
-    else updated[key] = input.value;
-  });
+  const updated = editedConfigValues();
   const s = await api('/api/config/runtime', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -1373,8 +1411,10 @@ async function saveConfig() {
     await loadConfig();
     status.textContent = `✓ Configuration saved to NVS.\n${status.textContent}`;
     status.classList.add('config-save-success');
+    setConfigSaveState('Saved ✓', 'success');
   } else {
     status.textContent = JSON.stringify(s, null, 2);
+    setConfigSaveState('Save failed — changes not saved', 'error');
   }
 }
 
@@ -1555,6 +1595,10 @@ async function advanceFsm() {
     showActionStatus('Ready-for-launch is only available in GROUND_SERVICES.');
     return;
   }
+  if (configDirty) {
+    showActionStatus('READY FOR LAUNCH is blocked until configuration changes are saved.');
+    return;
+  }
   let checklist = await api('/api/prelaunch/checklist');
   if (!checklist.ok) {
     const summary = checklistSummary(checklist);
@@ -1652,7 +1696,11 @@ document.addEventListener('keydown', event => {
 document.getElementById('saveConfig').addEventListener('click', saveConfig);
 document.getElementById('resetConfig').addEventListener('click', resetConfig);
 document.getElementById('unlockConfig').addEventListener('click', unlockConfig);
+document.addEventListener('input', event => {
+  if (event.target.matches('[data-config]')) updateConfigDirtyState();
+});
 document.addEventListener('change', event => {
+  if (event.target.matches('[data-config]')) updateConfigDirtyState();
   if (!event.target.classList.contains('attitude-axis-map')) return;
   attitudeMountingDraft[event.target.dataset.bodyAxis] = event.target.value;
   const status = document.getElementById('attitudeAlignmentStatus');
