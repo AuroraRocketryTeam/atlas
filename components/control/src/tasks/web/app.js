@@ -1179,25 +1179,6 @@ function renderLive(s) {
         attitudeAlignmentControls()
       ].join(''))}
     </div>
-    <div class="trend-grid-layout">
-      ${trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1)}
-      ${trendChart('BNO055 acceleration', 'm/s2', [{ key: 'imuAx', label: 'X', color: '#ef4444' }, { key: 'imuAy', label: 'Y', color: '#22c55e' }, { key: 'imuAz', label: 'Z', color: '#3b82f6' }], 2)}
-      ${trendChart('LIS3DHTR acceleration', 'm/s2', [{ key: 'lisAx', label: 'X', color: '#ef4444' }, { key: 'lisAy', label: 'Y', color: '#22c55e' }, { key: 'lisAz', label: 'Z', color: '#3b82f6' }], 2)}
-      ${trendChart('Angular velocity', 'rad/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}
-      ${trendChart('Barometer pressure', 'Pa', [{ key: 'pressure', label: 'P', color: '#a855f7' }], 1)}
-      ${trendChart('GPS altitude', 'm ASL', [{ key: 'gpsAltitude', label: 'Altitude', color: '#f59e0b' }], 1)}
-    </div>
-    <div class="attitude-grid">
-      ${panel('Rocket Attitude', attitudeSvg())}
-      ${panel('Attitude & Calibration', [
-        row('Euler X / heading', `${Number(orientation.x || 0).toFixed(2)} deg`),
-        row('Euler Y / roll', `${Number(orientation.y || 0).toFixed(2)} deg`),
-        row('Euler Z / pitch', `${Number(orientation.z || 0).toFixed(2)} deg`),
-        row('Calibration SYS / GYR / ACC / MAG', `${imuCalibration.system || 0} / ${imuCalibration.gyro || 0} / ${imuCalibration.accelerometer || 0} / ${imuCalibration.magnetometer || 0}`),
-        row('Angular velocity', `${Number(angularVelocity.x || 0).toFixed(3)}, ${Number(angularVelocity.y || 0).toFixed(3)}, ${Number(angularVelocity.z || 0).toFixed(3)} rad/s`),
-        attitudeAlignmentControls()
-      ].join(''))}
-    </div>
     <div class="sensor-grid">
       ${sensorCard('IMU', imu, [
         ['Acceleration', `${Number(acceleration.x || 0).toFixed(3)}, ${Number(acceleration.y || 0).toFixed(3)}, ${Number(acceleration.z || 0).toFixed(3)} m/s2`],
