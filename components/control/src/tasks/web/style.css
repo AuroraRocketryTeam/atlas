@@ -509,6 +509,10 @@ main {
   margin-top: 5px;
   font-size: 22px;
 }
+.metrics div.tx-pulse {
+  border-color: var(--green);
+  background: #dcfce7;
+}
 .sensor-card {
   padding: 14px;
   border-left-width: 5px;
@@ -610,6 +614,11 @@ pre {
 .checklist-item.bad > span {
   color: var(--red);
 }
+.checklist-item.warning {
+  border-left-color: var(--yellow);
+  background: #fffbeb;
+}
+.checklist-item.warning > span { color: #a16207; }
 .checklist-item strong,
 .checklist-item small {
   display: block;

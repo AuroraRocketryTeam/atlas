@@ -1152,6 +1152,11 @@ esp_err_t GroundServicesTask::healthGetHandler(httpd_req_t *req)
         externalFlashReady ? "ok" : "not_ready",
         sdReady ? "true" : "false",
         sdReady ? "ok" : "not_ready",
+        lora.available ? "true" : "false",
+        lora.available ? "ok" : "not_present",
+        static_cast<unsigned long>(lora.successful_messages),
+        static_cast<unsigned long>(lora.failed_messages),
+        static_cast<unsigned long>(lora.last_success_ms),
         imuStatus == SensorReadStatus::OK ? "true" : "false",
         sensorStatusToString(imuStatus),
         baro1Status == SensorReadStatus::OK ? "true" : "false",
@@ -1240,6 +1245,7 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
     SensorReadStatus accStatus = _rocketModel ? _rocketModel->getLIS3DHTRData(acc) : SensorReadStatus::NOT_PRESENT;
     SensorReadStatus baroStatus = _rocketModel ? _rocketModel->getMS561101BA03Data_1(baro) : SensorReadStatus::NOT_PRESENT;
     SensorReadStatus gpsStatus = _rocketModel ? _rocketModel->getGPSData(gps) : SensorReadStatus::NOT_PRESENT;
+    const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
 
     int written = snprintf(body, body_size,
         "{\"ok\":true,\"fsm_state\":\"%s\",\"calibration\":{\"imu\":%s,\"barometer\":%s,\"barometer_samples\":%d},"
@@ -1256,7 +1262,8 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
         "\"temperature_c\":%.2f,\"timestamp\":%lu},"
         "\"accelerometer\":{\"status\":\"%s\",\"x\":%.5f,\"y\":%.5f,\"z\":%.5f,\"timestamp\":%lu},"
         "\"barometer\":{\"status\":\"%s\",\"pressure\":%.3f,\"temperature_c\":%.3f,\"timestamp\":%lu},"
-        "\"gps\":{\"status\":\"%s\",\"lat\":%.7f,\"lon\":%.7f,\"alt\":%.2f,\"fix\":%s,\"fix_type\":%u,\"satellites\":%u,\"ground_speed_mps\":%.3f,\"hdop\":%.3f,\"timestamp\":%lu}}}",
+        "\"gps\":{\"status\":\"%s\",\"lat\":%.7f,\"lon\":%.7f,\"alt\":%.2f,\"fix\":%s,\"fix_type\":%u,\"satellites\":%u,\"ground_speed_mps\":%.3f,\"hdop\":%.3f,\"timestamp\":%lu}},"
+        "\"telemetry\":{\"lora\":{\"available\":%s,\"tx_success\":%lu,\"tx_failures\":%lu,\"last_success_ms\":%lu}}}",
         _fsm ? rocketStateToString(_fsm->getCurrentState()) : "unknown",
         _rocketModel && _rocketModel->isSensorSystemCalibrated() ? "true" : "false",
         _rocketModel && _rocketModel->isBarometerZeroed() ? "true" : "false",
@@ -1282,7 +1289,11 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
         sensorStatusToString(gpsStatus),
         static_cast<double>(gps.latitude), static_cast<double>(gps.longitude), static_cast<double>(gps.altitude),
         gps.fixType >= 2 ? "true" : "false", gps.fixType, gps.satellites,
-        static_cast<double>(gps.ground_speed), static_cast<double>(gps.hdop), static_cast<unsigned long>(gps.timestamp));
+        static_cast<double>(gps.ground_speed), static_cast<double>(gps.hdop), static_cast<unsigned long>(gps.timestamp),
+        lora.available ? "true" : "false",
+        static_cast<unsigned long>(lora.successful_messages),
+        static_cast<unsigned long>(lora.failed_messages),
+        static_cast<unsigned long>(lora.last_success_ms));
     return written > 0 && static_cast<size_t>(written) < body_size ? static_cast<size_t>(written) : 0;
 }
 
@@ -1576,6 +1587,7 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     const bool config_unlocked = config_loaded && !cfg.config_locked;
     const bool barometer_ready = self->_rocketModel && self->_rocketModel->isBarometerZeroed();
     const bool imu_ready = self->_rocketModel && self->_rocketModel->isSensorSystemCalibrated();
+    const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
 
     bool all_ok = true;
     size_t offset = 0;
@@ -1587,6 +1599,8 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, config_unlocked, "config_unlocked", "Config not already locked", "error", config_unlocked ? "Configuration can be locked for flight" : "Configuration is already locked")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, barometer_ready, "barometer_baseline", "Barometer baseline available", "error", barometer_ready ? "Barometer baseline is available" : "Barometer baseline is not ready")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, imu_ready, "imu_calibrated", "IMU calibrated", "error", imu_ready ? "IMU calibration is ready" : "IMU calibration is not ready")) return ESP_ERR_NO_MEM;
+    if (!appendChecklistItem(body, body_size, &offset, &all_ok, lora.available, "lora_available", "LoRa telemetry module", "warning",
+                             lora.available ? "LoRa module initialized" : "LoRa unavailable; explicit operator override is required")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "recovery_mode", "Recovery mode", "info",
                              recoveryModeToChecklistMessage(static_cast<RecoveryMode>(cfg.recovery.mode)))) return ESP_ERR_NO_MEM;
 
@@ -1743,9 +1757,15 @@ esp_err_t GroundServicesTask::readyForLaunchPostHandler(httpd_req_t *req)
     if (!authOrSend(req)) { discardBody(req); return ESP_OK; }
     auto *self = fromReq(req);
     if (rejectMutationDuringOta(req, self)) return ESP_OK;
-    if (!headerEquals(req, "X-Confirm", "READY_FOR_LAUNCH")) {
+    const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
+    const bool loraOverride = headerEquals(req, "X-Confirm", "READY_FOR_LAUNCH_WITHOUT_LORA");
+    if (!headerEquals(req, "X-Confirm", "READY_FOR_LAUNCH") && !loraOverride) {
         discardBody(req);
-        return sendErrorJson(req, "400 Bad Request", "missing X-Confirm: READY_FOR_LAUNCH header");
+        return sendErrorJson(req, "400 Bad Request", "missing ready-for-launch confirmation header");
+    }
+    if (!lora.available && !loraOverride) {
+        discardBody(req);
+        return sendErrorJson(req, "409 Conflict", "LoRa is unavailable; explicit override is required");
     }
     esp_err_t body_err = readBody(req, s_responseBuffer, RESPONSE_BUFFER_SIZE);
     if (body_err != ESP_OK) return sendErrorJson(req, "400 Bad Request", "invalid ready-for-launch body", body_err);

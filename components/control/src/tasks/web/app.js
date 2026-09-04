@@ -422,14 +422,17 @@ function checklistPanel(checklist) {
   if (!checklist || !Array.isArray(checklist.items)) {
     return panel('Pre-launch Checklist', '<p class="bad">Checklist unavailable.</p>');
   }
-  const rows = checklist.items.map(item => `
-    <div class="checklist-item ${item.ok ? 'ok' : 'bad'}">
-      <span>${item.ok ? 'OK' : 'BLOCKED'}</span>
+  const rows = checklist.items.map(item => {
+    const warning = !item.ok && item.severity === 'warning';
+    return `
+    <div class="checklist-item ${item.ok ? 'ok' : (warning ? 'warning' : 'bad')}">
+      <span>${item.ok ? 'OK' : (warning ? 'REVIEW' : 'BLOCKED')}</span>
       <div>
         <strong>${esc(item.label || item.key)}</strong>
         <small>${esc(item.message || '')}</small>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   return panel('Pre-launch Checklist', `
     <div class="checklist-status ${checklist.ok ? 'ok' : 'bad'}">${checklist.ok ? 'Ready for launch transition' : 'Manual review required'}</div>
     <div class="checklist-list">${rows}</div>
@@ -642,6 +645,10 @@ async function loadHealth() {
       ${(sensors.barometer_ms5611_secondary || {}).status === 'not_present' ? '' : healthItem('MS5611 Barometer 2', sensors.barometer_ms5611_secondary, [row('Read status', (sensors.barometer_ms5611_secondary || {}).status)].join(''))}
       ${healthItem('LIS3DHTR Accelerometer', sensors.accelerometer_lis3dhtr, [row('Read status', (sensors.accelerometer_lis3dhtr || {}).status)].join(''))}
       ${healthItem('GPS', sensors.gps, [row('Read status', (sensors.gps || {}).status)].join(''))}
+      ${healthItem('LoRa E220', lora, [
+        row('Messages sent / failed', `${lora.tx_success || 0} / ${lora.tx_failures || 0}`),
+        row('Last successful TX', lora.last_success_ms ? `${lora.last_success_ms} ms` : 'none yet')
+      ].join(''))}
       ${healthItem('SD Card', sd, [row('Mounted', sd.present ? 'yes' : 'no')].join(''))}
     </div>
     ${panel('Resource Monitor', [
@@ -1121,6 +1128,8 @@ function renderLive(s) {
   const linearAcceleration = imu.linear_acceleration_m_s2 || {};
   const gravity = imu.gravity_m_s2 || {};
   const magnetometer = imu.magnetometer_ut || {};
+  const lora = ((s.telemetry || {}).lora || {});
+  const loraTxPulse = performance.now() < loRaTxPulseUntil;
   addLiveHistorySample({
     attitudeX: Number(orientation.x), attitudeY: Number(orientation.y), attitudeZ: Number(orientation.z),
     imuAx: Number(acceleration.x), imuAy: Number(acceleration.y), imuAz: Number(acceleration.z),
@@ -1135,6 +1144,7 @@ function renderLive(s) {
       <div><span>Vertical speed</span><strong>${Number(flight.vertical_speed_mps || 0).toFixed(2)} m/s</strong></div>
       <div><span>Rising</span><strong>${flight.is_rising ? 'yes' : 'no'}</strong></div>
       <div><span>Calibrated</span><strong>${calibration.imu ? 'yes' : 'no'}</strong></div>
+      <div class="${loraTxPulse ? 'tx-pulse' : ''}"><span>LoRa</span><strong>${lora.available ? (loraTxPulse ? 'TX pulse' : 'ready') : 'unavailable'}</strong></div>
     </div>
     <div class="trend-grid-layout">
       ${trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1)}
@@ -1192,6 +1202,9 @@ function ingestLive(s) {
     const acceleration = imu.acceleration_m_s2 || {};
     targetAttitudeQuaternion = imu.quaternion || targetAttitudeQuaternion;
     targetAttitudeAcceleration = [Number(acceleration.x) || 0, Number(acceleration.y) || 0, Number(acceleration.z) || 0];
+    const loraSuccess = Number((((s.telemetry || {}).lora || {}).tx_success) || 0);
+    if (loraSuccess > lastLoRaTxSuccess) loRaTxPulseUntil = performance.now() + 400;
+    lastLoRaTxSuccess = loraSuccess;
   }
   if (!document.getElementById('live').classList.contains('hidden')) renderLive(s);
 }
@@ -1548,11 +1561,15 @@ async function advanceFsm() {
     showActionStatus(`Pre-launch checklist is not complete:\n${summary}`);
     return;
   }
-  const prompt = 'This will lock the flight configuration.\nAfter this point, mission parameters cannot be edited until the allowed recovery/reset path.\nConfirm that the pre-launch checklist is complete.\n\nType READY_FOR_LAUNCH to lock and arm.';
-  if (window.prompt(prompt) !== 'READY_FOR_LAUNCH') return;
+  const loraUnavailable = (checklist.items || []).some(item => item.key === 'lora_available' && !item.ok);
+  const confirmation = loraUnavailable ? 'READY_FOR_LAUNCH_WITHOUT_LORA' : 'READY_FOR_LAUNCH';
+  const prompt = loraUnavailable
+    ? 'LoRa telemetry is unavailable. Continuing requires an explicit operator override.\n\nType READY_FOR_LAUNCH_WITHOUT_LORA to lock and arm without LoRa.'
+    : 'This will lock the flight configuration.\nAfter this point, mission parameters cannot be edited until the allowed recovery/reset path.\nConfirm that the pre-launch checklist is complete.\n\nType READY_FOR_LAUNCH to lock and arm.';
+  if (window.prompt(prompt) !== confirmation) return;
   const s = await api('/api/fsm/ready-for-launch', {
     method: 'POST',
-    headers: { 'X-Confirm': 'READY_FOR_LAUNCH' },
+    headers: { 'X-Confirm': confirmation },
     body: ''
   });
   showActionStatus(s);
