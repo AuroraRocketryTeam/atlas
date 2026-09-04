@@ -1049,3 +1049,13 @@ const char* RocketFSM::getStateString(RocketState state) const
 {
     return rocketStateToString(state);
 }
+
+size_t RocketFSM::getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const
+{
+    return _taskManager ? _taskManager->getActiveTaskStackHealth(out, capacity) : 0;
+}
+
+void RocketFSM::logActiveTaskStackHealth() const
+{
+    if (_taskManager) _taskManager->logActiveTaskStackHealth();
+}

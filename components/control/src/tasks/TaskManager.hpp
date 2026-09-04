@@ -100,12 +100,19 @@ public:
     bool isTaskRunning(TaskType type) const;
 
     /**
-     * @brief Get the stack usage of a task
-     * 
-     * @param type The type of task to check
-     * @return uint32_t The stack usage of the task
+     * @brief Get the minimum stack remaining for a task since it started.
      */
-    uint32_t getTaskStackUsage(TaskType type) const;
+    uint32_t getTaskStackHighWaterMark(TaskType type) const;
+
+    /**
+     * @brief Log stack high-water marks for currently running managed tasks.
+     */
+    void logActiveTaskStackHealth() const;
+
+    /**
+     * @brief Copy stack high-water marks for currently running managed tasks.
+     */
+    size_t getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const;
     
     /**
      * @brief Print the status of all tasks

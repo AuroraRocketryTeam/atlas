@@ -215,6 +215,7 @@ void loopFlight()
                  static_cast<unsigned>(heap_caps_get_minimum_free_size(internalCaps)),
                  static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
                  static_cast<unsigned>(uxTaskGetNumberOfTasks()));
+        if (rocketFSM) rocketFSM->logActiveTaskStackHealth();
 
         // Monitor RocketLogger memory usage
         if (logger)
