@@ -8,28 +8,25 @@
  * The setupSelectedMode() function initializes the appropriate mode based on the configuration, while
  * loopSelectedMode() runs the corresponding loop for the selected mode.
  *
- * The HIL mode selection is splitted in two part to ease the recompilation burder due to the change of the KConfig file.
- * So it's splitted in:
- *  - CONFIG_AURORA_HIL_SUPPORT in KConfig, and
- *  - CONFIG_AURORA_HIL_SIMULATION in config.h
+ * AURORA_HIL_ENABLED is set in the root CMakeLists.txt. It controls both
+ * compilation and activation of HIL, so a flight build contains no HIL code.
  *
  * @note This project uses the C++14 language standard version.
  */
 
 #include <Arduino.h>
-#include <config.h>
 
 void setupFlight();
 void loopFlight();
 
-#if CONFIG_AURORA_HIL_SUPPORT
+#if AURORA_HIL_ENABLED
 void setupHil();
 void loopHil();
 #endif
 
 static void setupSelectedMode()
 {
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
     setupHil();
 #else
     setupFlight();
@@ -38,7 +35,7 @@ static void setupSelectedMode()
 
 static void loopSelectedMode()
 {
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
     loopHil();
 #else
     loopFlight();

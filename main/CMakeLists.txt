@@ -1,6 +1,6 @@
 set(MAIN_SRCS "app_entry.cpp" "main.cpp")
 
-if(CONFIG_AURORA_HIL_SUPPORT)
+if(AURORA_HIL_ENABLED)
     list(APPEND MAIN_SRCS "main_hil.cpp")
 endif()
 
@@ -38,7 +38,9 @@ idf_component_register(
     REQUIRES espressif__arduino-esp32
 )
 
-# TODO
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    AURORA_HIL_ENABLED=$<BOOL:${AURORA_HIL_ENABLED}>)
+
 # The serializer is header-only and instantiated by these two entry points.
 # Keep their object files dependent on its implementation headers even if
 # generated compiler depfiles are unavailable.

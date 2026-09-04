@@ -6,6 +6,7 @@
 #include "AirbrakesTask.hpp"
 #include "AltitudeTask.hpp"
 #include "TelemetryTask.hpp"
+#include "StorageLoggingTask.hpp"
 #include "FlightParametersConfig.hpp"
 
 class IBoardHardware;
@@ -28,7 +29,7 @@ class IBoardHardware;
  * 4. Add validation in runtime_config_validate_each(). Keep the validation
  *    limits aligned with the schema min/max values.
  * 5. For an operator-editable field in MissionConfig, FlightParametersConfig,
- *    AltitudeConfig, or RecoveryConfig, add parsing in
+ *    AltitudeConfig, RecoveryConfig, or ActuatorConfig, add parsing in
  *    runtime_config_update_from_json(). Calibration and telemetry remain
  *    inspection-only unless deliberately promoted later.
  * 6. Add serialization in runtime_config_to_json().
@@ -96,6 +97,9 @@ struct RuntimeConfig {
     TelemetryConfig telemetry;
     bool config_locked;
     uint32_t checksum;
+    // Append fields to preserve in-place migration of prior persisted layouts.
+    StorageLoggingConfig storage_logging;
+    ActuatorConfig actuators;
 };
 
 struct RuntimeConfigValidationItem {
@@ -159,9 +163,20 @@ RuntimeConfig runtime_config_get_flight_snapshot();
  *
  * The config is stored as a single NVS blob in the RuntimeConfig namespace.
  * Callers should prefer update/reset helpers unless they already have a fully
- * validated RuntimeConfig instance.
+ * validated RuntimeConfig instance. Writes are rejected after flight locking;
+ * recovery unlock is the only explicit exception.
  */
 esp_err_t runtime_config_save(const RuntimeConfig *cfg);
+
+/**
+ * @brief Persist recorder-owned filename metadata discovered during boot.
+ *
+ * This updates only the incumbent and last-flight filenames. It remains
+ * available while flight settings are locked because these fields describe
+ * storage state; they cannot alter flight behavior.
+ */
+esp_err_t runtime_config_record_flight_files(const char *flight_filename,
+                                             const char *last_flight_filename);
 
 /**
  * @brief Replace the active config with firmware defaults.

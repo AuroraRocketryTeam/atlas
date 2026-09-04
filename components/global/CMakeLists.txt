@@ -10,3 +10,6 @@ idf_component_register(
     INCLUDE_DIRS "src"
     REQUIRES nlohmann_json espressif__arduino-esp32 esp_driver_usb_serial_jtag
 )
+
+target_compile_definitions(${COMPONENT_LIB} PUBLIC
+    AURORA_HIL_ENABLED=$<BOOL:${AURORA_HIL_ENABLED}>)

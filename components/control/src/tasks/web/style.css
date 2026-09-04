@@ -509,6 +509,10 @@ main {
   margin-top: 5px;
   font-size: 22px;
 }
+.metrics div.tx-pulse {
+  border-color: var(--green);
+  background: #dcfce7;
+}
 .sensor-card {
   padding: 14px;
   border-left-width: 5px;
@@ -570,6 +574,30 @@ pre {
   background: #111827;
   border-radius: 8px;
 }
+#configStatus.config-save-success {
+  color: #d1fae5;
+  border-left: 5px solid var(--green);
+}
+.config-save-state {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.config-save-state.success { color: var(--green); }
+.config-save-state.error { color: var(--red); }
+#saveConfig.config-dirty {
+  color: #111827;
+  background: #fef3c7;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 2px rgba(217, 119, 6, .18);
+}
+.ready-config-guard {
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+}
 .action-status {
   margin: 0 28px 18px;
 }
@@ -606,6 +634,11 @@ pre {
 .checklist-item.bad > span {
   color: var(--red);
 }
+.checklist-item.warning {
+  border-left-color: var(--yellow);
+  background: #fffbeb;
+}
+.checklist-item.warning > span { color: #a16207; }
 .checklist-item strong,
 .checklist-item small {
   display: block;
@@ -719,6 +752,7 @@ pre {
   text-transform: uppercase;
 }
 .badge.readonly { color: #46515f; background: #e5e7eb; }
+.badge.latest { color: #166534; background: #dcfce7; }
 .status-strip {
   padding: 0;
   margin: 0;

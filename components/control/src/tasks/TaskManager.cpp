@@ -5,6 +5,7 @@
 #include "esp_system.h"
 #include <config.h>
 #include <board.h>
+#include <array>
 
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          std::shared_ptr<SD> sd,
@@ -64,7 +65,7 @@ void TaskManager::initializeTasks()
         _rocketModel,
         _logger);
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
         _logger,
@@ -211,7 +212,7 @@ bool TaskManager::isTaskRunning(TaskType type) const
     return (it != _tasks.end()) && it->second->isRunning();
 }
 
-uint32_t TaskManager::getTaskStackUsage(TaskType type) const
+uint32_t TaskManager::getTaskStackHighWaterMark(TaskType type) const
 {
     auto it = _tasks.find(type);
     if (it != _tasks.end())
@@ -219,6 +220,32 @@ uint32_t TaskManager::getTaskStackUsage(TaskType type) const
         return it->second->getStackHighWaterMark();
     }
     return 0;
+}
+
+void TaskManager::logActiveTaskStackHealth() const
+{
+    std::array<TaskStackHealth, MAX_MANAGED_TASK_HEALTH_ENTRIES> tasks = {};
+    const size_t taskCount = getActiveTaskStackHealth(tasks.data(), tasks.size());
+    for (size_t index = 0; index < taskCount; ++index)
+    {
+        LOG_INFO("TaskManager", "Task stack: [%s] %s remaining=%u bytes",
+                 tasks[index].type, tasks[index].name, tasks[index].high_water_mark_bytes);
+    }
+}
+
+size_t TaskManager::getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const
+{
+    if (out == nullptr || capacity == 0) return 0;
+
+    size_t count = 0;
+    for (const auto &[type, task] : _tasks)
+    {
+        if (!task || !task->isRunning()) continue;
+        if (count == capacity) break;
+
+        out[count++] = {taskTypeToString(type), task->getName(), task->getStackHighWaterMark()};
+    }
+    return count;
 }
 
 void TaskManager::printTaskStatus() const
@@ -239,6 +266,13 @@ void TaskManager::printTaskStatus() const
         }
     }
     LOG_INFO("TaskManager", "=================");
+}
+
+bool TaskManager::prepareStorageLogging()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    if (it == _tasks.end() || !it->second) return false;
+    return static_cast<StorageLoggingTask *>(it->second.get())->prepareTelemetryFilename();
 }
 
 int TaskManager::getRunningTaskCount()

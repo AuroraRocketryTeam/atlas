@@ -24,3 +24,10 @@ struct CalibrationConfig {
 struct RecoveryConfig {
     RecoveryMode mode;
 };
+
+// Recovery-output timing is owned by RocketFSM and persisted with the other
+// flight parameters so it can be checked and adjusted before flight locking.
+struct ActuatorConfig {
+    uint8_t pulse_count;
+    uint16_t pulse_duration_ms;
+};

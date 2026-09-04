@@ -54,7 +54,7 @@ static portMUX_TYPE s_config_mux = portMUX_INITIALIZER_UNLOCKED;
 static RuntimeConfig make_default_config()
 {
     RuntimeConfig cfg = {};
-    cfg.schema_version = 6;
+    cfg.schema_version = 8;
     cfg.config_revision = 1;
     snprintf(cfg.mission.rocket_name, sizeof(cfg.mission.rocket_name), "%s", "Atlas Manny");
     snprintf(cfg.mission.launch_site, sizeof(cfg.mission.launch_site), "%s", "Launch Site");
@@ -86,6 +86,10 @@ static RuntimeConfig make_default_config()
     cfg.calibration.barometer_samples = 100;
     cfg.calibration.temperature_samples = 100;
     cfg.recovery.mode = AURORA_RECOVERY_MODE;
+    snprintf(cfg.storage_logging.flight_filename, sizeof(cfg.storage_logging.flight_filename),
+             "%s", "flight_telemetry_000001.jsonl");
+    cfg.actuators.pulse_count = 3;
+    cfg.actuators.pulse_duration_ms = 3;
     cfg.config_locked = false;
     return cfg;
 }
@@ -135,6 +139,20 @@ static uint32_t compute_checksum(RuntimeConfig cfg)
 {
     cfg.checksum = 0;
     return fnv1a32(&cfg, sizeof(cfg));
+}
+
+static bool legacy_v6_checksum_ok(RuntimeConfig cfg)
+{
+    const uint32_t storedChecksum = cfg.checksum;
+    cfg.checksum = 0;
+    return storedChecksum == fnv1a32(&cfg, offsetof(RuntimeConfig, storage_logging));
+}
+
+static bool legacy_v7_checksum_ok(RuntimeConfig cfg)
+{
+    const uint32_t storedChecksum = cfg.checksum;
+    cfg.checksum = 0;
+    return storedChecksum == fnv1a32(&cfg, offsetof(RuntimeConfig, actuators));
 }
 
 static void update_checksum(RuntimeConfig *cfg)
@@ -207,7 +225,14 @@ esp_err_t runtime_config_validate_each(const RuntimeConfig *cfg, RuntimeConfigVa
     // Keep validation ranges aligned with runtime_config_schema_json(). The
     // dashboard uses schema ranges for client-side checks, but firmware repeats
     // validation here because NVS and HTTP input cannot be trusted.
-    if (cfg->schema_version != 6) error("schema_version", "Unsupported runtime config schema");
+    if (cfg->schema_version != 8) error("schema_version", "Unsupported runtime config schema");
+    if (cfg->storage_logging.flight_filename[0] == '\0') error("storage.flight_filename", "Flight filename is required");
+    if (cfg->actuators.pulse_count < 1 || cfg->actuators.pulse_count > 10) {
+        error("actuators.pulse_count", "Actuator pulse count must be between 1 and 10");
+    }
+    if (cfg->actuators.pulse_duration_ms < 1 || cfg->actuators.pulse_duration_ms > 100) {
+        error("actuators.pulse_duration_ms", "Actuator pulse duration must be between 1 and 100 ms");
+    }
     if (cfg->mission.rocket_name[0] == '\0') error("identity.rocket_name", "Rocket name is required");
     if (cfg->mission.launch_site[0] == '\0') error("identity.launch_site", "Launch site is required");
     if (!std::isfinite(cfg->mission.launch_site_altitude_m) || cfg->mission.launch_site_altitude_m < 0.0f || cfg->mission.launch_site_altitude_m > 6000.0f) {
@@ -281,7 +306,7 @@ esp_err_t runtime_config_validate(const RuntimeConfig *cfg, char *reason, size_t
 /**
  * @brief Persist a complete validated config snapshot to NVS.
  */
-esp_err_t runtime_config_save(const RuntimeConfig *cfg)
+static esp_err_t persist_config(const RuntimeConfig *cfg)
 {
     if (cfg == nullptr) return ESP_ERR_INVALID_ARG;
 
@@ -313,6 +338,31 @@ esp_err_t runtime_config_save(const RuntimeConfig *cfg)
     return err;
 }
 
+esp_err_t runtime_config_save(const RuntimeConfig *cfg)
+{
+    // This is the common write boundary for every normal RuntimeConfig setter.
+    if (runtime_config_is_locked()) return ESP_ERR_INVALID_STATE;
+    return persist_config(cfg);
+}
+
+esp_err_t runtime_config_record_flight_files(const char *flight_filename,
+                                             const char *last_flight_filename)
+{
+    if (flight_filename == nullptr || last_flight_filename == nullptr) return ESP_ERR_INVALID_ARG;
+
+    RuntimeConfig config;
+    if (runtime_config_get(&config) != ESP_OK) return ESP_ERR_INVALID_STATE;
+    snprintf(config.storage_logging.flight_filename,
+             sizeof(config.storage_logging.flight_filename), "%s", flight_filename);
+    snprintf(config.storage_logging.last_flight_filename,
+             sizeof(config.storage_logging.last_flight_filename), "%s", last_flight_filename);
+    config.config_revision++;
+
+    // Recorder metadata is not a flight parameter. Persist only these two
+    // internally generated fields without opening the normal locked write path.
+    return persist_config(&config);
+}
+
 /**
  * @brief Initialize the active config cache from NVS.
  */
@@ -333,6 +383,28 @@ esp_err_t runtime_config_init(IBoardHardware *board)
     size_t size = sizeof(cfg);
     err = nvs_get_blob(handle, NVS_KEY_ACTIVE, &cfg, &size);
     nvs_close(handle);
+
+    const bool legacyV6 = err == ESP_OK &&
+                          size == offsetof(RuntimeConfig, storage_logging) &&
+                          cfg.schema_version == 6 && legacy_v6_checksum_ok(cfg);
+    if (legacyV6) {
+        cfg.schema_version = 8;
+        snprintf(cfg.storage_logging.flight_filename, sizeof(cfg.storage_logging.flight_filename),
+                 "%s", "flight_telemetry_000001.jsonl");
+        cfg.actuators.pulse_count = 3;
+        cfg.actuators.pulse_duration_ms = 3;
+        return runtime_config_save(&cfg);
+    }
+
+    const bool legacyV7 = err == ESP_OK &&
+                          size == offsetof(RuntimeConfig, actuators) &&
+                          cfg.schema_version == 7 && legacy_v7_checksum_ok(cfg);
+    if (legacyV7) {
+        cfg.schema_version = 8;
+        cfg.actuators.pulse_count = 3;
+        cfg.actuators.pulse_duration_ms = 3;
+        return runtime_config_save(&cfg);
+    }
 
     char reason[96];
     if (err != ESP_OK || size != sizeof(cfg) || !checksum_ok(&cfg) || runtime_config_validate(&cfg, reason, sizeof(reason)) != ESP_OK) {
@@ -403,7 +475,11 @@ esp_err_t runtime_config_reset_defaults()
     if (runtime_config_is_locked()) return ESP_ERR_INVALID_STATE;
     RuntimeConfig cfg = runtime_config_defaults();
     RuntimeConfig active;
-    cfg.config_revision = runtime_config_get(&active) == ESP_OK ? active.config_revision + 1 : 1;
+    if (runtime_config_get(&active) == ESP_OK) {
+        cfg.config_revision = active.config_revision + 1;
+        // Resetting operator settings must not reuse an existing flight filename.
+        cfg.storage_logging = active.storage_logging;
+    }
     return runtime_config_save(&cfg);
 }
 
@@ -419,7 +495,8 @@ esp_err_t runtime_config_unlock_after_recovery()
     cfg.config_locked = false;
     cfg.config_revision++;
 
-    esp_err_t err = runtime_config_save(&cfg);
+    // Recovery unlock is intentionally the only write allowed while locked.
+    esp_err_t err = persist_config(&cfg);
     if (err == ESP_OK) {
         portENTER_CRITICAL(&s_config_mux);
         s_flight_snapshot_valid = false;
@@ -546,6 +623,14 @@ esp_err_t runtime_config_update_from_json(const char *json, RuntimeConfig *updat
     if (json_update_uint_if_present(json, "selected_barometer", &selectedBarometer) != ESP_OK || selectedBarometer > UINT8_MAX) return ESP_ERR_INVALID_ARG;
     cfg.altitude.selected_barometer = static_cast<uint8_t>(selectedBarometer);
     if (json_update_recovery_mode_if_present(json, &cfg.recovery.mode) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    uint32_t actuatorPulseCount = cfg.actuators.pulse_count;
+    if (json_update_uint_if_present(json, "actuator_pulse_count", &actuatorPulseCount) != ESP_OK ||
+        actuatorPulseCount > UINT8_MAX) return ESP_ERR_INVALID_ARG;
+    cfg.actuators.pulse_count = static_cast<uint8_t>(actuatorPulseCount);
+    uint32_t actuatorPulseDurationMs = cfg.actuators.pulse_duration_ms;
+    if (json_update_uint_if_present(json, "actuator_pulse_duration_ms", &actuatorPulseDurationMs) != ESP_OK ||
+        actuatorPulseDurationMs > UINT16_MAX) return ESP_ERR_INVALID_ARG;
+    cfg.actuators.pulse_duration_ms = static_cast<uint16_t>(actuatorPulseDurationMs);
     cfg.config_revision++;
 
     err = runtime_config_save(&cfg);
@@ -581,7 +666,7 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
 
     int n = snprintf(out, out_size,
         "{\"ok\":true,\"schema_version\":%lu,\"config_revision\":%lu,"
-        "\"config_locked\":%s,"
+        "\"config_locked\":%s,\"flight_log_filename\":\"%s\",\"last_flight_log_filename\":\"%s\","
         "\"rocket_name\":\"%s\",\"launch_site\":\"%s\",\"operator_note\":\"%s\","
         "\"launch_site_altitude_m\":%.3f,\"sea_level_pressure_hpa\":%.3f,"
         "\"liftoff_accel_threshold_mps2\":%.3f,\"liftoff_timeout_ms\":%lu,"
@@ -598,7 +683,7 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         "\"barometer_calibration_samples\":%lu,\"temperature_calibration_samples\":%lu,"
         "\"ms56_i2c_addr_1\":\"0x%02X\",\"ms56_i2c_addr_2\":\"0x%02X\",\"bno055_i2c_addr\":\"0x%02X\","
         "\"lora_channel\":%u,\"lora_addh\":\"0x%02X\",\"lora_addl\":\"0x%02X\",\"lora_receiver_addh\":\"0x%02X\",\"lora_receiver_addl\":\"0x%02X\","
-        "\"recovery_mode\":\"%s\","
+        "\"recovery_mode\":\"%s\",\"actuator_pulse_count\":%u,\"actuator_pulse_duration_ms\":%u,"
         "\"board_name\":\"%s\",\"i2c_sda_pin\":%d,\"i2c_scl_pin\":%d,"
         "\"spi_mosi_pin\":%d,\"spi_miso_pin\":%d,\"spi_clk_pin\":%d,"
         "\"flash_cs_pin\":%d,\"barometer_cs_pin\":%d,\"barometer2_cs_pin\":%d,"
@@ -607,6 +692,8 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         static_cast<unsigned long>(cfg->schema_version),
         static_cast<unsigned long>(cfg->config_revision),
         cfg->config_locked ? "true" : "false",
+        cfg->storage_logging.flight_filename,
+        cfg->storage_logging.last_flight_filename,
         cfg->mission.rocket_name, cfg->mission.launch_site, cfg->mission.operator_note,
         static_cast<double>(cfg->mission.launch_site_altitude_m),
         static_cast<double>(cfg->mission.sea_level_pressure_hpa),
@@ -636,6 +723,8 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         MS56_I2C_ADDR_1, MS56_I2C_ADDR_2, bno055_i2c_addr,
         LORA_CHANNEL, LORA_ADDH, LORA_ADDL, LORA_RECEIVER_ADDH, LORA_RECEIVER_ADDL,
         recovery_mode,
+        static_cast<unsigned>(cfg->actuators.pulse_count),
+        static_cast<unsigned>(cfg->actuators.pulse_duration_ms),
         board_name,
         i2c_sda_pin, i2c_scl_pin,
         spi_mosi_pin, spi_miso_pin, spi_clk_pin,
@@ -673,6 +762,8 @@ esp_err_t runtime_config_schema_json(char *out, size_t out_size)
         "{\"key\":\"main_altitude_threshold_m\",\"label\":\"Main deployment altitude\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true,\"min\":50,\"max\":1000,\"description\":\"Altitude below which the main parachute may deploy.\"},"
         "{\"key\":\"touchdown_altitude_threshold_m\",\"label\":\"Touchdown altitude threshold\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true,\"min\":0,\"max\":200,\"description\":\"Altitude threshold used by touchdown logic.\"},"
         "{\"key\":\"telemetry_period_ms\",\"label\":\"Telemetry period\",\"group\":\"Telemetry\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":false,\"min\":100,\"max\":10000,\"description\":\"Telemetry transmit interval.\"},"
+        "{\"key\":\"flight_log_filename\",\"label\":\"Incumbent flight file\",\"group\":\"Flight Recorder\",\"source\":\"RuntimeConfig / NVS\",\"editable\":false,\"description\":\"Filename prepared at boot for the next recording.\"},"
+        "{\"key\":\"last_flight_log_filename\",\"label\":\"Last flight file\",\"group\":\"Flight Recorder\",\"source\":\"RuntimeConfig / NVS\",\"editable\":false,\"description\":\"Most recent flight file found while preparing the recorder.\"},"
         "{\"key\":\"airbrakes_open_altitude_m\",\"label\":\"Open altitude\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true},"
         "{\"key\":\"airbrakes_close_altitude_m\",\"label\":\"Close altitude\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true},"
         "{\"key\":\"airbrakes_open_rate_per_s\",\"label\":\"Open rate\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"1/s\",\"editable\":true,\"locked_after_ready\":true},"
@@ -696,6 +787,8 @@ esp_err_t runtime_config_schema_json(char *out, size_t out_size)
         "{\"key\":\"lora_receiver_addh\",\"label\":\"LoRa receiver ADDH\",\"group\":\"Telemetry\",\"source\":\"config.h\",\"editable\":false,\"description\":\"Compiled receiver high address.\"},"
         "{\"key\":\"lora_receiver_addl\",\"label\":\"LoRa receiver ADDL\",\"group\":\"Telemetry\",\"source\":\"config.h\",\"editable\":false,\"description\":\"Compiled receiver low address.\"},"
         "{\"key\":\"recovery_mode\",\"label\":\"Recovery mode\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"editable\":true,\"locked_after_ready\":true},"
+        "{\"key\":\"actuator_pulse_count\",\"label\":\"Actuator pulse count\",\"group\":\"Recovery Actuators\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"pulses\",\"editable\":true,\"locked_after_ready\":true,\"min\":1,\"max\":10,\"description\":\"Number of high pulses for each recovery output.\"},"
+        "{\"key\":\"actuator_pulse_duration_ms\",\"label\":\"Actuator pulse duration\",\"group\":\"Recovery Actuators\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":true,\"locked_after_ready\":true,\"min\":1,\"max\":100,\"description\":\"High duration of each recovery output pulse.\"},"
         "{\"key\":\"board_name\",\"label\":\"Board\",\"group\":\"Board Hardware\",\"source\":\"BoardHardware\",\"editable\":false,\"description\":\"Compiled board target.\"},"
         "{\"key\":\"i2c_sda_pin\",\"label\":\"I2C SDA pin\",\"group\":\"Board Hardware\",\"source\":\"BoardHardware\",\"editable\":false,\"description\":\"Primary I2C SDA GPIO.\"},"
         "{\"key\":\"i2c_scl_pin\",\"label\":\"I2C SCL pin\",\"group\":\"Board Hardware\",\"source\":\"BoardHardware\",\"editable\":false,\"description\":\"Primary I2C SCL GPIO.\"},"

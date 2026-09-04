@@ -80,6 +80,7 @@ private:
     static esp_err_t authNonceGetHandler(httpd_req_t *req);
     static esp_err_t statusGetHandler(httpd_req_t *req);
     static esp_err_t healthGetHandler(httpd_req_t *req);
+    static esp_err_t taskSnapshotGetHandler(httpd_req_t *req);
     static esp_err_t liveDataGetHandler(httpd_req_t *req);
     static esp_err_t readOnlyWsHandler(httpd_req_t *req);
     static esp_err_t liveDataWsPreHandshake(httpd_req_t *req);

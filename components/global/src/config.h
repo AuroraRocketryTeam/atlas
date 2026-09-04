@@ -95,15 +95,3 @@ enum class RecoveryMode
     TwoParachuteMode,
 };
 #define AURORA_RECOVERY_MODE RecoveryMode::OneParachuteMode
-
-// The firmware has been compiled with the support for HIL
-#if CONFIG_AURORA_HIL_SUPPORT
-
-// Activate the HIL simulation?
-#define CONFIG_AURORA_HIL_SIMULATION 1
-
-#endif
-
-#if CONFIG_AURORA_HIL_SIMULATION && !CONFIG_AURORA_HIL_SUPPORT
-#error "CONFIG_AURORA_HIL_SIMULATION requires CONFIG_AURORA_HIL_SUPPORT=y"
-#endif

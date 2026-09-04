@@ -128,8 +128,8 @@ void setupHil()
 
     // Signal initialization start
     board.init();
-    gpio_set_level(board.get_rgb_blue_pin(), 0);
-    gpio_set_level(board.get_rgb_red_pin(), 1);
+    gpio_set_level(board.get_rgb_blue_pin(), LOW);
+    gpio_set_level(board.get_rgb_red_pin(), HIGH);
 
     // Initialize controllers
     ledController.init();
@@ -312,14 +312,16 @@ void loopHil()
 
     static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
+    static unsigned long lastStateLog = 0;
     static bool ledState = false;
-
     if (!rocketFSM)
     {
         vTaskDelay(100 / portTICK_PERIOD_MS);
         return;
     }
 
+    static RocketState lastLoggedState = RocketState::INACTIVE;
+    static bool stateLogged = false;
     // Heartbeat every HEARTBEAT_INTERVAL_MS
     if (Utils::realMillis() - lastHeartbeat > HEARTBEAT_INTERVAL_MS)
     {
@@ -335,6 +337,7 @@ void loopHil()
                  static_cast<unsigned>(heap_caps_get_minimum_free_size(internalCaps)),
                  static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
                  static_cast<unsigned>(uxTaskGetNumberOfTasks()));
+        if (rocketFSM) rocketFSM->logActiveTaskStackHealth();
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -349,6 +352,16 @@ void loopHil()
             }
         }
 
+    }
+
+    const unsigned long now = Utils::realMillis();
+    const RocketState currentState = rocketFSM->getCurrentState();
+    if (!stateLogged || currentState != lastLoggedState || now - lastStateLog >= 30000)
+    {
+        LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
+        lastLoggedState = currentState;
+        lastStateLog = now;
+        stateLogged = true;
     }
 
     // Small delay to prevent watchdog issues

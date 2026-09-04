@@ -71,6 +71,7 @@ public:
      * @return FlightPhase The current flight phase
      */
     FlightPhase getCurrentPhase() override;
+    size_t getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const override;
 
     /**
      * @brief Force a transition to a new state
@@ -88,6 +89,7 @@ public:
 
     // Utility methods
     const char* getStateString(RocketState state) const;
+    void logActiveTaskStackHealth() const;
 
 private:
     void setupStateActions();

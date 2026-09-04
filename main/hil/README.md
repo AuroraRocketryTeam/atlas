@@ -91,7 +91,7 @@ pip install .
 ```
 
 ### 5. Run the simulation
-- build ```main_hil.cpp``` and flash ```atlas-esp-idf```.
+- enable the HIL firmware profile as described below, then build and flash `atlas-esp-idf`.
 - connect to the board WiFi SoftAP, for example `Aurora AP` at `192.168.4.1`.
 - ```bash
   cd main/hil
@@ -127,6 +127,22 @@ Local mock run:
 python mock_manny_fc_server.py
 HIL_FC_HOST=127.0.0.1 python hil_rocketpy.py --rocket fred --sensor-profile clean
 ```
+
+## Firmware build profile
+
+The root [`CMakeLists.txt`](../../CMakeLists.txt) has one switch:
+
+```cmake
+set(AURORA_HIL_ENABLED ON)
+```
+
+`ON` builds the HIL sources and starts the simulator firmware. `OFF` excludes
+the HIL sources and builds the normal flight firmware. There is no separate
+"support" mode: a firmware either runs HIL or contains no HIL code.
+
+Change this value and build normally from the same ESP-IDF build directory.
+CMake reconfigures the affected targets; do not use `menuconfig` or edit
+`sdkconfig` to select HIL.
 
 ## Configuration model
 

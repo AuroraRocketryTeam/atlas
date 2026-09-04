@@ -32,7 +32,7 @@ void SensorTask::onTaskStop()
 
 void SensorTask::taskFunction()
 {
-#ifndef CONFIG_AURORA_HIL_SIMULATION
+#if !AURORA_HIL_ENABLED
     uint32_t sensorLogCounter = 0;
 #endif
     TickType_t lastWakeTime = xTaskGetTickCount();
@@ -57,10 +57,6 @@ void SensorTask::taskFunction()
         const uint32_t stackRemaining = uxTaskGetStackHighWaterMark(nullptr);
         const uint32_t freeHeap = esp_get_free_heap_size();
 
-        LOG_EVERY_MS(HEALTH_CHECK_PERIOD_MS, INFO, "Sensor", "Stack HwM:%u, Heap=%u, Memory=%u",
-                     static_cast<unsigned>(stackRemaining), static_cast<unsigned>(freeHeap),
-                     static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
-
         if (stackRemaining < MIN_STACK_REMAINING_BYTES || freeHeap < LOW_HEAP_THRESHOLD_BYTES) {
             LOG_EVERY_MS(HEALTH_CHECK_PERIOD_MS, WARNING, "Sensor",
                          "Resource warning: stack remaining=%u bytes, heap=%u bytes, largest block=%u bytes",
@@ -69,7 +65,7 @@ void SensorTask::taskFunction()
                          static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
         }
 
-#ifndef CONFIG_AURORA_HIL_SIMULATION
+#if !AURORA_HIL_ENABLED
         // Record every second acquisition cycle: 25 Hz from the 50 Hz outer loop.
         if (++sensorLogCounter >= SENSOR_LOG_INTERVAL_LOOPS)
         {
@@ -103,7 +99,6 @@ void SensorTask::taskFunction()
             }
         }
 #endif
-
         vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(SENSOR_LOOP_PERIOD_MS));
     }
 }

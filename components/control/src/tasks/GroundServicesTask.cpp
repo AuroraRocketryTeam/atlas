@@ -36,11 +36,13 @@
 #include <atomic>
 #include <cerrno>
 #include <cctype>
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <cstdint>
 #include <climits>
+#include <inttypes.h>
 #include <new>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -58,6 +60,8 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "config.h"
 #include "IGroundTestRunner.hpp"
 #include "SerialLogger.hpp"
@@ -67,7 +71,6 @@ static const char *TAG = "GroundServices";
 // Live Data is best-effort operator monitoring; 10 Hz is responsive without
 // creating unnecessary HTTPD and Wi-Fi load on the flight controller.
 static constexpr uint32_t GROUND_SERVICES_LOOP_PERIOD_MS = 100;
-static constexpr uint32_t GROUND_STACK_LOG_PERIOD_MS = 5000;
 
 #ifndef CONFIG_GROUND_SERVICES_AUTH_TOKEN
 #error "CONFIG_GROUND_SERVICES_AUTH_TOKEN must be configured. It is used as the HMAC shared secret for Ground Services."
@@ -82,8 +85,9 @@ static constexpr size_t STREAM_CHUNK_SIZE = 4096;
 static constexpr size_t LOG_RESPONSE_BUFFER_SIZE = 4096;
 static constexpr size_t MAX_HTTP_CLIENTS = 4;
 static constexpr size_t MAX_WS_CLIENTS = 2;
-static constexpr size_t REGISTERED_URI_HANDLERS = 31;
+static constexpr size_t REGISTERED_URI_HANDLERS = 32;
 static constexpr size_t HTTPD_STACK_SIZE = 5120;
+static constexpr size_t MAX_SYSTEM_TASK_SNAPSHOT_ENTRIES = 32;
 static constexpr size_t LOG_WS_PREFIX_SPACE = 16;
 static constexpr suseconds_t WS_SEND_TIMEOUT_US = 200000;
 static constexpr uint32_t AUTH_NONCE_TTL_MS = 30000;
@@ -91,10 +95,12 @@ static_assert(MAX_HTTP_CLIENTS >= MAX_WS_CLIENTS + 2, "WebSockets must leave roo
 static_assert(STREAM_CHUNK_SIZE <= RESPONSE_BUFFER_SIZE, "Stream chunks must fit in the shared response buffer");
 
 // HTTP handlers and queued WebSocket work execute serially in HTTPD context,
-// so request, response, and log payloads can share one buffer.
-alignas(StorageFileInfo) static char s_responseBuffer[RESPONSE_BUFFER_SIZE];
+// so request, response, and log payloads can share one lifecycle-owned buffer.
+// It is allocated only while Ground Services is active so flight can reclaim it.
+static char *s_responseBuffer = nullptr;
 static std::atomic_bool s_wsBroadcastQueued{false};
 static std::atomic_bool s_httpdStackWarningIssued{false};
+static std::atomic_uint32_t s_httpdStackHighWaterBytes{0};
 static size_t s_nextLogClient = 0;
 static std::atomic_uint32_t s_wsSendFailures{0};
 static std::atomic_uint32_t s_wsSlowClientDrops{0};
@@ -354,6 +360,45 @@ static esp_err_t sendErrorJson(httpd_req_t *req, const char *status, const char 
     return sendJson(req, status, body);
 }
 
+static bool appendJson(char *body, size_t body_size, size_t *offset, const char *format, ...)
+{
+    if (body == nullptr || offset == nullptr || *offset >= body_size) return false;
+
+    va_list args;
+    va_start(args, format);
+    const int written = vsnprintf(body + *offset, body_size - *offset, format, args);
+    va_end(args);
+    if (written < 0 || static_cast<size_t>(written) >= body_size - *offset) return false;
+    *offset += static_cast<size_t>(written);
+    return true;
+}
+
+static bool taskStackHealthToJson(const TaskStackHealth *tasks, size_t task_count,
+                                  char *body, size_t body_size)
+{
+    size_t offset = 0;
+    if (!appendJson(body, body_size, &offset, "[")) return false;
+    for (size_t index = 0; index < task_count; ++index) {
+        if (!appendJson(body, body_size, &offset,
+                        "%s{\"type\":\"%s\",\"name\":\"%s\",\"stack_high_water_bytes\":%lu}",
+                        index == 0 ? "" : ",", tasks[index].type, tasks[index].name,
+                        static_cast<unsigned long>(tasks[index].high_water_mark_bytes))) return false;
+    }
+    return appendJson(body, body_size, &offset, "]");
+}
+
+static const char *freeRtosTaskStateToString(eTaskState state)
+{
+    switch (state) {
+        case eRunning: return "running";
+        case eReady: return "ready";
+        case eBlocked: return "blocked";
+        case eSuspended: return "suspended";
+        case eDeleted: return "deleted";
+        default: return "invalid";
+    }
+}
+
 static esp_err_t discardBody(httpd_req_t *req)
 {
     char tmp[128];
@@ -548,6 +593,16 @@ static esp_err_t sendAsset(httpd_req_t *req, const unsigned char *start, const u
 
 void GroundServicesTask::onTaskStart()
 {
+    s_httpdStackWarningIssued.store(false, std::memory_order_relaxed);
+    s_httpdStackHighWaterBytes.store(0, std::memory_order_relaxed);
+    s_responseBuffer = static_cast<char *>(heap_caps_malloc(
+        RESPONSE_BUFFER_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (s_responseBuffer == nullptr) {
+        LOG_ERROR(TAG, "Failed to allocate %u-byte Ground Services response buffer",
+                  static_cast<unsigned>(RESPONSE_BUFFER_SIZE));
+        return;
+    }
+
     _otaMutex = xSemaphoreCreateMutex();
     _authMutex = xSemaphoreCreateMutex();
     if (_otaMutex == nullptr || _authMutex == nullptr) {
@@ -588,19 +643,15 @@ void GroundServicesTask::onTaskStop()
         vSemaphoreDelete(_authMutex);
         _authMutex = nullptr;
     }
+    heap_caps_free(s_responseBuffer);
+    s_responseBuffer = nullptr;
 }
 
 void GroundServicesTask::taskFunction()
 {
-    uint32_t lastStackLogMs = millis() - GROUND_STACK_LOG_PERIOD_MS;
     while (running) {
         esp_task_wdt_reset();
         queueWebSocketBroadcast();
-        const uint32_t now = millis();
-        if (now - lastStackLogMs >= GROUND_STACK_LOG_PERIOD_MS) {
-            LOG_INFO(TAG, "Stack remaining: %lu bytes", static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
-            lastStackLogMs = now;
-        }
         vTaskDelay(pdMS_TO_TICKS(GROUND_SERVICES_LOOP_PERIOD_MS));
     }
 }
@@ -627,6 +678,7 @@ void GroundServicesTask::webSocketBroadcastWork(void *arg)
     if (now - lastStackCheckMs >= 5000) {
         lastStackCheckMs = now;
         const uint32_t stackRemaining = uxTaskGetStackHighWaterMark(nullptr);
+        s_httpdStackHighWaterBytes.store(stackRemaining, std::memory_order_relaxed);
         if (stackRemaining * 100U < HTTPD_STACK_SIZE * 15U &&
             !s_httpdStackWarningIssued.exchange(true, std::memory_order_relaxed)) {
             LOG_WARNING(TAG, "HTTPD stack usage above 85%% (remaining=%lu/%u bytes)",
@@ -708,6 +760,7 @@ void GroundServicesTask::registerHandlers()
     add("/api/auth/nonce", HTTP_GET, authNonceGetHandler);
     add("/api/status", HTTP_GET, statusGetHandler);
     add("/api/health", HTTP_GET, healthGetHandler);
+    add("/api/health/tasks", HTTP_GET, taskSnapshotGetHandler);
     add("/api/live-data", HTTP_GET, liveDataGetHandler);
 
     add_ws("/ws/live-data", liveDataWsPreHandshake);
@@ -956,7 +1009,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
         "\"configured_boot\":{\"label\":\"%s\",\"address\":%lu,\"size\":%lu}},"
         "\"network\":{\"ssid\":\"%s\",\"ip\":\"%s\",\"mac\":\"%s\"},"
         "\"security\":{\"secure_boot\":%s,\"flash_encryption\":%s},"
-        "\"hil\":{\"support\":%s,\"simulation\":%s,\"mode\":\"%s\"},"
+        "\"hil\":{\"enabled\":%s,\"mode\":\"%s\"},"
         "\"runtime_config\":{\"schema_version\":%lu,\"config_revision\":%lu,\"config_locked\":%s}}",
         self->_fsm ? rocketStateToString(self->_fsm->getCurrentState()) : "unknown",
         static_cast<long long>(esp_timer_get_time() / 1000),
@@ -993,12 +1046,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
 #else
         "false",
 #endif
-#if CONFIG_AURORA_HIL_SUPPORT
-        "true",
-#else
-        "false",
-#endif
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
         "true",
         "simulation",
 #else
@@ -1043,6 +1091,14 @@ esp_err_t GroundServicesTask::healthGetHandler(httpd_req_t *req)
     const size_t psram_largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
     const bool externalFlashReady = self->_rocketModel && self->_rocketModel->isExternalFlashInitialized();
     const bool sdReady = self->_rocketModel && self->_rocketModel->isSdInitialized();
+    const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
+    TaskStackHealth taskHealth[MAX_MANAGED_TASK_HEALTH_ENTRIES] = {};
+    const size_t taskHealthCount = self->_fsm ? self->_fsm->getActiveTaskStackHealth(
+        taskHealth, MAX_MANAGED_TASK_HEALTH_ENTRIES) : 0;
+    char taskHealthJson[1280] = {};
+    if (!taskStackHealthToJson(taskHealth, taskHealthCount, taskHealthJson, sizeof(taskHealthJson))) {
+        return sendErrorJson(req, "500 Internal Server Error", "task health response too large");
+    }
 
     char *body = s_responseBuffer;
     snprintf(body, RESPONSE_BUFFER_SIZE,
@@ -1052,14 +1108,16 @@ esp_err_t GroundServicesTask::healthGetHandler(httpd_req_t *req)
         "\"websocket\":{\"clients\":%u,\"capacity\":%u,\"live_data\":%u,\"logs\":%u,"
         "\"send_failures\":%lu,\"slow_client_drops\":%lu,\"limit_rejects\":%lu},"
         "\"broadcast\":{\"queue_failures\":%lu,\"coalesced\":%lu,\"pending\":%s},"
-        "\"task\":{\"stack_high_water_bytes\":%lu},\"ota_state\":\"%s\",\"softap_stations\":%u},"
+        "\"httpd\":{\"stack_high_water_bytes\":%lu},\"ota_state\":\"%s\",\"softap_stations\":%u},"
         "\"memory\":{"
         "\"internal\":{\"free_bytes\":%lu,\"minimum_free_bytes\":%lu,\"largest_free_block_bytes\":%lu},"
         "\"psram\":{\"present\":%s,\"expected\":false,\"status\":\"%s\",\"total_bytes\":%lu,"
         "\"free_bytes\":%lu,\"largest_free_block_bytes\":%lu}},"
+        "\"tasks\":%s,"
         "\"internal_flash\":{\"present\":%s,\"size_bytes\":%lu,\"expected_size_bytes\":16777216,\"size_ok\":%s},"
         "\"external_flash\":{\"present\":%s,\"status\":\"%s\"},"
         "\"storage\":{\"sd\":{\"present\":%s,\"status\":\"%s\"}},"
+        "\"lora\":{\"present\":%s,\"status\":\"%s\",\"tx_success\":%lu,\"tx_failures\":%lu,\"last_success_ms\":%lu},"
         "\"sensors\":{"
         "\"imu_bno055\":{\"present\":%s,\"status\":\"%s\"},"
         "\"barometer_ms5611_primary\":{\"present\":%s,\"status\":\"%s\"},"
@@ -1078,7 +1136,7 @@ esp_err_t GroundServicesTask::healthGetHandler(httpd_req_t *req)
         static_cast<unsigned long>(s_broadcastQueueFailures.load(std::memory_order_relaxed)),
         static_cast<unsigned long>(s_broadcastCoalesced.load(std::memory_order_relaxed)),
         s_wsBroadcastQueued.load(std::memory_order_relaxed) ? "true" : "false",
-        static_cast<unsigned long>(self->getStackHighWaterMark()), otaStateToString(ota.state),
+        static_cast<unsigned long>(s_httpdStackHighWaterBytes.load(std::memory_order_relaxed)), otaStateToString(ota.state),
         static_cast<unsigned>(station_count),
         static_cast<unsigned long>(internal_free), static_cast<unsigned long>(internal_min),
         static_cast<unsigned long>(internal_largest),
@@ -1086,6 +1144,7 @@ esp_err_t GroundServicesTask::healthGetHandler(httpd_req_t *req)
         psram_total > 0 ? "ok" : "not_installed",
         static_cast<unsigned long>(psram_total),
         static_cast<unsigned long>(psram_free), static_cast<unsigned long>(psram_largest),
+        taskHealthJson,
         flash_err == ESP_OK ? "true" : "false",
         static_cast<unsigned long>(flash_size),
         flash_size == 16UL * 1024UL * 1024UL ? "true" : "false",
@@ -1093,6 +1152,11 @@ esp_err_t GroundServicesTask::healthGetHandler(httpd_req_t *req)
         externalFlashReady ? "ok" : "not_ready",
         sdReady ? "true" : "false",
         sdReady ? "ok" : "not_ready",
+        lora.available ? "true" : "false",
+        lora.available ? "ok" : "not_present",
+        static_cast<unsigned long>(lora.successful_messages),
+        static_cast<unsigned long>(lora.failed_messages),
+        static_cast<unsigned long>(lora.last_success_ms),
         imuStatus == SensorReadStatus::OK ? "true" : "false",
         sensorStatusToString(imuStatus),
         baro1Status == SensorReadStatus::OK ? "true" : "false",
@@ -1104,6 +1168,59 @@ esp_err_t GroundServicesTask::healthGetHandler(httpd_req_t *req)
         gpsStatus == SensorReadStatus::OK ? "true" : "false",
         sensorStatusToString(gpsStatus));
     return sendJson(req, "200 OK", body);
+}
+
+esp_err_t GroundServicesTask::taskSnapshotGetHandler(httpd_req_t *req)
+{
+#if CONFIG_FREERTOS_USE_TRACE_FACILITY
+    static_assert(MAX_SYSTEM_TASK_SNAPSHOT_ENTRIES > 0, "Task snapshot needs storage");
+    const UBaseType_t taskCount = uxTaskGetNumberOfTasks();
+    if (taskCount > MAX_SYSTEM_TASK_SNAPSHOT_ENTRIES) {
+        return sendErrorJson(req, "503 Service Unavailable", "too many tasks for diagnostic snapshot");
+    }
+
+    constexpr size_t statusBytes = sizeof(TaskStatus_t) * MAX_SYSTEM_TASK_SNAPSHOT_ENTRIES;
+    constexpr size_t statusOffset = (RESPONSE_BUFFER_SIZE - statusBytes) & ~(alignof(TaskStatus_t) - 1U);
+    static_assert(statusOffset > 1024, "Task snapshot must leave response space");
+    auto *status = reinterpret_cast<TaskStatus_t *>(s_responseBuffer + statusOffset);
+    const UBaseType_t capturedCount = uxTaskGetSystemState(status, MAX_SYSTEM_TASK_SNAPSHOT_ENTRIES, nullptr);
+    if (capturedCount == 0) {
+        return sendErrorJson(req, "503 Service Unavailable", "task list changed during diagnostic snapshot");
+    }
+
+    size_t offset = 0;
+    if (!appendJson(s_responseBuffer, statusOffset, &offset,
+                    "{\"ok\":true,\"captured_task_count\":%u,\"tasks\":[",
+                    static_cast<unsigned>(capturedCount))) {
+        return sendErrorJson(req, "500 Internal Server Error", "task snapshot response too large");
+    }
+    for (UBaseType_t index = 0; index < capturedCount; ++index) {
+#if (configTASKLIST_INCLUDE_COREID == 1)
+        const long core = status[index].xCoreID;
+#else
+        const long core = -1;
+#endif
+        if (!appendJson(s_responseBuffer, statusOffset, &offset,
+                        "%s{\"name\":\"%s\",\"handle\":\"0x%" PRIxPTR "\",\"number\":%u,"
+                        "\"state\":\"%s\",\"priority\":%u,\"base_priority\":%u,\"core\":%ld,"
+                        "\"stack_high_water_bytes\":%u}",
+                        index == 0 ? "" : ",", status[index].pcTaskName,
+                        reinterpret_cast<uintptr_t>(status[index].xHandle),
+                        static_cast<unsigned>(status[index].xTaskNumber),
+                        freeRtosTaskStateToString(status[index].eCurrentState),
+                        static_cast<unsigned>(status[index].uxCurrentPriority),
+                        static_cast<unsigned>(status[index].uxBasePriority), core,
+                        static_cast<unsigned>(status[index].usStackHighWaterMark))) {
+            return sendErrorJson(req, "500 Internal Server Error", "task snapshot response too large");
+        }
+    }
+    if (!appendJson(s_responseBuffer, statusOffset, &offset, "]}")) {
+        return sendErrorJson(req, "500 Internal Server Error", "task snapshot response too large");
+    }
+    return sendJson(req, "200 OK", s_responseBuffer);
+#else
+    return sendErrorJson(req, "501 Not Implemented", "FreeRTOS trace facility is disabled");
+#endif
 }
 
 static const char *sensorStatusToString(SensorReadStatus status)
@@ -1128,6 +1245,7 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
     SensorReadStatus accStatus = _rocketModel ? _rocketModel->getLIS3DHTRData(acc) : SensorReadStatus::NOT_PRESENT;
     SensorReadStatus baroStatus = _rocketModel ? _rocketModel->getMS561101BA03Data_1(baro) : SensorReadStatus::NOT_PRESENT;
     SensorReadStatus gpsStatus = _rocketModel ? _rocketModel->getGPSData(gps) : SensorReadStatus::NOT_PRESENT;
+    const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
 
     int written = snprintf(body, body_size,
         "{\"ok\":true,\"fsm_state\":\"%s\",\"calibration\":{\"imu\":%s,\"barometer\":%s,\"barometer_samples\":%d},"
@@ -1144,7 +1262,8 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
         "\"temperature_c\":%.2f,\"timestamp\":%lu},"
         "\"accelerometer\":{\"status\":\"%s\",\"x\":%.5f,\"y\":%.5f,\"z\":%.5f,\"timestamp\":%lu},"
         "\"barometer\":{\"status\":\"%s\",\"pressure\":%.3f,\"temperature_c\":%.3f,\"timestamp\":%lu},"
-        "\"gps\":{\"status\":\"%s\",\"lat\":%.7f,\"lon\":%.7f,\"alt\":%.2f,\"fix\":%s,\"fix_type\":%u,\"satellites\":%u,\"ground_speed_mps\":%.3f,\"hdop\":%.3f,\"timestamp\":%lu}}}",
+        "\"gps\":{\"status\":\"%s\",\"lat\":%.7f,\"lon\":%.7f,\"alt\":%.2f,\"fix\":%s,\"fix_type\":%u,\"satellites\":%u,\"ground_speed_mps\":%.3f,\"hdop\":%.3f,\"timestamp\":%lu}},"
+        "\"telemetry\":{\"lora\":{\"available\":%s,\"tx_success\":%lu,\"tx_failures\":%lu,\"last_success_ms\":%lu}}}",
         _fsm ? rocketStateToString(_fsm->getCurrentState()) : "unknown",
         _rocketModel && _rocketModel->isSensorSystemCalibrated() ? "true" : "false",
         _rocketModel && _rocketModel->isBarometerZeroed() ? "true" : "false",
@@ -1170,7 +1289,11 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
         sensorStatusToString(gpsStatus),
         static_cast<double>(gps.latitude), static_cast<double>(gps.longitude), static_cast<double>(gps.altitude),
         gps.fixType >= 2 ? "true" : "false", gps.fixType, gps.satellites,
-        static_cast<double>(gps.ground_speed), static_cast<double>(gps.hdop), static_cast<unsigned long>(gps.timestamp));
+        static_cast<double>(gps.ground_speed), static_cast<double>(gps.hdop), static_cast<unsigned long>(gps.timestamp),
+        lora.available ? "true" : "false",
+        static_cast<unsigned long>(lora.successful_messages),
+        static_cast<unsigned long>(lora.failed_messages),
+        static_cast<unsigned long>(lora.last_success_ms));
     return written > 0 && static_cast<size_t>(written) < body_size ? static_cast<size_t>(written) : 0;
 }
 
@@ -1253,7 +1376,6 @@ esp_err_t GroundServicesTask::readOnlyWsHandler(httpd_req_t *req)
     // request it will block the task until timeout, so being it an empty frame
     // return OK.
     if (req->method == HTTP_GET) return ESP_OK;
-
     httpd_ws_frame_t frame = {};
     esp_err_t err = httpd_ws_recv_frame(req, &frame, 0);
     shutdown(httpd_req_to_sockfd(req), SHUT_RDWR);
@@ -1471,6 +1593,7 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     const bool config_unlocked = config_loaded && !cfg.config_locked;
     const bool barometer_ready = self->_rocketModel && self->_rocketModel->isBarometerZeroed();
     const bool imu_ready = self->_rocketModel && self->_rocketModel->isSensorSystemCalibrated();
+    const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
 
     bool all_ok = true;
     size_t offset = 0;
@@ -1482,6 +1605,8 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, config_unlocked, "config_unlocked", "Config not already locked", "error", config_unlocked ? "Configuration can be locked for flight" : "Configuration is already locked")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, barometer_ready, "barometer_baseline", "Barometer baseline available", "error", barometer_ready ? "Barometer baseline is available" : "Barometer baseline is not ready")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, imu_ready, "imu_calibrated", "IMU calibrated", "error", imu_ready ? "IMU calibration is ready" : "IMU calibration is not ready")) return ESP_ERR_NO_MEM;
+    if (!appendChecklistItem(body, body_size, &offset, &all_ok, lora.available, "lora_available", "LoRa telemetry module", "warning",
+                             lora.available ? "LoRa module initialized" : "LoRa unavailable; explicit operator override is required")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "recovery_mode", "Recovery mode", "info",
                              recoveryModeToChecklistMessage(static_cast<RecoveryMode>(cfg.recovery.mode)))) return ESP_ERR_NO_MEM;
 
@@ -1638,9 +1763,15 @@ esp_err_t GroundServicesTask::readyForLaunchPostHandler(httpd_req_t *req)
     if (!authOrSend(req)) { discardBody(req); return ESP_OK; }
     auto *self = fromReq(req);
     if (rejectMutationDuringOta(req, self)) return ESP_OK;
-    if (!headerEquals(req, "X-Confirm", "READY_FOR_LAUNCH")) {
+    const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
+    const bool loraOverride = headerEquals(req, "X-Confirm", "READY_FOR_LAUNCH_WITHOUT_LORA");
+    if (!headerEquals(req, "X-Confirm", "READY_FOR_LAUNCH") && !loraOverride) {
         discardBody(req);
-        return sendErrorJson(req, "400 Bad Request", "missing X-Confirm: READY_FOR_LAUNCH header");
+        return sendErrorJson(req, "400 Bad Request", "missing ready-for-launch confirmation header");
+    }
+    if (!lora.available && !loraOverride) {
+        discardBody(req);
+        return sendErrorJson(req, "409 Conflict", "LoRa is unavailable; explicit override is required");
     }
     esp_err_t body_err = readBody(req, s_responseBuffer, RESPONSE_BUFFER_SIZE);
     if (body_err != ESP_OK) return sendErrorJson(req, "400 Bad Request", "invalid ready-for-launch body", body_err);
@@ -1837,7 +1968,29 @@ esp_err_t GroundServicesTask::filesListGetHandler(httpd_req_t *req)
     auto *files = reinterpret_cast<StorageFileInfo *>(s_responseBuffer);
     constexpr size_t MAX_LISTED_FILES = 32;
     for (size_t i = 0; i < MAX_LISTED_FILES; ++i) new (&files[i]) StorageFileInfo{};
-    const size_t count = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
+    size_t count = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
+    RuntimeConfig config;
+    char latestFile[40] = {};
+    if (runtime_config_get(&config) == ESP_OK) {
+        const char *latest = self->_rocketModel->storageFileExists(config.storage_logging.flight_filename)
+            ? config.storage_logging.flight_filename
+            : config.storage_logging.last_flight_filename;
+        snprintf(latestFile, sizeof(latestFile), "%s", latest);
+    }
+    bool latestListed = latestFile[0] == '\0';
+    for (size_t i = 0; i < count && !latestListed; ++i) {
+        latestListed = strcmp(files[i].name, latestFile) == 0;
+    }
+    if (!latestListed) {
+        uint8_t firstByte = 0;
+        size_t bytesRead = 0;
+        size_t fileSize = 0;
+        if (self->_rocketModel->storageReadFileChunk(latestFile, 0, &firstByte, 1, bytesRead, fileSize)) {
+            const size_t index = count < MAX_LISTED_FILES ? count++ : MAX_LISTED_FILES - 1;
+            snprintf(files[index].name, sizeof(files[index].name), "%s", latestFile);
+            files[index].size = fileSize;
+        }
+    }
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -1853,9 +2006,10 @@ esp_err_t GroundServicesTask::filesListGetHandler(httpd_req_t *req)
             safe = std::isalnum(*p) || *p == '.' || *p == '_' || *p == '-';
         }
         if (!safe) continue;
-        const int written = snprintf(item, sizeof(item), "%s{\"name\":\"%.63s\",\"size\":%lu}",
+        const int written = snprintf(item, sizeof(item), "%s{\"name\":\"%.63s\",\"size\":%lu,\"latest\":%s}",
                                      first ? "" : ",", safeName,
-                                     static_cast<unsigned long>(files[i].size));
+                                     static_cast<unsigned long>(files[i].size),
+                                     strcmp(safeName, latestFile) == 0 ? "true" : "false");
         if (written < 0 || static_cast<size_t>(written) >= sizeof(item) ||
             httpd_resp_send_chunk(req, item, written) != ESP_OK) return ESP_FAIL;
         first = false;

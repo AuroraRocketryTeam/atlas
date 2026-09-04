@@ -30,7 +30,7 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _isRising(false),
     _heightGainSpeed(0.0f),
     _currentHeight(0.0f)
-#if CONFIG_AURORA_HIL_SUPPORT
+#if AURORA_HIL_ENABLED
     , _reset_simulation(false)
 #endif
     , _storageMutex(xSemaphoreCreateMutex())
@@ -89,7 +89,7 @@ void RocketModel::reset() {
     _heightGainSpeed.store(0.0f, std::memory_order_relaxed);
     _currentHeight.store(0.0f, std::memory_order_relaxed);
 
-#if CONFIG_AURORA_HIL_SUPPORT
+#if AURORA_HIL_ENABLED
     _reset_simulation = false;
 
     IMUData bnoData;
@@ -161,7 +161,7 @@ void RocketModel::resetCommand()
     _cmd.reset();
 }
 
-#if CONFIG_AURORA_HIL_SUPPORT
+#if AURORA_HIL_ENABLED
 void RocketModel::setResetSimulationFlag(bool value)
 {
     _reset_simulation = value;
@@ -255,7 +255,7 @@ bool RocketModel::updateGPS() {
 }
 
 SensorReadStatus RocketModel::getBNO055Data(IMUData& data) {
-#if !CONFIG_AURORA_HIL_SIMULATION
+#if !AURORA_HIL_ENABLED
     if (!_bno) return SensorReadStatus::NOT_PRESENT;
 #endif
 
@@ -273,7 +273,7 @@ SensorReadStatus RocketModel::getBNO055Data(IMUData& data) {
 }
 
 SensorReadStatus RocketModel::getLIS3DHTRData(AccelerometerSensorData& data) {
-#if !CONFIG_AURORA_HIL_SIMULATION
+#if !AURORA_HIL_ENABLED
     if (!_lis3dh) return SensorReadStatus::NOT_PRESENT;
 #endif
 
@@ -291,7 +291,7 @@ SensorReadStatus RocketModel::getLIS3DHTRData(AccelerometerSensorData& data) {
 }
 
 SensorReadStatus RocketModel::getMS561101BA03Data_1(PressureSensorData& data) {
-#if !CONFIG_AURORA_HIL_SIMULATION
+#if !AURORA_HIL_ENABLED
     if (!_ms56_1) return SensorReadStatus::NOT_PRESENT;
 #endif
     
@@ -309,7 +309,7 @@ SensorReadStatus RocketModel::getMS561101BA03Data_1(PressureSensorData& data) {
 }
 
 SensorReadStatus RocketModel::getMS561101BA03Data_2(PressureSensorData& data) {
-#if !CONFIG_AURORA_HIL_SIMULATION
+#if !AURORA_HIL_ENABLED
     if (!_ms56_2) return SensorReadStatus::NOT_PRESENT;
 #endif
     
@@ -327,7 +327,7 @@ SensorReadStatus RocketModel::getMS561101BA03Data_2(PressureSensorData& data) {
 }
 
 SensorReadStatus RocketModel::getGPSData(GPSData& data) {
-#if !CONFIG_AURORA_HIL_SIMULATION
+#if !AURORA_HIL_ENABLED
     if (!_gps) return SensorReadStatus::NOT_PRESENT;
 #endif
     

@@ -11,7 +11,7 @@ volatile uint32_t Utils::_simMillis = 0;
 // Mission millis, can get slow down by the simulation
 uint32_t Utils::millis()
 {
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
     return _simMillis;
 #else
     return esp_timer_get_time() / 1000;

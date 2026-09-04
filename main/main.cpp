@@ -243,14 +243,16 @@ void loopFlight()
 {
     static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
+    static unsigned long lastStateLog = 0;
     static bool ledState = false;
-
     if (!rocketFSM)
     {
         vTaskDelay(100 / portTICK_PERIOD_MS);
         return;
     }
 
+    static RocketState lastLoggedState = RocketState::INACTIVE;
+    static bool stateLogged = false;
     // Heartbeat every HEARTBEAT_INTERVAL_MS
     if (Utils::millis() - lastHeartbeat > HEARTBEAT_INTERVAL_MS)
     {
@@ -266,6 +268,7 @@ void loopFlight()
                  static_cast<unsigned>(heap_caps_get_minimum_free_size(internalCaps)),
                  static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
                  static_cast<unsigned>(uxTaskGetNumberOfTasks()));
+        if (rocketFSM) rocketFSM->logActiveTaskStackHealth();
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -280,6 +283,16 @@ void loopFlight()
             }
         }
 
+    }
+
+    const unsigned long now = Utils::millis();
+    const RocketState currentState = rocketFSM->getCurrentState();
+    if (!stateLogged || currentState != lastLoggedState || now - lastStateLog >= 30000)
+    {
+        LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
+        lastLoggedState = currentState;
+        lastStateLog = now;
+        stateLogged = true;
     }
 
     // Small delay to prevent watchdog issues

@@ -60,7 +60,7 @@ static const GroundTestDescriptor GROUND_TESTS[] = {
     {6,  "Telemetry", "Configure E220",          "Write the default E220 radio configuration.", true, "CONFIGURE_E220"},
     {4,  "Storage",   "SD Card",                 "Write and read a test file on the SD card when available.", false, ""},
     {9,  "Storage",   "External Flash",          "Initialize external flash, write/read/append, then clear test data.", true, "TEST_FLASH"},
-    {12, "Storage",   "Dump Flash Telemetry",    "Print JSONL telemetry from external flash to serial output.", false, ""},
+    {12, "Storage",   "Dump Flash Telemetry (legacy - use Files)", "Print JSONL telemetry from external flash to serial output.", false, ""},
     {13, "Storage",   "Format Flash",            "Format the external flash memory. Data will be lost.", true, "FORMAT_FLASH"},
 };
 

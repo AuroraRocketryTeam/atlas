@@ -101,31 +101,3 @@ menu "Rocket Access Point Configuration"
             sdkconfig, which is ignored.
 
 endmenu
-
-menu "Aurora Hil Configuration"
-    # config AURORA_HIL_SIMULATION
-    #     bool "Enable Hardware-in-the-Loop simulation mode"
-    #     default n
-    #     help
-    #         Enables the HIL simulation task. In this mode the firmware
-    #         receives simulated sensor data from the simulator and sends
-    #         commands back to the simulator.
-
-    config AURORA_HIL_SUPPORT
-        bool "Add feature Hardware-in-the-Loop simulation"
-        default n
-        help
-            Add support for the Hardware-In-the-Loop simulation.
-
-    if AURORA_HIL_SUPPORT
-
-    config AURORA_HIL_SERVER_PORT
-        int "HIL TCP server port"
-        default 5000
-        range 1024 65535
-        help
-            TCP port used by the HIL simulation server running on the ESP32.
-
-    endif
-
-endmenu

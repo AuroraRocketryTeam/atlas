@@ -15,10 +15,9 @@
 
 static const char *TAG = "HilSimulationTask";
 
-static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
+static constexpr int HIL_SERVER_PORT = 5000;
 static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 5000;
 static constexpr uint32_t HIL_PACKET_PERIOD_MS = 20;
-static constexpr uint32_t HIL_STACK_LOG_PERIOD_MS = 5000;
 
 // The simulator drives one packet per acquisition cycle at the same 50 Hz the
 // real SensorTask loop runs at, so recording every SENSOR_LOG_INTERVAL_LOOPS-th
@@ -482,8 +481,6 @@ void HilSimulationTask::taskFunction() {
             gps.altitude  = pkt.alt;
             gps.setSensorName("GPS_SIM");
 
-            LOG_EVERY_MS(HIL_STACK_LOG_PERIOD_MS, INFO, TAG, "Stack remaining: %lu bytes",
-                         static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
             LOG_EVERY_MS(HIL_PACKET_LOG_PERIOD_MS, INFO, TAG,
                          "Received sim packet: time=%" PRIu32 " ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
                          sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt);

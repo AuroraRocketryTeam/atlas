@@ -4,13 +4,20 @@
 #include <utils.h>
 #include "RuntimeConfig.hpp"
 
-static constexpr uint32_t TELEMETRY_SENSOR_LOG_PERIOD_MS = 500;
+static constexpr uint32_t TELEMETRY_SENSOR_LOG_PERIOD_MS = 5000;
 
 constexpr float TROPOSPHERE_HEIGHT = 11000.f; // Troposphere height [m]
 constexpr float a = 0.0065f;                  // Troposphere temperature gradient [deg/m]
 constexpr float R = 287.05f;                  // Air gas constant [J/Kg/K]
 #define n (GRAVITY / (R * a))
 #define nInv ((R * a) / GRAVITY)
+
+namespace {
+std::atomic_bool s_loraAvailable{false};
+std::atomic_uint32_t s_loraSuccessfulMessages{0};
+std::atomic_uint32_t s_loraFailedMessages{0};
+std::atomic_uint32_t s_loraLastSuccessMs{0};
+}
 
 float relAltitude_tele(float pressure, float pressureRef = 101325.0f,
                        float temperatureRef = 288.15f)
@@ -37,6 +44,16 @@ void TelemetryTask::onTaskStart()
     LOG_INFO("Telemetry", "Task started with stack: %u bytes", config.stackSize);
     LOG_INFO("Telemetry", "LoRa transmitter: %s", _loraTransmitter ? "OK" : "NULL");
     _lastTransmitTime = Utils::millis();
+    s_loraAvailable.store(_loraTransmitter != nullptr, std::memory_order_release);
+    s_loraSuccessfulMessages.store(0, std::memory_order_relaxed);
+    s_loraFailedMessages.store(0, std::memory_order_relaxed);
+    s_loraLastSuccessMs.store(0, std::memory_order_relaxed);
+}
+
+void TelemetryTask::setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter)
+{
+    _loraTransmitter = std::move(transmitter);
+    s_loraAvailable.store(_loraTransmitter != nullptr, std::memory_order_release);
 }
 
 void TelemetryTask::onTaskStop()
@@ -47,7 +64,6 @@ void TelemetryTask::onTaskStop()
 
 void TelemetryTask::taskFunction()
 {
-    uint32_t loopCount = 0;
     const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
     const uint32_t transmitIntervalMs = runtimeConfig.telemetry.period_ms;
     LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", static_cast<unsigned long>(transmitIntervalMs));
@@ -81,6 +97,7 @@ void TelemetryTask::taskFunction()
                 memcpy(message.data(), &packet, sizeof(TelemetryPacket));
 
                 // LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
+                ++_messagesCreated;
 
                 // Transmit via LoRa
                 if (_loraTransmitter && running)
@@ -88,12 +105,14 @@ void TelemetryTask::taskFunction()
                     auto result = _loraTransmitter->transmit(message);
                     if (result.getCode() == E220_SUCCESS)
                     {
-                        _messagesCreated++;
+                        s_loraSuccessfulMessages.fetch_add(1, std::memory_order_relaxed);
+                        s_loraLastSuccessMs.store(now, std::memory_order_release);
                         LOG_EVERY_MS(5000, INFO, "Telemetry", "Packet %lu transmitted via LoRa", _messagesCreated);
                     }
                     else
                     {
                         _transmitErrors++;
+                        s_loraFailedMessages.fetch_add(1, std::memory_order_relaxed);
                         LOG_WARNING("Telemetry", "LoRa transmit failed: %s", result.getDescription().c_str());
                     }
                 }
@@ -104,14 +123,11 @@ void TelemetryTask::taskFunction()
             }
         }
 
-        // Log stats periodically
-        if (loopCount % 10 == 0 && loopCount > 0)
-        {
-            LOG_INFO("Telemetry", "Stats: msgs=%lu, errors=%lu, heap=%u",
-                     _messagesCreated, _transmitErrors, esp_get_free_heap_size());
-        }
-
-        loopCount++;
+        const LoRaTelemetryStatus lora = getLoRaStatus();
+        LOG_EVERY_MS(5000, INFO, "Telemetry",
+                     "Stats: msgs=%lu, errors=%lu, lora_ok=%lu, lora_fail=%lu, heap=%u",
+                     _messagesCreated, _transmitErrors,
+                     lora.successful_messages, lora.failed_messages, esp_get_free_heap_size());
 
         // Check running flag frequently during delay (50ms chunks)
         uint32_t delayRemaining = transmitIntervalMs / 10; // Split into 10 chunks
@@ -273,4 +289,14 @@ void TelemetryTask::getStats(uint32_t &messages, uint32_t &errors) const
 {
     messages = _messagesCreated;
     errors = _transmitErrors;
+}
+
+LoRaTelemetryStatus TelemetryTask::getLoRaStatus()
+{
+    return {
+        s_loraAvailable.load(std::memory_order_acquire),
+        s_loraSuccessfulMessages.load(std::memory_order_relaxed),
+        s_loraFailedMessages.load(std::memory_order_relaxed),
+        s_loraLastSuccessMs.load(std::memory_order_acquire),
+    };
 }

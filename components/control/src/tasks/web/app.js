@@ -18,6 +18,7 @@ const fileName = document.getElementById('fileName');
 const fsmState = document.getElementById('fsmState');
 const hilMode = document.getElementById('hilMode');
 const fsmAdvance = document.getElementById('fsmAdvance');
+const readyConfigGuard = document.getElementById('readyConfigGuard');
 const simulationWarning = document.getElementById('simulationWarning');
 const logOutput = document.getElementById('logOutput');
 const testLogOutput = document.getElementById('testLogOutput');
@@ -29,10 +30,13 @@ let tests = [];
 let runtimeConfig = {};
 let runtimeSchema = { fields: [] };
 let runtimeValidation = { items: [] };
+let persistedConfigSignature = '';
+let configDirty = false;
 let selectedFile = null;
 let latestStatus = null;
 let sdkconfigText = null;
 let sdkconfigLoading = false;
+let taskSnapshot = null;
 let logsPaused = false;
 let testLogsPaused = false;
 let closeTestLogWhenFinished = false;
@@ -46,6 +50,7 @@ let isAuthenticated = false;
 const pollBusy = {
   status: false,
   live: false,
+  health: false,
   ota: false,
   tests: false,
   logs: false,
@@ -57,6 +62,8 @@ let targetAttitudeQuaternion = { w: 1, x: 0, y: 0, z: 0 };
 let displayedAttitudeQuaternion = { w: 1, x: 0, y: 0, z: 0 };
 let targetAttitudeAcceleration = [0, 0, 0];
 let displayedAttitudeAcceleration = [0, 0, 0];
+let lastLoRaTxSuccess = 0;
+let loRaTxPulseUntil = 0;
 let liveSocket = null;
 let liveReconnectTimer = null;
 let liveReconnectDelayMs = 1500;
@@ -315,7 +322,7 @@ async function loadFiles() {
   const files = result.files || [];
   content.innerHTML = files.length ? `<div class="config-table-wrap"><table class="config-table file-table">
     <thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>
-    <tbody>${files.map(file => `<tr><td><strong>${esc(file.name)}</strong></td><td>${esc(fmtBytes(file.size))}</td><td>
+    <tbody>${files.map(file => `<tr><td><strong>${esc(file.name)}</strong>${file.latest ? ' <em class="badge latest">Latest</em>' : ''}</td><td>${esc(fmtBytes(file.size))}</td><td>
       <button type="button" data-file-download="${esc(file.name)}">Download</button>
       <button type="button" class="danger-action" data-file-delete="${esc(file.name)}">Delete</button>
     </td></tr>`).join('')}</tbody></table></div>` : '<p>No stored files.</p>';
@@ -418,14 +425,17 @@ function checklistPanel(checklist) {
   if (!checklist || !Array.isArray(checklist.items)) {
     return panel('Pre-launch Checklist', '<p class="bad">Checklist unavailable.</p>');
   }
-  const rows = checklist.items.map(item => `
-    <div class="checklist-item ${item.ok ? 'ok' : 'bad'}">
-      <span>${item.ok ? 'OK' : 'BLOCKED'}</span>
+  const rows = checklist.items.map(item => {
+    const warning = !item.ok && item.severity === 'warning';
+    return `
+    <div class="checklist-item ${item.ok ? 'ok' : (warning ? 'warning' : 'bad')}">
+      <span>${item.ok ? 'OK' : (warning ? 'REVIEW' : 'BLOCKED')}</span>
       <div>
         <strong>${esc(item.label || item.key)}</strong>
         <small>${esc(item.message || '')}</small>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   return panel('Pre-launch Checklist', `
     <div class="checklist-status ${checklist.ok ? 'ok' : 'bad'}">${checklist.ok ? 'Ready for launch transition' : 'Manual review required'}</div>
     <div class="checklist-list">${rows}</div>
@@ -439,13 +449,12 @@ function updateFsmBar(status) {
   fsmState.className = `state-pill state-${state.toLowerCase()}`;
 
   const hil = (status && status.hil) || {};
-  const hasHilMode = typeof hil.simulation === 'boolean';
+  const hasHilMode = typeof hil.enabled === 'boolean';
   if (hasHilMode) {
-    const simulation = hil.simulation === true;
-    const support = hil.support === true;
+    const simulation = hil.enabled === true;
     const modeLabel = simulation ? 'SIMULATION MODE' : 'FLIGHT MODE';
-    hilMode.textContent = support && !simulation ? `${modeLabel} / HIL READY` : modeLabel;
-    hilMode.className = `mode-pill ${simulation ? 'mode-simulation' : 'mode-flight'}${support && !simulation ? ' mode-hil-ready' : ''}`;
+    hilMode.textContent = modeLabel;
+    hilMode.className = `mode-pill ${simulation ? 'mode-simulation' : 'mode-flight'}`;
     simulationWarning.classList.toggle('hidden', !simulation);
   } else {
     hilMode.textContent = 'UNKNOWN';
@@ -457,9 +466,15 @@ function updateFsmBar(status) {
     fsmAdvance.textContent = 'Go To Ready For Launch';
     fsmAdvance.classList.remove('hidden');
     fsmAdvance.classList.add('danger-action');
+    fsmAdvance.disabled = configDirty;
+    fsmAdvance.title = configDirty ? 'Save configuration changes before READY FOR LAUNCH.' : '';
+    readyConfigGuard.classList.toggle('hidden', !configDirty);
   } else {
     fsmAdvance.classList.add('hidden');
     fsmAdvance.classList.remove('danger-action');
+    fsmAdvance.disabled = false;
+    fsmAdvance.title = '';
+    readyConfigGuard.classList.add('hidden');
   }
 }
 
@@ -581,6 +596,22 @@ function healthItem(name, item, detail) {
   </div>`;
 }
 
+function taskTable(tasks, includeHandle = false) {
+  if (!tasks.length) return '<p class="muted">No task data available.</p>';
+  const headers = includeHandle
+    ? '<tr><th>Name</th><th>Handle</th><th>#</th><th>State</th><th>Priority</th><th>Base</th><th>Core</th><th>Stack HWM</th></tr>'
+    : '<tr><th>Type</th><th>Task</th><th>Stack HWM</th></tr>';
+  const rows = tasks.map(task => includeHandle
+    ? `<tr><td>${esc(task.name || '')}</td><td>${esc(task.handle || '')}</td><td>${esc(String(task.number ?? ''))}</td><td>${esc(task.state || '')}</td><td>${esc(String(task.priority ?? ''))}</td><td>${esc(String(task.base_priority ?? ''))}</td><td>${esc(String(task.core ?? ''))}</td><td>${fmtBytes(task.stack_high_water_bytes)}</td></tr>`
+    : `<tr><td>${esc(task.type || '')}</td><td>${esc(task.name || '')}</td><td>${fmtBytes(task.stack_high_water_bytes)}</td></tr>`).join('');
+  return `<div class="config-table-wrap"><table class="config-table"><thead>${headers}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function captureTaskSnapshot() {
+  taskSnapshot = await publicApi('/api/health/tasks');
+  loadHealth();
+}
+
 async function loadHealth() {
   const h = await publicApi('/api/health');
   if (!h.ok) {
@@ -596,19 +627,15 @@ async function loadHealth() {
   const http = ground.http || {};
   const websocket = ground.websocket || {};
   const broadcast = ground.broadcast || {};
+  const httpd = ground.httpd || {};
+  const lora = h.lora || {};
+  const managedTasks = h.tasks || [];
+  const snapshotBody = taskSnapshot
+    ? (taskSnapshot.ok
+      ? taskTable(taskSnapshot.tasks || [], true)
+      : `<p class="bad">${esc(taskSnapshot.error || 'Task snapshot unavailable.')}</p>`)
+    : '<p class="muted">On-demand only: captures all FreeRTOS tasks once.</p>';
   document.getElementById('healthContent').innerHTML = `
-    ${panel('Ground Services Resources', [
-      row('HTTP clients', `${http.clients || 0} / ${http.capacity || 0}`),
-      row('WebSockets', `${websocket.clients || 0} / ${websocket.capacity || 0} (${websocket.live_data || 0} live, ${websocket.logs || 0} logs)`),
-      row('WS failures / slow drops', `${websocket.send_failures || 0} / ${websocket.slow_client_drops || 0}`),
-      row('WS limit rejects', websocket.limit_rejects || 0),
-      row('Broadcast queue failures / coalesced', `${broadcast.queue_failures || 0} / ${broadcast.coalesced || 0}`),
-      row('Internal heap free / largest', `${fmtBytes(internal.free_bytes)} / ${fmtBytes(internal.largest_free_block_bytes)}`),
-      row('Minimum internal heap', fmtBytes(internal.minimum_free_bytes)),
-      row('Ground Services stack HWM', fmtBytes((ground.task || {}).stack_high_water_bytes)),
-      row('SoftAP stations', ground.softap_stations || 0),
-      row('OTA state', ground.ota_state || 'unknown')
-    ].join(''))}
     <div class="sensor-grid">
       ${healthItem('PSRAM', psram, [
         row('Total', fmtBytes(psram.total_bytes)),
@@ -627,8 +654,29 @@ async function loadHealth() {
       ${(sensors.barometer_ms5611_secondary || {}).status === 'not_present' ? '' : healthItem('MS5611 Barometer 2', sensors.barometer_ms5611_secondary, [row('Read status', (sensors.barometer_ms5611_secondary || {}).status)].join(''))}
       ${healthItem('LIS3DHTR Accelerometer', sensors.accelerometer_lis3dhtr, [row('Read status', (sensors.accelerometer_lis3dhtr || {}).status)].join(''))}
       ${healthItem('GPS', sensors.gps, [row('Read status', (sensors.gps || {}).status)].join(''))}
+      ${healthItem('LoRa E220', lora, [
+        row('Messages sent / failed', `${lora.tx_success || 0} / ${lora.tx_failures || 0}`),
+        row('Last successful TX', lora.last_success_ms ? `${lora.last_success_ms} ms` : 'none yet')
+      ].join(''))}
       ${healthItem('SD Card', sd, [row('Mounted', sd.present ? 'yes' : 'no')].join(''))}
-    </div>`;
+    </div>
+    ${panel('Resource Monitor', [
+      row('HTTP clients', `${http.clients || 0} / ${http.capacity || 0}`),
+      row('WebSockets', `${websocket.clients || 0} / ${websocket.capacity || 0} (${websocket.live_data || 0} live, ${websocket.logs || 0} logs)`),
+      row('WS failures / slow drops', `${websocket.send_failures || 0} / ${websocket.slow_client_drops || 0}`),
+      row('WS limit rejects', websocket.limit_rejects || 0),
+      row('Broadcast queue failures / coalesced', `${broadcast.queue_failures || 0} / ${broadcast.coalesced || 0}`),
+      row('Internal heap free / largest', `${fmtBytes(internal.free_bytes)} / ${fmtBytes(internal.largest_free_block_bytes)}`),
+      row('Minimum internal heap', fmtBytes(internal.minimum_free_bytes)),
+      row('HTTPD stack HWM', fmtBytes(httpd.stack_high_water_bytes)),
+      row('SoftAP stations', ground.softap_stations || 0),
+      row('OTA state', ground.ota_state || 'unknown'),
+      '<h3>Managed task stack high-water marks</h3>',
+      taskTable(managedTasks),
+      '<div class="section-head"><h3>FreeRTOS task snapshot</h3><button id="captureTaskSnapshot">Capture snapshot</button></div>',
+      snapshotBody
+    ].join(''))}`;
+  document.getElementById('captureTaskSnapshot').addEventListener('click', captureTaskSnapshot);
 }
 
 async function loadSdkconfig() {
@@ -1094,6 +1142,8 @@ function renderLive(s) {
   const linearAcceleration = imu.linear_acceleration_m_s2 || {};
   const gravity = imu.gravity_m_s2 || {};
   const magnetometer = imu.magnetometer_ut || {};
+  const lora = ((s.telemetry || {}).lora || {});
+  const loraTxPulse = performance.now() < loRaTxPulseUntil;
   addLiveHistorySample({
     attitudeX: Number(orientation.x), attitudeY: Number(orientation.y), attitudeZ: Number(orientation.z),
     imuAx: Number(acceleration.x), imuAy: Number(acceleration.y), imuAz: Number(acceleration.z),
@@ -1108,6 +1158,26 @@ function renderLive(s) {
       <div><span>Vertical speed</span><strong>${Number(flight.vertical_speed_mps || 0).toFixed(2)} m/s</strong></div>
       <div><span>Rising</span><strong>${flight.is_rising ? 'yes' : 'no'}</strong></div>
       <div><span>Calibrated</span><strong>${calibration.imu ? 'yes' : 'no'}</strong></div>
+      <div class="${loraTxPulse ? 'tx-pulse' : ''}"><span>LoRa</span><strong>${lora.available ? (loraTxPulse ? 'TX pulse' : 'ready') : 'unavailable'}</strong></div>
+    </div>
+    <div class="trend-grid-layout">
+      ${trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1)}
+      ${trendChart('BNO055 acceleration', 'm/s2', [{ key: 'imuAx', label: 'X', color: '#ef4444' }, { key: 'imuAy', label: 'Y', color: '#22c55e' }, { key: 'imuAz', label: 'Z', color: '#3b82f6' }], 2)}
+      ${trendChart('LIS3DHTR acceleration', 'm/s2', [{ key: 'lisAx', label: 'X', color: '#ef4444' }, { key: 'lisAy', label: 'Y', color: '#22c55e' }, { key: 'lisAz', label: 'Z', color: '#3b82f6' }], 2)}
+      ${trendChart('Angular velocity', 'rad/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}
+      ${trendChart('Barometer pressure', 'Pa', [{ key: 'pressure', label: 'P', color: '#a855f7' }], 1)}
+      ${trendChart('GPS altitude', 'm ASL', [{ key: 'gpsAltitude', label: 'Altitude', color: '#f59e0b' }], 1)}
+    </div>
+    <div class="attitude-grid">
+      ${panel('Rocket Attitude', attitudeSvg())}
+      ${panel('Attitude & Calibration', [
+        row('Euler X / heading', `${Number(orientation.x || 0).toFixed(2)} deg`),
+        row('Euler Y / roll', `${Number(orientation.y || 0).toFixed(2)} deg`),
+        row('Euler Z / pitch', `${Number(orientation.z || 0).toFixed(2)} deg`),
+        row('Calibration SYS / GYR / ACC / MAG', `${imuCalibration.system || 0} / ${imuCalibration.gyro || 0} / ${imuCalibration.accelerometer || 0} / ${imuCalibration.magnetometer || 0}`),
+        row('Angular velocity', `${Number(angularVelocity.x || 0).toFixed(3)}, ${Number(angularVelocity.y || 0).toFixed(3)}, ${Number(angularVelocity.z || 0).toFixed(3)} rad/s`),
+        attitudeAlignmentControls()
+      ].join(''))}
     </div>
     <div class="trend-grid-layout">
       ${trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1)}
@@ -1165,6 +1235,9 @@ function ingestLive(s) {
     const acceleration = imu.acceleration_m_s2 || {};
     targetAttitudeQuaternion = imu.quaternion || targetAttitudeQuaternion;
     targetAttitudeAcceleration = [Number(acceleration.x) || 0, Number(acceleration.y) || 0, Number(acceleration.z) || 0];
+    const loraSuccess = Number((((s.telemetry || {}).lora || {}).tx_success) || 0);
+    if (loraSuccess > lastLoRaTxSuccess) loRaTxPulseUntil = performance.now() + 400;
+    lastLoRaTxSuccess = loraSuccess;
   }
   if (!document.getElementById('live').classList.contains('hidden')) renderLive(s);
 }
@@ -1274,7 +1347,39 @@ function configReadOnlyTable(fields) {
   </table></div>`;
 }
 
+function configSignature(values) {
+  const editable = (runtimeSchema.fields || []).filter(field => field.editable);
+  return JSON.stringify(Object.fromEntries(editable.map(field => [field.key, values[field.key]])));
+}
+
+function editedConfigValues() {
+  const values = { ...runtimeConfig };
+  document.querySelectorAll('[data-config]').forEach(input => {
+    if (input.disabled) return;
+    const key = input.dataset.config;
+    values[key] = input.type === 'checkbox' ? input.checked
+      : input.type === 'number' ? Number(input.value) : input.value;
+  });
+  return values;
+}
+
+function setConfigSaveState(message = '', state = '') {
+  const button = document.getElementById('saveConfig');
+  const feedback = document.getElementById('configSaveState');
+  button.classList.toggle('config-dirty', configDirty);
+  button.textContent = configDirty ? 'Save Changes' : 'Save';
+  feedback.textContent = message;
+  feedback.className = `config-save-state ${state}`;
+}
+
+function updateConfigDirtyState() {
+  if (!persistedConfigSignature) return;
+  configDirty = configSignature(editedConfigValues()) !== persistedConfigSignature;
+  setConfigSaveState(configDirty ? 'Unsaved changes' : '');
+  if (latestStatus) updateFsmBar(latestStatus);
+}
 async function loadConfig() {
+  document.getElementById('configStatus').classList.remove('config-save-success');
   const [cfg, schema, validation] = await Promise.all([
     api('/api/config/runtime'),
     api('/api/config/schema'),
@@ -1305,6 +1410,10 @@ async function loadConfig() {
   const valid = runtimeValidation.ok ? 'valid' : 'invalid';
   document.getElementById('configStatus').textContent = `${locked} - ${valid} - schema v${runtimeConfig.schema_version}, revision ${runtimeConfig.config_revision}\n${JSON.stringify(runtimeValidation, null, 2)}`;
   document.getElementById('unlockConfig').classList.toggle('hidden', runtimeConfig.config_locked !== true);
+  persistedConfigSignature = configSignature(runtimeConfig);
+  configDirty = false;
+  setConfigSaveState();
+  if (latestStatus) updateFsmBar(latestStatus);
 }
 
 async function saveConfig() {
@@ -1314,21 +1423,22 @@ async function saveConfig() {
     invalid.reportValidity();
     return;
   }
-  const updated = { ...runtimeConfig };
-  inputs.forEach(input => {
-    if (input.disabled) return;
-    const key = input.dataset.config;
-    if (input.type === 'checkbox') updated[key] = input.checked;
-    else if (input.type === 'number') updated[key] = Number(input.value);
-    else updated[key] = input.value;
-  });
+  const updated = editedConfigValues();
   const s = await api('/api/config/runtime', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updated)
   });
-  document.getElementById('configStatus').textContent = JSON.stringify(s, null, 2);
-  loadConfig();
+  const status = document.getElementById('configStatus');
+  if (s.ok) {
+    await loadConfig();
+    status.textContent = `✓ Configuration saved to NVS.\n${status.textContent}`;
+    status.classList.add('config-save-success');
+    setConfigSaveState('Saved ✓', 'success');
+  } else {
+    status.textContent = JSON.stringify(s, null, 2);
+    setConfigSaveState('Save failed — changes not saved', 'error');
+  }
 }
 
 async function resetConfig() {
@@ -1508,17 +1618,25 @@ async function advanceFsm() {
     showActionStatus('Ready-for-launch is only available in GROUND_SERVICES.');
     return;
   }
+  if (configDirty) {
+    showActionStatus('READY FOR LAUNCH is blocked until configuration changes are saved.');
+    return;
+  }
   let checklist = await api('/api/prelaunch/checklist');
   if (!checklist.ok) {
     const summary = checklistSummary(checklist);
     showActionStatus(`Pre-launch checklist is not complete:\n${summary}`);
     return;
   }
-  const prompt = 'This will lock the flight configuration.\nAfter this point, mission parameters cannot be edited until the allowed recovery/reset path.\nConfirm that the pre-launch checklist is complete.\n\nType READY_FOR_LAUNCH to lock and arm.';
-  if (window.prompt(prompt) !== 'READY_FOR_LAUNCH') return;
+  const loraUnavailable = (checklist.items || []).some(item => item.key === 'lora_available' && !item.ok);
+  const confirmation = loraUnavailable ? 'READY_FOR_LAUNCH_WITHOUT_LORA' : 'READY_FOR_LAUNCH';
+  const prompt = loraUnavailable
+    ? 'LoRa telemetry is unavailable. Continuing requires an explicit operator override.\n\nType READY_FOR_LAUNCH_WITHOUT_LORA to lock and arm without LoRa.'
+    : 'This will lock the flight configuration.\nAfter this point, mission parameters cannot be edited until the allowed recovery/reset path.\nConfirm that the pre-launch checklist is complete.\n\nType READY_FOR_LAUNCH to lock and arm.';
+  if (window.prompt(prompt) !== confirmation) return;
   const s = await api('/api/fsm/ready-for-launch', {
     method: 'POST',
-    headers: { 'X-Confirm': 'READY_FOR_LAUNCH' },
+    headers: { 'X-Confirm': confirmation },
     body: ''
   });
   showActionStatus(s);
@@ -1569,6 +1687,8 @@ document.getElementById('filesContent').addEventListener('click', event => {
   if (remove) deleteStoredFile(remove.dataset.fileDelete);
 });
 document.getElementById('reboot').addEventListener('click', async () => {
+  const prompt = 'The board will reboot into the uploaded firmware.\n\nType REBOOT_TO_NEW_FIRMWARE to continue.';
+  if (window.prompt(prompt) !== 'REBOOT_TO_NEW_FIRMWARE') return;
   const s = await api('/api/ota/reboot', {
     method: 'POST',
     headers: { 'X-Confirm': 'REBOOT_TO_NEW_FIRMWARE' },
@@ -1599,7 +1719,11 @@ document.addEventListener('keydown', event => {
 document.getElementById('saveConfig').addEventListener('click', saveConfig);
 document.getElementById('resetConfig').addEventListener('click', resetConfig);
 document.getElementById('unlockConfig').addEventListener('click', unlockConfig);
+document.addEventListener('input', event => {
+  if (event.target.matches('[data-config]')) updateConfigDirtyState();
+});
 document.addEventListener('change', event => {
+  if (event.target.matches('[data-config]')) updateConfigDirtyState();
   if (!event.target.classList.contains('attitude-axis-map')) return;
   attitudeMountingDraft[event.target.dataset.bodyAxis] = event.target.value;
   const status = document.getElementById('attitudeAlignmentStatus');
@@ -1618,6 +1742,7 @@ document.addEventListener('click', event => {
 });
 
 setInterval(() => runPoll('live', !otaUploadActive && !document.getElementById('live').classList.contains('hidden') && (!liveSocket || liveSocket.readyState !== WebSocket.OPEN), loadLive), 1000);
+setInterval(() => runPoll('health', !otaUploadActive && !document.getElementById('health').classList.contains('hidden'), loadHealth), 3000);
 setInterval(() => runPoll('ota', !otaUploadActive && !document.getElementById('ota').classList.contains('hidden'), refreshOta), 2000);
 setInterval(() => runPoll('tests', !otaUploadActive && !document.getElementById('tests').classList.contains('hidden'), refreshTests), 1500);
 setInterval(() => {
