@@ -10,6 +10,7 @@
 #include "IStateMachine.hpp"
 #include <memory>
 #include <cstdint>
+#include <atomic>
 #include "esp_task_wdt.h"
 #include <Arduino.h>
 #include <config.h>
@@ -18,6 +19,13 @@
 // deliberately not an operator-editable mission parameter.
 struct TelemetryConfig {
     uint32_t period_ms;
+};
+
+struct LoRaTelemetryStatus {
+    bool available;
+    uint32_t successful_messages;
+    uint32_t failed_messages;
+    uint32_t last_success_ms;
 };
 
 /**
@@ -114,8 +122,11 @@ public:
      */
     void getStats(uint32_t &messages, uint32_t &packets, uint32_t &errors) const;
 
+    /** Return cross-task LoRa link status for Ground Services monitoring. */
+    static LoRaTelemetryStatus getLoRaStatus();
+
     /** @brief Set LoRa transmitter. Will be used only if present. */
-    void setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter) { _loraTransmitter = transmitter; }
+    void setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter);
 
 protected:
     void taskFunction() override;

@@ -33,6 +33,7 @@ let selectedFile = null;
 let latestStatus = null;
 let sdkconfigText = null;
 let sdkconfigLoading = false;
+let taskSnapshot = null;
 let logsPaused = false;
 let testLogsPaused = false;
 let closeTestLogWhenFinished = false;
@@ -46,6 +47,7 @@ let isAuthenticated = false;
 const pollBusy = {
   status: false,
   live: false,
+  health: false,
   ota: false,
   tests: false,
   logs: false,
@@ -57,6 +59,8 @@ let targetAttitudeQuaternion = { w: 1, x: 0, y: 0, z: 0 };
 let displayedAttitudeQuaternion = { w: 1, x: 0, y: 0, z: 0 };
 let targetAttitudeAcceleration = [0, 0, 0];
 let displayedAttitudeAcceleration = [0, 0, 0];
+let lastLoRaTxSuccess = 0;
+let loRaTxPulseUntil = 0;
 let liveSocket = null;
 let liveReconnectTimer = null;
 let liveReconnectDelayMs = 1500;
@@ -580,6 +584,22 @@ function healthItem(name, item, detail) {
   </div>`;
 }
 
+function taskTable(tasks, includeHandle = false) {
+  if (!tasks.length) return '<p class="muted">No task data available.</p>';
+  const headers = includeHandle
+    ? '<tr><th>Name</th><th>Handle</th><th>#</th><th>State</th><th>Priority</th><th>Base</th><th>Core</th><th>Stack HWM</th></tr>'
+    : '<tr><th>Type</th><th>Task</th><th>Stack HWM</th></tr>';
+  const rows = tasks.map(task => includeHandle
+    ? `<tr><td>${esc(task.name || '')}</td><td>${esc(task.handle || '')}</td><td>${esc(String(task.number ?? ''))}</td><td>${esc(task.state || '')}</td><td>${esc(String(task.priority ?? ''))}</td><td>${esc(String(task.base_priority ?? ''))}</td><td>${esc(String(task.core ?? ''))}</td><td>${fmtBytes(task.stack_high_water_bytes)}</td></tr>`
+    : `<tr><td>${esc(task.type || '')}</td><td>${esc(task.name || '')}</td><td>${fmtBytes(task.stack_high_water_bytes)}</td></tr>`).join('');
+  return `<div class="config-table-wrap"><table class="config-table"><thead>${headers}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function captureTaskSnapshot() {
+  taskSnapshot = await publicApi('/api/health/tasks');
+  loadHealth();
+}
+
 async function loadHealth() {
   const h = await publicApi('/api/health');
   if (!h.ok) {
@@ -595,19 +615,15 @@ async function loadHealth() {
   const http = ground.http || {};
   const websocket = ground.websocket || {};
   const broadcast = ground.broadcast || {};
+  const httpd = ground.httpd || {};
+  const lora = h.lora || {};
+  const managedTasks = h.tasks || [];
+  const snapshotBody = taskSnapshot
+    ? (taskSnapshot.ok
+      ? taskTable(taskSnapshot.tasks || [], true)
+      : `<p class="bad">${esc(taskSnapshot.error || 'Task snapshot unavailable.')}</p>`)
+    : '<p class="muted">On-demand only: captures all FreeRTOS tasks once.</p>';
   document.getElementById('healthContent').innerHTML = `
-    ${panel('Ground Services Resources', [
-      row('HTTP clients', `${http.clients || 0} / ${http.capacity || 0}`),
-      row('WebSockets', `${websocket.clients || 0} / ${websocket.capacity || 0} (${websocket.live_data || 0} live, ${websocket.logs || 0} logs)`),
-      row('WS failures / slow drops', `${websocket.send_failures || 0} / ${websocket.slow_client_drops || 0}`),
-      row('WS limit rejects', websocket.limit_rejects || 0),
-      row('Broadcast queue failures / coalesced', `${broadcast.queue_failures || 0} / ${broadcast.coalesced || 0}`),
-      row('Internal heap free / largest', `${fmtBytes(internal.free_bytes)} / ${fmtBytes(internal.largest_free_block_bytes)}`),
-      row('Minimum internal heap', fmtBytes(internal.minimum_free_bytes)),
-      row('Ground Services stack HWM', fmtBytes((ground.task || {}).stack_high_water_bytes)),
-      row('SoftAP stations', ground.softap_stations || 0),
-      row('OTA state', ground.ota_state || 'unknown')
-    ].join(''))}
     <div class="sensor-grid">
       ${healthItem('PSRAM', psram, [
         row('Total', fmtBytes(psram.total_bytes)),
@@ -627,7 +643,24 @@ async function loadHealth() {
       ${healthItem('LIS3DHTR Accelerometer', sensors.accelerometer_lis3dhtr, [row('Read status', (sensors.accelerometer_lis3dhtr || {}).status)].join(''))}
       ${healthItem('GPS', sensors.gps, [row('Read status', (sensors.gps || {}).status)].join(''))}
       ${healthItem('SD Card', sd, [row('Mounted', sd.present ? 'yes' : 'no')].join(''))}
-    </div>`;
+    </div>
+    ${panel('Resource Monitor', [
+      row('HTTP clients', `${http.clients || 0} / ${http.capacity || 0}`),
+      row('WebSockets', `${websocket.clients || 0} / ${websocket.capacity || 0} (${websocket.live_data || 0} live, ${websocket.logs || 0} logs)`),
+      row('WS failures / slow drops', `${websocket.send_failures || 0} / ${websocket.slow_client_drops || 0}`),
+      row('WS limit rejects', websocket.limit_rejects || 0),
+      row('Broadcast queue failures / coalesced', `${broadcast.queue_failures || 0} / ${broadcast.coalesced || 0}`),
+      row('Internal heap free / largest', `${fmtBytes(internal.free_bytes)} / ${fmtBytes(internal.largest_free_block_bytes)}`),
+      row('Minimum internal heap', fmtBytes(internal.minimum_free_bytes)),
+      row('HTTPD stack HWM', fmtBytes(httpd.stack_high_water_bytes)),
+      row('SoftAP stations', ground.softap_stations || 0),
+      row('OTA state', ground.ota_state || 'unknown'),
+      '<h3>Managed task stack high-water marks</h3>',
+      taskTable(managedTasks),
+      '<div class="section-head"><h3>FreeRTOS task snapshot</h3><button id="captureTaskSnapshot">Capture snapshot</button></div>',
+      snapshotBody
+    ].join(''))}`;
+  document.getElementById('captureTaskSnapshot').addEventListener('click', captureTaskSnapshot);
 }
 
 async function loadSdkconfig() {
@@ -1621,6 +1654,7 @@ document.addEventListener('click', event => {
 });
 
 setInterval(() => runPoll('live', !otaUploadActive && !document.getElementById('live').classList.contains('hidden') && (!liveSocket || liveSocket.readyState !== WebSocket.OPEN), loadLive), 1000);
+setInterval(() => runPoll('health', !otaUploadActive && !document.getElementById('health').classList.contains('hidden'), loadHealth), 3000);
 setInterval(() => runPoll('ota', !otaUploadActive && !document.getElementById('ota').classList.contains('hidden'), refreshOta), 2000);
 setInterval(() => runPoll('tests', !otaUploadActive && !document.getElementById('tests').classList.contains('hidden'), refreshTests), 1500);
 setInterval(() => {
