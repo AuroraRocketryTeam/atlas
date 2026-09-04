@@ -182,13 +182,13 @@ bool RocketModel::updateBNO055() {
         if (result) {
             // print all fields of IMUData for debugging
             IMUData data = _bno->getData();
-            LOG_DEBUG("RocketModel", "IMUData: Accel: (%.2f, %.2f, %.2f), Angular velocity: (%.2f, %.2f, %.2f), Mag: (%.2f, %.2f, %.2f), Orientation: (%.2f, %.2f, %.2f), Temp: %.2f, Calib: (Sys: %d, Gyro: %d, Accel: %d, Mag: %d)",
-                      data.acceleration_x, data.acceleration_y, data.acceleration_z,
-                      data.angular_velocity_x, data.angular_velocity_y, data.angular_velocity_z,
-                      data.magnetometer_x, data.magnetometer_y, data.magnetometer_z,
-                      data.orientation_x, data.orientation_y, data.orientation_z,
-                      data.temperature,
-                      data.calibration_sys, data.calibration_gyro, data.calibration_accel, data.calibration_mag);
+            // LOG_DEBUG("RocketModel", "IMUData: Accel: (%.2f, %.2f, %.2f), Angular velocity: (%.2f, %.2f, %.2f), Mag: (%.2f, %.2f, %.2f), Orientation: (%.2f, %.2f, %.2f), Temp: %.2f, Calib: (Sys: %d, Gyro: %d, Accel: %d, Mag: %d)",
+            //           data.acceleration_x, data.acceleration_y, data.acceleration_z,
+            //           data.angular_velocity_x, data.angular_velocity_y, data.angular_velocity_z,
+            //           data.magnetometer_x, data.magnetometer_y, data.magnetometer_z,
+            //           data.orientation_x, data.orientation_y, data.orientation_z,
+            //           data.temperature,
+            //           data.calibration_sys, data.calibration_gyro, data.calibration_accel, data.calibration_mag);
             _bnoData = data;
         }
         _bnoDataValid = result;

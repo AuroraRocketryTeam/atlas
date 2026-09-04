@@ -293,7 +293,12 @@ void RocketFSM::deployMain()
         _logger->logInfo("RocketFSM", "Main deployment commanded");
     }
 
-    gpio_set_level(_board->get_main_actuator_pin(), HIGH);
+    // TODO: Mettere in NVS
+    for (int i = 0; i < 5; i++) {
+        gpio_set_level(_board->get_main_actuator_pin(), HIGH);
+        vTaskDelay(2);
+        gpio_set_level(_board->get_main_actuator_pin(), LOW);
+    }
     _mainDeploymentCommanded = true;
 
     _rocketModel->setOpenMainCommand();
@@ -315,7 +320,12 @@ void RocketFSM::deployDrogue()
         _logger->logInfo("RocketFSM", "Drogue deployment commanded");
     }
     
-    gpio_set_level(_board->get_drogue_actuator_pin(), HIGH);
+    // TODO: Mettere in NVS
+    for (int i = 0; i < 5; i++) {
+        gpio_set_level(_board->get_drogue_actuator_pin(), HIGH);
+        vTaskDelay(2);
+        gpio_set_level(_board->get_drogue_actuator_pin(), LOW);
+    }
     _drogueDeploymentCommanded = true;
     
     _rocketModel->setOpenDrogueCommand();

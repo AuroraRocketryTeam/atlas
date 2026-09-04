@@ -1247,6 +1247,13 @@ esp_err_t GroundServicesTask::logsWsPreHandshake(httpd_req_t *req)
 
 esp_err_t GroundServicesTask::readOnlyWsHandler(httpd_req_t *req)
 {
+    // This handler is used to notify both a connection being opened
+    // and a frame being received on the WebSocket, we know
+    // which one by the method. If we call recv_frame on the "connection opened"
+    // request it will block the task until timeout, so being it an empty frame
+    // return OK.
+    if (req->method == HTTP_GET) return ESP_OK;
+
     httpd_ws_frame_t frame = {};
     esp_err_t err = httpd_ws_recv_frame(req, &frame, 0);
     shutdown(httpd_req_to_sockfd(req), SHUT_RDWR);

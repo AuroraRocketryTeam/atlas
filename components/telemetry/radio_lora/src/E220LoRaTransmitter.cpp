@@ -140,6 +140,7 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
 
         packet.calculateCRC();
         // Per debug: Stampa tutto il pacchetto in esadecimale
+        // TODO: usare logging appropriato
         #ifdef __DEBUG__
         packet.printPacket();
         #endif
