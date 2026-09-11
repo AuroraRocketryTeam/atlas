@@ -74,6 +74,10 @@ public:
      * @return A std::string containing the next line, or an empty string if EOF or error.
      */
     std::string readLine() override;
+    size_t listFiles(StorageFileInfo* files, size_t capacity) override;
+    bool readFileChunk(const char* filename, size_t offset, uint8_t* buffer,
+                       size_t capacity, size_t& bytesRead, size_t& fileSize) override;
+    bool deleteFile(const char* filename) override;
 
     bool isInitialized() const override { return _fileInitialized; }
 

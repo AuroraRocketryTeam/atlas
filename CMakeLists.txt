@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Development build profile. ON compiles and starts the HIL simulator; OFF
+# omits all HIL code from the flight firmware. Edit this value, then build.
+set(AURORA_HIL_ENABLED OFF)
+
 # Each entry must point directly to a component folder (one that has a CMakeLists.txt)
 set(EXTRA_COMPONENT_DIRS
     # common
@@ -55,6 +59,8 @@ set(EXTRA_COMPONENT_DIRS
 if(NOT EXISTS "${CMAKE_BINARY_DIR}/Kconfig")
     file(WRITE "${CMAKE_BINARY_DIR}/Kconfig" "# Auto-generated placeholder for project Kconfig\n")
 endif()
+
+set(SDKCONFIG_DEFAULTS "${CMAKE_SOURCE_DIR}/sdkconfig.defaults")
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 

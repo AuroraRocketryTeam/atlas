@@ -35,70 +35,76 @@ menu "Atlas Configuration"
 
 endmenu
 
-menu "Aurora Hil Configuration"
-    # config AURORA_HIL_SIMULATION
-    #     bool "Enable Hardware-in-the-Loop simulation mode"
-    #     default n
-    #     help
-    #         Enables the HIL simulation task. In this mode the firmware
-    #         receives simulated sensor data from the simulator and sends
-    #         commands back to the simulator.
+menu "Ground Services Configuration"
 
-    config AURORA_HIL_SUPPORT
-        bool "Add feature Hardware-in-the-Loop simulation"
+    config GROUND_SERVICES_AUTH_TOKEN
+        string "Ground Services HMAC shared secret"
+        default "CHANGE_ME_GROUND_SERVICES_TOKEN"
+        help
+            Shared secret used to sign safety-critical Ground Services requests.
+            This is separate from the WiFi SoftAP password.
+            Do not commit real tokens. Set the private value with
+            idf.py menuconfig; ESP-IDF writes it to sdkconfig, which is ignored.
+
+endmenu
+
+menu "Rocket Access Point Configuration"
+
+    config ROCKET_AP_SSID
+        string "Rocket SoftAP SSID"
+        default "Aurora AP"
+        help
+            SoftAP network name advertised by the board.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
+
+    config ROCKET_AP_PASSWORD
+        string "Rocket SoftAP password"
+        default "CHANGE_ME_ROCKET_AP_PASSWORD"
+        help
+            Non-empty passwords must be at least 8 characters.
+            Do not commit real passwords. Set the private value with
+            idf.py menuconfig; ESP-IDF writes it to sdkconfig, which is ignored.
+
+    config ROCKET_AP_ALLOW_OPEN_DEVELOPMENT
+        bool "Allow an open SoftAP for development"
         default n
         help
-            Add support for the Hardware-In-the-Loop simulation.
+            Explicit development-only escape hatch. Operational builds leave
+            this disabled and require a WPA2 password of at least 8 characters.
 
-    if AURORA_HIL_SUPPORT
-
-    config AURORA_HIL_WIFI_SSID
-        string "HIL SoftAP SSID"
-        default "Aurora-HIL"
-        help
-            SSID used by the ESP32 SoftAP when HIL simulation mode is enabled.
-
-    config AURORA_HIL_WIFI_PASSWORD
-        string "HIL SoftAP password"
-        default "aurorahil"
-        help
-            Password used by the ESP32 SoftAP when HIL simulation mode is enabled.
-            Leave empty to create an open AP. If non-empty, it must be at least
-            8 characters for WPA/WPA2/WPA3 modes.
-
-    config AURORA_HIL_WIFI_CHANNEL
-        int "HIL SoftAP WiFi channel"
+    config ROCKET_AP_CHANNEL
+        int "Rocket SoftAP channel"
         default 1
         range 1 13
         help
-            WiFi channel used by the HIL SoftAP.
+            WiFi channel used by the board SoftAP.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
 
-    config AURORA_HIL_MAX_STA_CONN
-        int "HIL SoftAP maximum station connections"
-        default 1
+    config ROCKET_AP_MAX_CONNECTIONS
+        int "Rocket SoftAP maximum station connections"
+        default 4
         range 1 4
         help
-            Maximum number of clients that can connect to the HIL SoftAP.
+            Maximum number of stations allowed to connect to the board SoftAP.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
 
-    config AURORA_HIL_AP_IP_ADDR
-        string "HIL SoftAP static IP address"
-        default "192.168.42.1"
+    config ROCKET_AP_IP_ADDR
+        string "Rocket SoftAP static IP address"
+        default "192.168.4.1"
         help
-            Static IPv4 address assigned to the ESP32 SoftAP interface in HIL mode.
+            Static IPv4 address assigned to the board SoftAP interface.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
 
-    config AURORA_HIL_AP_NETMASK
-        string "HIL SoftAP netmask"
+    config ROCKET_AP_NETMASK
+        string "Rocket SoftAP netmask"
         default "255.255.255.0"
         help
-            IPv4 netmask for the ESP32 SoftAP interface in HIL mode.
-
-    config AURORA_HIL_SERVER_PORT
-        int "HIL TCP server port"
-        default 5000
-        range 1024 65535
-        help
-            TCP port used by the HIL simulation server running on the ESP32.
-
-    endif
+            IPv4 netmask used by the board SoftAP interface.
+            Change local values with idf.py menuconfig; ESP-IDF writes them to
+            sdkconfig, which is ignored.
 
 endmenu

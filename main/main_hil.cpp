@@ -10,14 +10,8 @@
 
 // WiFi and communication
 #include <esp_now.h>
-#include <esp_wifi.h>
-#include <esp_event.h>
-#include <esp_netif.h>
 #include <esp_err.h>
-#include <nvs_flash.h>
-#include "lwip/sockets.h"
-#include "lwip/ip4_addr.h"
-#include "lwip/inet.h"
+#include <esp_heap_caps.h>
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -54,7 +48,9 @@
 
 // Main system
 #include <RocketFSM.hpp>
+#include <RuntimeConfig.hpp>
 #include <E220LoRaTransmitter.hpp>
+#include <TestRoutine.hpp>
 
 // Board hardware instance
 static Board board;
@@ -75,33 +71,15 @@ static std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
 static std::unique_ptr<RocketFSM> rocketFSM;
+static std::shared_ptr<TestRoutine> testRoutine = nullptr;
 
 // Utility functions
 void printSystemInfo();
-void wifi_softap_init(void);
-static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
 // HIL lifecycle helpers
 static void createAndStartFSM();
 static void resetHilSimulationIfRequested();
 static void resetHilSimulation();
-
-static constexpr const char *HIL_WIFI_SSID = CONFIG_AURORA_HIL_WIFI_SSID;
-static constexpr const char *HIL_WIFI_PASSWORD = CONFIG_AURORA_HIL_WIFI_PASSWORD;
-static constexpr int HIL_WIFI_CHANNEL = CONFIG_AURORA_HIL_WIFI_CHANNEL;
-static constexpr int HIL_MAX_STA_CONN = CONFIG_AURORA_HIL_MAX_STA_CONN;
-
-static constexpr const char *HIL_AP_IP_ADDR = CONFIG_AURORA_HIL_AP_IP_ADDR;
-static constexpr const char *HIL_AP_NETMASK = CONFIG_AURORA_HIL_AP_NETMASK;
-
-static_assert(sizeof(CONFIG_AURORA_HIL_WIFI_SSID) > 1,
-              "CONFIG_AURORA_HIL_WIFI_SSID must not be empty");
-
-static_assert(
-    sizeof(CONFIG_AURORA_HIL_WIFI_PASSWORD) == 1 ||
-    sizeof(CONFIG_AURORA_HIL_WIFI_PASSWORD) >= 9,
-    "CONFIG_AURORA_HIL_WIFI_PASSWORD must be empty or at least 8 characters"
-);
 
 void setupHil()
 {
@@ -115,6 +93,7 @@ void setupHil()
 
     // Signal initialization start
     board.init();
+
     gpio_set_level(board.get_rgb_blue_pin(), LOW);
     gpio_set_level(board.get_rgb_red_pin(), HIGH);
 
@@ -133,8 +112,9 @@ void setupHil()
 
     LOG_INFO("Main", "Initializing system...");
 
-    wifi_softap_init();
-    LOG_INFO("Main", "WiFi soft AP ready...");
+    // Initialize NVS
+    ESP_ERROR_CHECK(board.initNvs() ? ESP_OK : ESP_FAIL);
+    ESP_ERROR_CHECK(runtime_config_init(&board));
 
     // Initialize components
     // LOG_INFO("Main", "Initializing sensors...");
@@ -166,6 +146,15 @@ void setupHil()
     // Create Nemesis instance (constructor expects: bno, lis3dh, ms56_1, ms56_2, gps, sdCard, flash)
     rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
     LOG_INFO("Main", "RocketModel system model created");
+
+    testRoutine = std::make_shared<TestRoutine>(
+        board,
+        rocketModel,
+        sdCard,
+        flash,
+        statusManager,
+        ledController,
+        buzzerController);
 
     // Print system information
     printSystemInfo();
@@ -199,7 +188,7 @@ static void createAndStartFSM()
 {
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
 
-    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board, testRoutine);
     rocketFSM->init();
 
     vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -271,27 +260,29 @@ void loopHil()
 {
     resetHilSimulationIfRequested();
 
+    static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
+    static unsigned long lastStateLog = 0;
     static bool ledState = false;
     static RocketState lastLoggedState = RocketState::INACTIVE;
+    static bool stateLogged = false;
 
-    if (!rocketFSM)
+    // Heartbeat every HEARTBEAT_INTERVAL_MS
+    if (Utils::realMillis() - lastHeartbeat > HEARTBEAT_INTERVAL_MS)
     {
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-        return;
-    }
-
-    // Heartbeat every 2 seconds
-    if (Utils::realMillis() - lastHeartbeat > 2000)
-    {
-        lastHeartbeat = Utils::realMillis();
-
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
-
+        lastHeartbeat = Utils::realMillis();
         ledState = !ledState;
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
         LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
+        const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        LOG_INFO("Main", "Health: internal free=%u min=%u largest=%u tasks=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_minimum_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
+                 static_cast<unsigned>(uxTaskGetNumberOfTasks()));
+        if (rocketFSM) rocketFSM->logActiveTaskStackHealth();
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -306,14 +297,16 @@ void loopHil()
             }
         }
 
-        // Optional: Print current state periodically
-        RocketState currentState = rocketFSM->getCurrentState();
+    }
 
-        // if (currentState != lastLoggedState)
-        // {
+    const unsigned long now = Utils::realMillis();
+    const RocketState currentState = rocketFSM->getCurrentState();
+    if (!stateLogged || currentState != lastLoggedState || now - lastStateLog >= 30000)
+    {
         LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-            // lastLoggedState = currentState;
-        // }
+        lastLoggedState = currentState;
+        lastStateLog = now;
+        stateLogged = true;
     }
 
     // Small delay to prevent watchdog issues
@@ -336,107 +329,4 @@ void printSystemInfo()
     printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
     printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
     printf("--- End System Information ---\n");
-}
-
-static void wifi_event_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
-{
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED)
-    {
-        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
-        LOG_INFO("wifi_softap", "station connected, aid=%d", event->aid);
-    }
-
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED)
-    {
-        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-        LOG_INFO("wifi_softap", "station disconnected, aid=%d", event->aid);
-    }
-}
-
-void wifi_softap_init(void)
-{
-    // esp_err_t ret = nvs_flash_init();
-    // if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    //     ESP_ERROR_CHECK(nvs_flash_erase());
-    //     ret = nvs_flash_init();
-    // }
-    // ESP_ERROR_CHECK(ret);
-
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
-    if (ap_netif == nullptr)
-    {
-        LOG_ERROR("wifi_softap", "Failed to create default WiFi AP netif");
-        return;
-    }
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    // Register WiFi events
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
-
-    // Register IP event
-    // ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &ip_event_handler, NULL, NULL));
-
-    wifi_config_t wifi_config = {};
-    wifi_config.ap.ssid_len = strlen(HIL_WIFI_SSID);
-    wifi_config.ap.channel = HIL_WIFI_CHANNEL;
-    wifi_config.ap.max_connection = HIL_MAX_STA_CONN;
-
-    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.ssid),
-            HIL_WIFI_SSID,
-            sizeof(wifi_config.ap.ssid) - 1);
-
-    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.password),
-            HIL_WIFI_PASSWORD,
-            sizeof(wifi_config.ap.password) - 1);
-
-    if (strlen(HIL_WIFI_PASSWORD) == 0)
-    {
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-    }
-    else
-    {
-        wifi_config.ap.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
-    }
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-
-    ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
-
-    esp_netif_ip_info_t ip_info = {};
-
-    if (esp_netif_str_to_ip4(HIL_AP_IP_ADDR, &ip_info.ip) != ESP_OK)
-    {
-        LOG_ERROR("wifi_softap", "Invalid HIL AP IP address: %s", HIL_AP_IP_ADDR);
-        return;
-    }
-
-    // In SoftAP mode, the ESP32 itself is also the gateway.
-    if (esp_netif_str_to_ip4(HIL_AP_IP_ADDR, &ip_info.gw) != ESP_OK)
-    {
-        LOG_ERROR("wifi_softap", "Invalid HIL AP gateway address: %s", HIL_AP_IP_ADDR);
-        return;
-    }
-
-    if (esp_netif_str_to_ip4(HIL_AP_NETMASK, &ip_info.netmask) != ESP_OK)
-    {
-        LOG_ERROR("wifi_softap", "Invalid HIL AP netmask: %s", HIL_AP_NETMASK);
-        return;
-    }
-
-    ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ip_info));
-    ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
-
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    LOG_INFO("wifi_softap",
-            "SoftAP started. SSID:%s IP:%s NETMASK:%s CHANNEL:%d MAX_STA:%d",
-            HIL_WIFI_SSID,HIL_AP_IP_ADDR,HIL_AP_NETMASK,HIL_WIFI_CHANNEL,HIL_MAX_STA_CONN);
 }

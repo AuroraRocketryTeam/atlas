@@ -8,13 +8,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// WiFi and communication
-#include <esp_now.h>
-#include <esp_wifi.h>
-#include <esp_event.h>
-#include <esp_netif.h>
+// ESP-IDF helpers
 #include <esp_err.h>
-#include <nvs_flash.h>
+#include <esp_heap_caps.h>
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -60,7 +56,7 @@
  *
  */
 #define CALIBRATE_SENSORS
-#define ENABLE_TEST_ROUTINE
+// #define ENABLE_TEST_ROUTINE
 
 // Board hardware instance
 static Board board;
@@ -81,6 +77,7 @@ static std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
 static std::unique_ptr<RocketFSM> rocketFSM;
+static std::shared_ptr<TestRoutine> testRoutine = nullptr;
 
 // Utility functions
 void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
@@ -118,6 +115,10 @@ void setupFlight()
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
     LOG_INFO("Main", "Initializing system...");
 
+    // Initialize NVS
+    ESP_ERROR_CHECK(board.initNvs() ? ESP_OK : ESP_FAIL);
+    ESP_ERROR_CHECK(runtime_config_init(&board));
+
     // Initialize components
     LOG_INFO("Main", "Initializing sensors...");
     std::shared_ptr<BNO055Sensor> bno055 = nullptr;
@@ -138,11 +139,19 @@ void setupFlight()
     rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
     LOG_INFO("Main", "RocketModel system model created");
 
+    testRoutine = std::make_shared<TestRoutine>(
+        board,
+        rocketModel,
+        sdCard,
+        flash,
+        statusManager,
+        ledController,
+        buzzerController);
+
 #ifdef ENABLE_TEST_ROUTINE
     vTaskDelay(5000 / portTICK_PERIOD_MS);
     LOG_INFO("Main", "=== TEST MODE ENABLED ===");
-    TestRoutine tests(board, rocketModel, sdCard, flash, statusManager, ledController, buzzerController);
-    tests.run();
+    testRoutine->run();
 #endif
 
 #ifdef CALIBRATE_SENSORS
@@ -157,7 +166,7 @@ void setupFlight()
     // Initialize and start FSM
     LOG_INFO("Main", "=== System initialization complete ===");
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
-    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board, testRoutine);
     rocketFSM->init();
     vTaskDelay(1000 / portTICK_PERIOD_MS);
 
@@ -184,20 +193,29 @@ void setupFlight()
 
 void loopFlight()
 {
-    auto currentState = rocketFSM->getCurrentState();
-    LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-    LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
+    static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
+    static unsigned long lastHeartbeat = 0;
+    static unsigned long lastStateLog = 0;
+    static bool ledState = false;
+    static RocketState lastLoggedState = RocketState::INACTIVE;
+    static bool stateLogged = false;
 
-    unsigned long lastHeartbeat = 0;
-    bool ledState = false;
-
-    // Heartbeat every 2 seconds
-    if (Utils::millis() - lastHeartbeat > 2000)
+    // Heartbeat every HEARTBEAT_INTERVAL_MS
+    if (Utils::millis() - lastHeartbeat > HEARTBEAT_INTERVAL_MS)
     {
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::millis());
         lastHeartbeat = Utils::millis();
         ledState = !ledState;
         gpio_set_level(board.get_rgb_blue_pin(), ledState);
+
+        LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
+        const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        LOG_INFO("Main", "Health: internal free=%u min=%u largest=%u tasks=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_minimum_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
+                 static_cast<unsigned>(uxTaskGetNumberOfTasks()));
+        if (rocketFSM) rocketFSM->logActiveTaskStackHealth();
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -212,87 +230,20 @@ void loopFlight()
             }
         }
 
-        // Optional: Print current state periodically
-        RocketState lastLoggedState = RocketState::INACTIVE;
-        RocketState currentState = rocketFSM->getCurrentState();
+    }
 
-        if (currentState != lastLoggedState)
-        {
-            LOG_INFO("Main", "Current FSM State: %s",
-                     rocketFSM->getStateString(currentState));
-            lastLoggedState = currentState;
-        }
+    const unsigned long now = Utils::millis();
+    const RocketState currentState = rocketFSM->getCurrentState();
+    if (!stateLogged || currentState != lastLoggedState || now - lastStateLog >= 30000)
+    {
+        LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
+        lastLoggedState = currentState;
+        lastStateLog = now;
+        stateLogged = true;
     }
 
     // Small delay to prevent watchdog issues
     vTaskDelay(100 / portTICK_PERIOD_MS);
-}
-
-static bool initializeWifiStaForEspNow()
-{
-    static bool initialized = false;
-    if (initialized) {
-        return true;
-    }
-
-    // NVS init (required by Wi-Fi)
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ret = nvs_flash_erase();
-        if (ret != ESP_OK) {
-            LOG_ERROR("WiFi", "nvs_flash_erase failed: %s", esp_err_to_name(ret));
-            return false;
-        }
-        ret = nvs_flash_init();
-    }
-    if (ret != ESP_OK) {
-        LOG_ERROR("WiFi", "nvs_flash_init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    // init network stack and event loop
-    ret = esp_netif_init();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        LOG_ERROR("WiFi", "esp_netif_init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    ret = esp_event_loop_create_default();
-    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
-        LOG_ERROR("WiFi", "esp_event_loop_create_default failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    (void)esp_netif_create_default_wifi_sta();
-
-    // init wifi drivers
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ret = esp_wifi_init(&cfg);
-    if (ret != ESP_OK && ret != ESP_ERR_WIFI_INIT_STATE) {
-        LOG_ERROR("WiFi", "esp_wifi_init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    ret = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (ret != ESP_OK) {
-        LOG_ERROR("WiFi", "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    ret = esp_wifi_start();
-    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_STOPPED) {
-        LOG_ERROR("WiFi", "esp_wifi_start failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    // disconnect wifi
-    ret = esp_wifi_disconnect();
-    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT && ret != ESP_ERR_WIFI_CONN) {
-        LOG_WARNING("WiFi", "esp_wifi_disconnect returned: %s", esp_err_to_name(ret));
-    }
-
-    initialized = true;
-    return true;
 }
 
 void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
@@ -318,7 +269,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     }
 
     // Initialize barometers
-    baro1 = std::make_shared<MS561101BA03>("MS561101BA03_1", board.get_spi_bus(), MANNY_BAROMETER_CS_PIN);
+    baro1 = std::make_shared<MS561101BA03>("MS561101BA03_1", board.get_spi_bus(), board.get_barometer_cs_pin());
     if (baro1 && baro1->init())
     {
         LOG_INFO("Init", "Barometer 1 initialized");
@@ -328,14 +279,21 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize Barometer 1");
     }
 
-    baro2 = std::make_shared<MS561101BA03>("MS561101BA03_2", board.get_spi_bus(), board.get_barometer2_cs_pin());
-    if (baro2 && baro2->init())
+    if (board.get_barometer2_cs_pin() != GPIO_NUM_NC)
     {
-        LOG_INFO("Init", "Barometer 2 initialized");
+        baro2 = std::make_shared<MS561101BA03>("MS561101BA03_2", board.get_spi_bus(), board.get_barometer2_cs_pin());
+        if (baro2 && baro2->init())
+        {
+            LOG_INFO("Init", "Barometer 2 initialized");
+        }
+        else
+        {
+            LOG_ERROR("Init", "Failed to initialize Barometer 2");
+        }
     }
     else
     {
-        LOG_ERROR("Init", "Failed to initialize Barometer 2");
+        LOG_INFO("Init", "Barometer 2 not configured on this board");
     }
 
     // Initialize accelerometer
@@ -394,37 +352,6 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
         LOG_ERROR("Init", "Failed to initialize external flash");
     }
 
-    // Initializa ESP-NOW connection for telemetry
-    LOG_INFO("Init", "Initializing ESP-NOW for telemetry...");
-    if (initializeWifiStaForEspNow())
-    {
-        if (esp_now_init() == ESP_OK)
-        {
-            LOG_INFO("Init", "ESP-NOW initialized");
-            esp_now_peer_info_t peerInfo = {};
-            memcpy(peerInfo.peer_addr, RECEIVER_MAC_ADDRESS, 6);
-            peerInfo.channel = 0;
-            peerInfo.encrypt = false;
-
-            if (esp_now_add_peer(&peerInfo) == ESP_OK)
-            {
-                LOG_INFO("Init", "ESP-NOW peer added");
-            }
-            else
-            {
-                LOG_ERROR("Init", "Failed to add ESP-NOW peer");
-            }
-        }
-        else
-        {
-            LOG_ERROR("Init", "Failed to initialize ESP-NOW");
-        }
-    }
-    else
-    {
-        LOG_ERROR("Init", "Failed to initialize Wi-Fi");
-    }
-
     LOG_INFO("Init", "Status indicators initialized");
 }
 
@@ -455,7 +382,7 @@ void GPSfix(std::shared_ptr<GPS> gps)
                     LOG_INFO("GPS", "GPS lock acquired. Satellites: %d", satellites);
                 }
             }
-            vTaskDelay(GPS_FIX_LOOKUP_INTERVAL_MS / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(GPS_FIX_LOOKUP_INTERVAL_MS));
         }
 
         if (!gpsLocked)

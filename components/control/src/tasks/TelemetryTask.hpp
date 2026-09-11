@@ -10,9 +10,23 @@
 #include "IStateMachine.hpp"
 #include <memory>
 #include <cstdint>
+#include <atomic>
 #include "esp_task_wdt.h"
 #include <Arduino.h>
 #include <config.h>
+
+// Telemetry cadence is a compiled implementation setting: inspectable, but
+// deliberately not an operator-editable mission parameter.
+struct TelemetryConfig {
+    uint32_t period_ms;
+};
+
+struct LoRaTelemetryStatus {
+    bool available;
+    uint32_t successful_messages;
+    uint32_t failed_messages;
+    uint32_t last_success_ms;
+};
 
 /**
  * @brief Binary telemetry packet structure for efficient transmission.
@@ -68,7 +82,7 @@ struct TelemetryPacket
  * This task reads from SharedSensorData, serializes it to binary format,
  * divides it into Packet chunks, and transmits them using EspNowTransmitter.
  *
- * Transmission rate is configurable via constructor.
+ * Transmission rate is read from the locked RuntimeConfig snapshot.
  */
 class TelemetryTask : public BaseTask
 {
@@ -78,7 +92,6 @@ private:
     std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
     IStateMachine* _fsm;
 
-    uint32_t _transmitIntervalMs;
     uint32_t _lastTransmitTime;
 
     uint8_t _lastAckCommandId;
@@ -95,11 +108,9 @@ public:
      * @param sensorData Shared sensor data to read from.
      * @param mutex Mutex protecting sensor data access.
      * @param espNowTransmitter ESP-NOW transmitter instance.
-     * @param intervalMs Interval between transmissions in milliseconds (default 1000ms = 1Hz).
      */
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
                   std::shared_ptr<EspNowTransmitter> espNowTransmitter,
-                  uint32_t intervalMs = 1000,
                   IStateMachine* fsm = nullptr);
 
     /**
@@ -111,8 +122,11 @@ public:
      */
     void getStats(uint32_t &messages, uint32_t &packets, uint32_t &errors) const;
 
+    /** Return cross-task LoRa link status for Ground Services monitoring. */
+    static LoRaTelemetryStatus getLoRaStatus();
+
     /** @brief Set LoRa transmitter. Will be used only if present. */
-    void setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter) { _loraTransmitter = transmitter; }
+    void setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter);
 
 protected:
     void taskFunction() override;

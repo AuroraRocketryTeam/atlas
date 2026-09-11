@@ -59,7 +59,7 @@ public:
         if (!isJsonValid(json))
         {
             if (logger) {
-                logger->logError("[E220 Module] Failed to deserialize configuration from JSON object. JSON object is empty or invalid.");
+                logger->logError("LoRaConfig", "Failed to deserialize configuration: JSON object is empty or invalid");
             }
             return false;
         }
@@ -110,7 +110,7 @@ public:
         {
             String error = "[E220 Module] JSON file is empty: " + String(file.name());
             if (logger) {
-                logger->logError(error.c_str());
+                logger->logError("LoRaConfig", error.c_str());
             }
             return false;
         }
@@ -129,7 +129,7 @@ public:
         {
             String error = "[E220 Module] Failed to parse JSON file: " + String(file.name()) + ". Error: " + e.what();
             if (logger) {
-                logger->logError(error.c_str());
+                logger->logError("LoRaConfig", error.c_str());
             }
             return false;
         }
@@ -151,4 +151,3 @@ private:
     Configuration configuration;
     RocketLogger *logger;
 };
-

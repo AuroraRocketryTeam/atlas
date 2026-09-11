@@ -5,6 +5,7 @@
 #include "SerialLogger.hpp"
 #include "RocketLogger.hpp"
 #include <ISensor.hpp>
+#include <IBoardHardware.hpp>
 #include <RocketModel.hpp>
 #include <IMUData.hpp>
 #include <AccelerometerSensorData.hpp>
@@ -35,6 +36,7 @@ public:
     HilSimulationTask(
         std::shared_ptr<RocketModel> rocketModel,
         std::shared_ptr<RocketLogger> logger,
+        IBoardHardware* board,
         IStateMachine* fsm
     );
 
@@ -55,8 +57,11 @@ private:
 
     std::shared_ptr<RocketLogger> _logger;
 
+    IBoardHardware* _board = nullptr;
+
     IStateMachine* _fsm = nullptr;
 
     int _listen_sock = -1;
     int _client_sock = -1;
+    bool _softApAcquired = false;
 };

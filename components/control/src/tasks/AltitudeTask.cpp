@@ -2,15 +2,28 @@
 #include <cmath>
 #include <config.h>
 #include <SerialLogger.hpp>
+#include "RuntimeConfig.hpp"
+
+static constexpr uint32_t ALTITUDE_LOG_PERIOD_MS = 1000;
+static constexpr uint32_t ALTITUDE_DIAGNOSTIC_PERIOD_MS = 1000;
+static constexpr uint32_t UNUSUAL_BAROMETER_DT_MS = 75;
 
 void AltitudeTask::taskFunction()
 {
     LOG_INFO("AltitudeTask", "Starting Altitude task pipeline...");
 
     uint32_t lastTimestamp = 0;
+    uint32_t last_packet_log_ms = Utils::realMillis() - ALTITUDE_LOG_PERIOD_MS;
+    uint32_t last_diagnostic_log_ms = 0;
+    
+    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+    const TickType_t taskPeriod = pdMS_TO_TICKS(static_cast<uint32_t>(1000.0f / runtimeConfig.altitude.apogee_sample_rate_hz));
+    apogeeDetector.configure(runtimeConfig.altitude.apogee_window_size,
+                             runtimeConfig.altitude.apogee_trigger_velocity_mps,
+                             runtimeConfig.altitude.apogee_confirmation_windows);
     
     // Baseline for the slew rate limiter
-    static float lastValidPressure = -1.0f; 
+    float lastValidPressure = -1.0f;
 
     while (running)
     {
@@ -18,54 +31,53 @@ void AltitudeTask::taskFunction()
         if(!running) break;
 
         PressureSensorData baroData;
-#ifdef BARO_1
-        SensorReadStatus baro_status = _rocketModel->getMS561101BA03Data_1(baroData);
-#else
-        SensorReadStatus baro_status = _rocketModel->getMS561101BA03Data_2(baroData);
-#endif
+        SensorReadStatus baro_status = runtimeConfig.altitude.selected_barometer == 1
+            ? _rocketModel->getMS561101BA03Data_1(baroData)
+            : _rocketModel->getMS561101BA03Data_2(baroData);
         // Reject identical simulated packets
         if ((baro_status != SensorReadStatus::OK) || baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
         
+        const uint32_t sampleDtMs = lastTimestamp == 0 ? 0 : baroData.timestamp - lastTimestamp;
         lastTimestamp = baroData.timestamp;
         float rawPressure = baroData.pressure;
 
-        // Physics Lock, if the pressure change is too extreme, clamp it 
-        // to a maximum plausible change based on physical limits of the 
-        // atmosphere and the sampling rate (prevents spikes instability errors)
+        // Clamp by elapsed time so a delayed SPI sample retains its legitimate pressure change.
         if (lastValidPressure < 0.0f) {
             lastValidPressure = rawPressure;
         } else {
             float deltaP = rawPressure - lastValidPressure;
-            
-            // Clamp the pressure change to physical reality
-            if (deltaP > MAX_DELTA_P_PER_TICK) {
-                rawPressure = lastValidPressure + MAX_DELTA_P_PER_TICK;
-            } else if (deltaP < -MAX_DELTA_P_PER_TICK) {
-                rawPressure = lastValidPressure - MAX_DELTA_P_PER_TICK;
+            const float maxDeltaPa = runtimeConfig.altitude.max_pressure_rate_pa_per_s *
+                                     (static_cast<float>(sampleDtMs) / 1000.0f);
+            if (deltaP > maxDeltaPa) {
+                rawPressure = lastValidPressure + maxDeltaPa;
+            } else if (deltaP < -maxDeltaPa) {
+                rawPressure = lastValidPressure - maxDeltaPa;
             }
             lastValidPressure = rawPressure;
         }
         
         // Median Filter (removes isolated outliers)
-        float filteredPressure = pressureFilter.update(rawPressure);
+        float filteredPressure = pressureFilter.update(rawPressure, runtimeConfig.altitude.filter_window);
 
-        if (!pressureFilter.isReady()) {
-            vTaskDelay(pdMS_TO_TICKS(20));
+        if (!pressureFilter.isReady(runtimeConfig.altitude.filter_window)) {
+            vTaskDelay(taskPeriod);
             continue;
         }
         
         // Altitude Calculation
-        float pressureRef = _rocketModel->isBarometerZeroed() ? 
-                            _rocketModel->getLaunchpadBasePressure() : 
-                            101325.0f;
-
-        float currentAltitude = calculateAltitude(filteredPressure, pressureRef);
+        float currentAltitude = 0.0f;
+        if (_rocketModel->isBarometerZeroed()) {
+            currentAltitude = calculateAltitude(filteredPressure, _rocketModel->getLaunchpadBasePressure());
+        } else {
+            const float seaLevelPressurePa = runtimeConfig.mission.sea_level_pressure_hpa * 100.0f;
+            currentAltitude = calculateAltitude(filteredPressure, seaLevelPressurePa) - runtimeConfig.mission.launch_site_altitude_m;
+        }
 
         // Apogee & Trend Detection
-        updateRisingTrend(currentAltitude);
+        updateRisingTrend(currentAltitude, baroData.timestamp);
         
         if (currentAltitude > _max_altitude_read) {
             _max_altitude_read = currentAltitude;
@@ -78,10 +90,24 @@ void AltitudeTask::taskFunction()
 
         _rocketModel->setHeightGainSpeed(currentVelocity);
 
-        LOG_INFO("AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m", 
+        const uint32_t now_ms = Utils::realMillis();
+        if (now_ms - last_packet_log_ms >= ALTITUDE_LOG_PERIOD_MS) {
+            LOG_INFO("AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m", 
                  currentAltitude, currentVelocity, _max_altitude_read);
-        
-        vTaskDelay(pdMS_TO_TICKS(20));
+            last_packet_log_ms = now_ms;
+        }
+
+        const uint32_t sampleAgeMs = Utils::millis() - baroData.timestamp;
+        if (now_ms - last_diagnostic_log_ms >= ALTITUDE_DIAGNOSTIC_PERIOD_MS) {
+            LOG_INFO("AltitudeTask", "Baro timing: dt=%lu ms age=%lu ms Vz=%0.2f m/s%s",
+                     static_cast<unsigned long>(sampleDtMs),
+                     static_cast<unsigned long>(sampleAgeMs),
+                     currentVelocity,
+                     sampleDtMs > UNUSUAL_BAROMETER_DT_MS ? " (delayed)" : "");
+            last_diagnostic_log_ms = now_ms;
+        }
+
+        vTaskDelay(taskPeriod);
     }
 }
 
@@ -97,8 +123,8 @@ float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
     return (tempRef / TEMP_GRADIENT) * (1.0f - powf(pressure / pressureRef, N_INV));
 }
 
-void AltitudeTask::updateRisingTrend(float currentAltitude)
+void AltitudeTask::updateRisingTrend(float currentAltitude, uint32_t timestamp)
 {
-    apogeeDetector.update(currentAltitude);   
+    apogeeDetector.update(currentAltitude, timestamp);
     _rocketModel->setIsRising(apogeeDetector.isRising());
 }

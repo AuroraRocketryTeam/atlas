@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include "config.h"
@@ -24,6 +25,12 @@ namespace SerialLogger
     /// @param format printf-style format string
     /// @param ... Arguments for format string
     void log(LogLevel level, const char *tag, const char *format, ...);
+
+    /// @brief Copy recent formatted log lines into a text buffer.
+    size_t getRecentLogs(char *out, size_t out_size);
+
+    /// @brief Copy formatted log lines newer than since_seq into a text buffer.
+    size_t getRecentLogsSince(uint32_t since_seq, char *out, size_t out_size, uint32_t *latest_seq);
 
     /// @brief Prints memory usage statistics with fragmentation info.
     /// @param location Identifier string for the debug location

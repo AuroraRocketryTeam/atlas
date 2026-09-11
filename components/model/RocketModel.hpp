@@ -144,6 +144,12 @@ public:
      * @brief Check GPS availability
      */
     bool hasGPS() { return _gps != nullptr; }
+    bool hasBNO055() const { return _bno != nullptr; }
+    bool hasLIS3DHTR() const { return _lis3dh != nullptr; }
+    bool hasMS561101BA03_1() const { return _ms56_1 != nullptr; }
+    bool hasMS561101BA03_2() const { return _ms56_2 != nullptr; }
+    bool isExternalFlashInitialized() const;
+    bool isSdInitialized() const;
 
     
     
@@ -182,7 +188,12 @@ public:
      */
     bool storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs = 200);
 
-#if CONFIG_AURORA_HIL_SUPPORT
+    size_t storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs = 200);
+    bool storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
+                              size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs = 200);
+    bool storageDeleteFile(const char* filename, uint32_t timeoutMs = 200);
+
+#if AURORA_HIL_ENABLED
     // Simulation
      /**
      * @brief Setter of simulation reset flag.
@@ -339,7 +350,7 @@ public:
      * @brief Feed a pressure reading into the zeroing algorithm
      * @param pressure The current pressure reading
      */
-    void addBarometerSample(float pressure);
+    void addBarometerSample(float pressure, size_t requiredSamples);
 
     /**
      * @brief Get the number of barometer samples collected for zeroing
@@ -365,7 +376,7 @@ public:
      * @brief Add a temperature sample for zeroing
      * @param temperature The current temperature reading
      */
-    void addTemperatureSample(float temperature);
+    void addTemperatureSample(float temperature, size_t requiredSamples);
 
     /**
      * @brief Get the calculated launchpad baseline temperature
@@ -379,13 +390,15 @@ private:
     std::shared_ptr<MS561101BA03> _ms56_1;
     std::shared_ptr<MS561101BA03> _ms56_2;
     std::shared_ptr<GPS> _gps;
+    std::shared_ptr<SD> _sd;
+    std::shared_ptr<Flash> _flash;
 
     // Critical mutexes
-    SemaphoreHandle_t _imuMutex;
-    SemaphoreHandle_t _baro1Mutex;
-    SemaphoreHandle_t _baro2Mutex;
-    SemaphoreHandle_t _gpsMutex;
-    SemaphoreHandle_t _stateMutex;
+    SemaphoreHandle_t _imuMutex = nullptr;
+    SemaphoreHandle_t _baro1Mutex = nullptr;
+    SemaphoreHandle_t _baro2Mutex = nullptr;
+    SemaphoreHandle_t _gpsMutex = nullptr;
+    SemaphoreHandle_t _stateMutex = nullptr;
 
     adc_oneshot_unit_handle_t _adc1_handle;
     int _batteryAdc;
@@ -409,7 +422,7 @@ private:
     bool _ms561101ba03Data_2_Valid = false;
     bool _gpsDataValid = false;
 
-#if CONFIG_AURORA_HIL_SUPPORT
+#if AURORA_HIL_ENABLED
     bool _reset_simulation;
 #endif
 
@@ -421,10 +434,8 @@ private:
     std::vector<float> _barometerSamples;
     float _launchpadBasePressure = 0.0f;
     bool _barometerZeroed = false;
-    static constexpr size_t REQUIRED_BARO_SAMPLES = 100;
 
     std::vector<float> _temperatureSamples;
     float _launchpadBaseTemperature = 0.0f;
     bool _temperatureZeroed = false;
-    static constexpr size_t REQUIRED_TEMPERATURE_SAMPLES = 100;
 };

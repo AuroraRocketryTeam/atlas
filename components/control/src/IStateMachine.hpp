@@ -1,7 +1,18 @@
 #pragma once
 
 #include "FlightState.hpp"
+#include <cstddef>
+#include <cstdint>
 #include <functional>
+
+struct TaskStackHealth
+{
+    const char *type;
+    const char *name;
+    uint32_t high_water_mark_bytes;
+};
+
+static constexpr size_t MAX_MANAGED_TASK_HEALTH_ENTRIES = 16;
 
 /**
  * @brief Interface for a finite state machine managing rocket flight phases
@@ -139,6 +150,12 @@ public:
      * @note Thread-safe, derived from getCurrentState()
      */
     virtual FlightPhase getCurrentPhase() = 0;
+
+    /**
+     * @brief Copy high-water marks for active flight-software tasks.
+     * The caller owns the fixed output buffer; this never allocates.
+     */
+    virtual size_t getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const = 0;
 
     /**
      * @brief Force an immediate transition to the specified state

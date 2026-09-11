@@ -34,9 +34,11 @@ class MockConfig:
     bind_host: str = "127.0.0.1"
     bind_port: int = 5000
 
-    # Must match the launcher calibration run. READY_FOR_LAUNCH is returned on
-    # this received calibration sample, so --calibration-samples=300 works.
+    # Must match the launcher calibration run. The mock reports GROUND_SERVICES
+    # after this many samples, then READY_FOR_LAUNCH after the configured
+    # ground-service dwell below.
     calibration_samples_before_ready: int = 300
+    ground_services_samples_before_ready: int = 3
 
     # Launch detection is armed only after READY_FOR_LAUNCH has been reported.
     # Manny detects launch from total accelerometer magnitude.
@@ -64,7 +66,7 @@ class MockConfig:
     # - "single_main_at_apogee": for configs like Fred with only a Main chute.
     # - "drogue_then_main": drogue at apogee, main below main_deploy_agl_m.
     # Mock FSM flow:
-    # CALIBRATING -> READY_FOR_LAUNCH -> LAUNCH -> ACCELERATED_FLIGHT
+    # CALIBRATING -> GROUND_SERVICES -> READY_FOR_LAUNCH -> LAUNCH -> ACCELERATED_FLIGHT
     # -> BALLISTIC_FLIGHT -> APOGEE -> STABILIZATION -> DECELERATION
     # -> LANDING -> RECOVERED.
     # Thresholds below are AGL. The simulator sends ASL altitude samples; the
@@ -93,7 +95,7 @@ MAGIC = 0xA5A55A5A
 HEADER_FMT = "!IHH"
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
-PAYLOAD_FMT = "<IfIffffffff"
+PAYLOAD_FMT = "<IfIffffffffffff"
 PAYLOAD_SIZE = struct.calcsize(PAYLOAD_FMT)
 
 COMMAND_FMT = "<fBBfB"
@@ -105,19 +107,21 @@ MSG_TYPE_SIM_RESET = 3
 
 FSM_STATE_INACTIVE = 0
 FSM_STATE_CALIBRATING = 1
-FSM_STATE_READY_FOR_LAUNCH = 2
-FSM_STATE_LAUNCH = 3
-FSM_STATE_ACCELERATED_FLIGHT = 4
-FSM_STATE_BALLISTIC_FLIGHT = 5
-FSM_STATE_APOGEE = 6
-FSM_STATE_STABILIZATION = 7
-FSM_STATE_DECELERATION = 8
-FSM_STATE_LANDING = 9
-FSM_STATE_RECOVERED = 10
+FSM_STATE_GROUND_SERVICES = 2
+FSM_STATE_READY_FOR_LAUNCH = 3
+FSM_STATE_LAUNCH = 4
+FSM_STATE_ACCELERATED_FLIGHT = 5
+FSM_STATE_BALLISTIC_FLIGHT = 6
+FSM_STATE_APOGEE = 7
+FSM_STATE_STABILIZATION = 8
+FSM_STATE_DECELERATION = 9
+FSM_STATE_LANDING = 10
+FSM_STATE_RECOVERED = 11
 
 FSM_STATE_NAMES = {
     FSM_STATE_INACTIVE: "INACTIVE",
     FSM_STATE_CALIBRATING: "CALIBRATING",
+    FSM_STATE_GROUND_SERVICES: "GROUND_SERVICES",
     FSM_STATE_READY_FOR_LAUNCH: "READY_FOR_LAUNCH",
     FSM_STATE_LAUNCH: "LAUNCH",
     FSM_STATE_ACCELERATED_FLIGHT: "ACCELERATED_FLIGHT",
@@ -142,6 +146,10 @@ class SimInput:
     accel_x_m_s2: float
     accel_y_m_s2: float
     accel_z_m_s2: float
+    quaternion_w: float
+    quaternion_x: float
+    quaternion_y: float
+    quaternion_z: float
     pressure_pa: float
     temperature_k: float
     latitude_deg: float
@@ -233,6 +241,7 @@ class MockMannyState:
         self.last_pressure_pa: float | None = None
 
         self.ready_for_launch_reported = False
+        self.ground_services_samples_seen = 0
         self.launch_detected = False
         self.launch_sim_time_s: float | None = None
         self.launch_marker_samples_left = 0
@@ -261,8 +270,14 @@ class MockMannyState:
             return self._set_state(FSM_STATE_CALIBRATING, sample)
 
         if not self.ready_for_launch_reported:
+            if self.pad_altitude_m is None:
+                self._set_pad_reference_from_calibration()
+
+            self.ground_services_samples_seen += 1
+            if self.ground_services_samples_seen <= self.cfg.ground_services_samples_before_ready:
+                return self._set_state(FSM_STATE_GROUND_SERVICES, sample)
+
             self.ready_for_launch_reported = True
-            self._set_pad_reference_from_calibration()
             return self._set_state(FSM_STATE_READY_FOR_LAUNCH, sample)
 
         altitude_agl_m = self.altitude_agl_m(sample)

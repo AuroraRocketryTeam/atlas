@@ -82,6 +82,35 @@ std::string MirrorStorage::readLine() {
     return "";
 }
 
+size_t MirrorStorage::listFiles(StorageFileInfo* files, size_t capacity) {
+    for (const auto& storage : _storages) {
+        if (storage->isInitialized()) return storage->listFiles(files, capacity);
+    }
+    return 0;
+}
+
+bool MirrorStorage::readFileChunk(const char* filename, size_t offset, uint8_t* buffer,
+                                  size_t capacity, size_t& bytesRead, size_t& fileSize) {
+    for (const auto& storage : _storages) {
+        if (storage->isInitialized() && storage->fileExists(filename)) {
+            return storage->readFileChunk(filename, offset, buffer, capacity, bytesRead, fileSize);
+        }
+    }
+    return false;
+}
+
+bool MirrorStorage::deleteFile(const char* filename) {
+    bool found = false;
+    bool deleted = true;
+    for (const auto& storage : _storages) {
+        if (storage->isInitialized() && storage->fileExists(filename)) {
+            found = true;
+            deleted = storage->deleteFile(filename) && deleted;
+        }
+    }
+    return found && deleted;
+}
+
 bool MirrorStorage::clearMemory() {
     bool success = false;
     for (const auto& storage : _storages) {

@@ -12,6 +12,9 @@
 #include <map>
 #include <RocketModel.hpp>
 #include <IBoardHardware.hpp>
+#include "tasks/FlightParametersConfig.hpp"
+
+class IGroundTestRunner;
 
 /**
  * @brief Enumeration for the different rocket states.
@@ -30,7 +33,8 @@ public:
     RocketFSM(std::shared_ptr<RocketModel> rocketModel,
               std::shared_ptr<SD> sd,
               std::shared_ptr<RocketLogger> logger,
-              IBoardHardware* board
+              IBoardHardware* board,
+              std::shared_ptr<IGroundTestRunner> testRunner = nullptr
             );
     
     /**
@@ -67,6 +71,7 @@ public:
      * @return FlightPhase The current flight phase
      */
     FlightPhase getCurrentPhase() override;
+    size_t getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const override;
 
     /**
      * @brief Force a transition to a new state
@@ -84,6 +89,7 @@ public:
 
     // Utility methods
     const char* getStateString(RocketState state) const;
+    void logActiveTaskStackHealth() const;
 
 private:
     void setupStateActions();
@@ -116,6 +122,7 @@ private:
     // Shared data
     std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
+    std::shared_ptr<IGroundTestRunner> _testRunner;
 
     std::shared_ptr<SD> _sd;
     IBoardHardware* _board;

@@ -1,6 +1,8 @@
 #include "HilSimulationTask.hpp"
 #include "protocol.hpp"
 
+#include <inttypes.h>
+#include <cmath>
 #include <cstring>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -12,8 +14,9 @@
 
 static const char *TAG = "HilSimulationTask";
 
-static constexpr int HIL_SERVER_PORT = CONFIG_AURORA_HIL_SERVER_PORT;
-
+static constexpr int HIL_SERVER_PORT = 5000;
+static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 5000;
+static constexpr uint32_t HIL_SENSOR_LOG_PERIOD_MS = 200;
 /* ===================== PACKETS ===================== */
 
 typedef struct __attribute__((packed)) {
@@ -23,12 +26,18 @@ typedef struct __attribute__((packed)) {
     float ax;               // acceleration x
     float ay;               // acceleration y
     float az;               // acceleration z
+    float qw;               // body-to-inertial attitude quaternion
+    float qx;
+    float qy;
+    float qz;
     float p;                // pressure
     float t;                // temperature
     float lat;              // latitude
     float lon;              // longitude
     float alt;              // altitude
 } sim_packet_t;
+
+static_assert(sizeof(sim_packet_t) == 60, "HIL simulator packet layout mismatch");
 
 /* ===================== SOCKET HELPERS ===================== */
 
@@ -107,10 +116,12 @@ static bool send_all(int _client_sock, const uint8_t *buf, size_t len, const vol
 HilSimulationTask::HilSimulationTask(
     std::shared_ptr<RocketModel> rocketModel,
     std::shared_ptr<RocketLogger> logger,
+    IBoardHardware* board,
     IStateMachine* fsm)
     : BaseTask("HilSimulationTask"),
       _rocketModel(rocketModel),
       _logger(logger),
+      _board(board),
       _fsm(fsm)
 {
     // ctor
@@ -125,6 +136,16 @@ HilSimulationTask::~HilSimulationTask() {
 
 void HilSimulationTask::onTaskStart() {
     // LOG_INFO(TAG, "onTaskStart");
+
+    if (_board != nullptr) {
+        if (!_board->startWifiSoftAp()) {
+            LOG_ERROR(TAG, "Failed to acquire HIL SoftAP");
+            running = false;
+            return;
+        }
+        _softApAcquired = true;
+        LOG_INFO(TAG, "HIL SoftAP ready at %s", _board->getWifiIpAddress());
+    }
 
     const int MAX_RETRY = 5;
     const TickType_t RETRY_DELAY = 200 / portTICK_PERIOD_MS;
@@ -154,8 +175,8 @@ void HilSimulationTask::onTaskStart() {
         /* ===== SO_RCVTIMEO ===== */
         if (success) {
             struct timeval timeout;
-            timeout.tv_sec = 1;
-            timeout.tv_usec = 0;
+            timeout.tv_sec = 0;
+            timeout.tv_usec = 500000;
 
             if (setsockopt(_listen_sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
                 LOG_ERROR(TAG, "setsockopt(SO_RCVTIMEO) failed: %s", strerror(errno));
@@ -202,6 +223,7 @@ void HilSimulationTask::onTaskStart() {
 
     LOG_ERROR(TAG, "Failed to initialize TCP server after %d attempts", MAX_RETRY);
     _listen_sock = -1;
+    running = false;
 }
 
 void HilSimulationTask::onTaskStop() {
@@ -229,6 +251,13 @@ void HilSimulationTask::onTaskStop() {
         }
 
         _listen_sock = -1;
+    }
+
+    if (_softApAcquired) {
+        if (_board != nullptr && !_board->stopWifi()) {
+            LOG_ERROR(TAG, "Failed to release HIL SoftAP");
+        }
+        _softApAcquired = false;
     }
 
 }
@@ -304,6 +333,8 @@ void HilSimulationTask::taskFunction() {
         
 
         LOG_INFO(TAG, "Client connected");
+        uint32_t last_packet_log_ms = Utils::realMillis() - HIL_PACKET_LOG_PERIOD_MS;
+        uint32_t last_sensor_log_ms = Utils::realMillis() - HIL_SENSOR_LOG_PERIOD_MS;
 
         /* ================= CONNECTION LOOP ================= */
 
@@ -403,6 +434,24 @@ void HilSimulationTask::taskFunction() {
             bnoData.acceleration_x = pkt.ax;
             bnoData.acceleration_y = pkt.ay;
             bnoData.acceleration_z = pkt.az;
+            bnoData.quaternion_w = pkt.qw;
+            bnoData.quaternion_x = pkt.qx;
+            bnoData.quaternion_y = pkt.qy;
+            bnoData.quaternion_z = pkt.qz;
+
+            constexpr float RADIANS_TO_DEGREES = 180.0f / 3.14159265358979323846f;
+            const float roll = std::atan2(
+                2.0f * (pkt.qw * pkt.qx + pkt.qy * pkt.qz),
+                1.0f - 2.0f * (pkt.qx * pkt.qx + pkt.qy * pkt.qy));
+            const float pitchInput = 2.0f * (pkt.qw * pkt.qy - pkt.qz * pkt.qx);
+            const float pitch = std::asin(std::fmax(-1.0f, std::fmin(1.0f, pitchInput)));
+            float heading = std::atan2(
+                2.0f * (pkt.qw * pkt.qz + pkt.qx * pkt.qy),
+                1.0f - 2.0f * (pkt.qy * pkt.qy + pkt.qz * pkt.qz)) * RADIANS_TO_DEGREES;
+            if (heading < 0.0f) heading += 360.0f;
+            bnoData.orientation_x = heading;
+            bnoData.orientation_y = roll * RADIANS_TO_DEGREES;
+            bnoData.orientation_z = pitch * RADIANS_TO_DEGREES;
             bnoData.setSensorName("BNO055_SIM");
 
             lis3dhData.timestamp = sim_time_ms;
@@ -413,11 +462,11 @@ void HilSimulationTask::taskFunction() {
 
             ms1.timestamp = sim_time_ms;
             ms1.pressure = pkt.p;
-            ms1.temperature = pkt.t;
+            ms1.temperature = pkt.t - 273.15f;
             ms1.setSensorName("MS56_1_SIM");
             ms2.timestamp = sim_time_ms;
             ms2.pressure = pkt.p;
-            ms2.temperature = pkt.t;
+            ms2.temperature = pkt.t - 273.15f;
             ms2.setSensorName("MS56_2_SIM");
 
             gps.timestamp = sim_time_ms;
@@ -426,9 +475,12 @@ void HilSimulationTask::taskFunction() {
             gps.altitude  = pkt.alt;
             gps.setSensorName("GPS_SIM");
 
-            ESP_LOGI(TAG, "Received sim packet: time=%d ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
-                sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt
-            );
+            const uint32_t now_ms = Utils::realMillis();
+            if (now_ms - last_packet_log_ms >= HIL_PACKET_LOG_PERIOD_MS) {
+                LOG_INFO(TAG, "Received sim packet: time=%" PRIu32 " ax=%.2f ay=%.2f az=%.2f p=%.2f t=%.2f lat=%.6f lon=%.6f alt=%.2f",
+                         sim_time_ms, pkt.ax, pkt.ay, pkt.az, pkt.p, pkt.t, pkt.lat, pkt.lon, pkt.alt);
+                last_packet_log_ms = now_ms;
+            }
             
             /* ================= UPDATE MODEL ================= */
 
@@ -438,18 +490,19 @@ void HilSimulationTask::taskFunction() {
             _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
             _rocketModel->setSimulatedGPSData(gps);
 
-            if (_logger) {
+            if (_logger && now_ms - last_sensor_log_ms >= HIL_SENSOR_LOG_PERIOD_MS) {
                 _logger->logSensorData(bnoData);
                 _logger->logSensorData(lis3dhData);
                 _logger->logSensorData(ms1);
                 _logger->logSensorData(ms2);
                 _logger->logSensorData(gps);
+                last_sensor_log_ms = now_ms;
             }
 
             Utils::setSimMillis(sim_time_ms);
 
             // yield in order to let the other task to set the command
-            vTaskDelay(pdMS_TO_TICKS(20));
+            vTaskDelay(pdMS_TO_TICKS(20)); // 20ms -> 50Hz, because Python runs at default --sampling-rate=50Hz (WARNING: mixing real and simulated time)
             if(!running) break;
 
             /* ================= READ COMMAND FROM MODEL ================= */
@@ -481,17 +534,6 @@ void HilSimulationTask::taskFunction() {
                 LOG_WARNING(TAG, "closing: send_all failed");
                 break;
             }
-
-            /* ================= LOG ================= */
-
-            // LOG_INFO(TAG,
-            //     "t=%.2f | acc=[%.2f %.2f %.2f] | alt=%.2f",
-            //     pkt.sim_time,
-            //     pkt.ax, pkt.ay, pkt.az,
-            //     pkt.alt
-            // );
-
-            //vTaskDelay(pdMS_TO_TICKS(20)); // 50ms beacause Python runs at sampling_rate=20Hz (WARNING: mixing real and simulated time)
         }
 
         if (_client_sock >= 0) {

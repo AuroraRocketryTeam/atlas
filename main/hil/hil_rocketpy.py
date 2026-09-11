@@ -10,6 +10,7 @@ import argparse
 import copy
 import math
 import threading
+import time
 from pathlib import Path
 import numpy as np
 
@@ -42,14 +43,27 @@ from hil_capture import create_capture_file, save_hil_capture, plot_hil_log
 
 
 class CommandState:
+    """Thread-safe actuator/FSM state shared by RocketPy and TCP threads.
+
+    The RocketPy thread produces one simulator packet at a time. The TCP thread
+    sends that packet, receives the matching FC command packet, and updates this
+    state. ``wait_for_fsm_response`` is the barrier that keeps preflight samples
+    in lockstep with the command packets, so calibration/Ground Services code can
+    decide from the latest FC FSM state whether the sample belongs in the saved
+    capture.
+    """
+
     def __init__(self):
         self.lock = threading.Lock()
+        self.fsm_response_condition = threading.Condition(self.lock)
         self.fsm_ready_event = threading.Event()
         self.reset()
 
     def reset(self):
         with self.lock:
             self.latest_command_sim_time_s = 0.0
+            self.latest_fsm_command_sim_time_s = -1.0
+            self.latest_fsm_response_id = 0
             self.open_main = False
             self.open_drogue = False
             self.airbrakes_lvl = 0.0
@@ -58,6 +72,31 @@ class CommandState:
             self._last_printed_fsm_state = None
 
         self.fsm_ready_event.clear()
+
+    def get_fsm_response_id(self):
+        with self.lock:
+            return self.latest_fsm_response_id
+
+    def wait_for_fsm_response(self, previous_response_id, command_sim_time_s, timeout_s=5.0):
+        """Wait until the TCP thread receives a newer FC command packet.
+
+        This is required during preflight calibration because the producer needs
+        the latest returned FSM state for the sample it just queued. Without this
+        wait, Python could keep sending stationary samples while reading a stale
+        ``CALIBRATING``/``GROUND_SERVICES`` state and capture the wrong interval.
+        """
+        deadline = time.monotonic() + timeout_s
+        with self.fsm_response_condition:
+            while self.latest_fsm_response_id <= previous_response_id:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        "Timed out waiting for FC command response at "
+                        f"hil_sim_time={command_sim_time_s:.3f}s"
+                    )
+                self.fsm_response_condition.wait(timeout=remaining)
+
+            return self.fsm_state, self.fsm_state_name
 
 
 command_state = CommandState()
@@ -71,6 +110,7 @@ hil_events = {
     "open_main": [],
     "airbrakes": [],
     "fsm_state": [],
+    "time_eclipses": [],
 }
 
 hil_log = {
@@ -134,8 +174,8 @@ parser.add_argument(
 parser.add_argument(
     "--sampling-rate",
     type=positive_int,
-    default=20,
-    help="Sampling rate in Hz for sensors, logger, airbrakes and parachutes. Default: 20 Hz.",
+    default=50,
+    help="Sampling rate in Hz for sensors, logger, airbrakes and parachutes. Default: 50 Hz.",
 )
 parser.add_argument(
     "--sensor-profile",
@@ -144,21 +184,6 @@ parser.add_argument(
         "Exact sensor profile name from Sensors._profiles. "
         "Examples: --sensor-profile clean, --sensor-profile noisy, "
         "--sensor-profile very_noisy."
-    ),
-)
-parser.add_argument(
-    "--calibration-samples",
-    type=positive_int,
-    default=500,
-    help="Maximum number of stationary HIL samples to send before creating Flight. Default: 500.",
-)
-parser.add_argument(
-    "--calibration-rate",
-    type=positive_int,
-    default=None,
-    help=(
-        "Rate in Hz for the pre-flight calibration samples. "
-        "Defaults to --sampling-rate."
     ),
 )
 parser.add_argument(
@@ -178,8 +203,6 @@ args = parser.parse_args()
 rocket_model = args.rocket.strip().lower()
 sampling_rate = args.sampling_rate
 requested_sensor_profile_name = args.sensor_profile
-calibration_samples = args.calibration_samples
-calibration_rate = args.calibration_rate or sampling_rate
 startup_reset_enabled = not args.no_startup_reset
 startup_reset_timeout_s = args.startup_reset_timeout
 
@@ -391,7 +414,7 @@ def on_open_main(command_sim_time_s):
             command_state.latest_command_sim_time_s = command_sim_time_s
             if command_state.open_main == False:
                 print(f"[ESP32_cmd] 'main_deployed' at sim_time={command_sim_time_s:.3f}s")
-                hil_events["open_main"].append(command_sim_time_s)
+                hil_events["open_main"].append(compact_hil_time(command_sim_time_s))
             command_state.open_main = True
         else:
             print("[E]: time mismatch, overwriting with old values new stuff.")
@@ -403,7 +426,7 @@ def on_open_drogue(command_sim_time_s):
             command_state.latest_command_sim_time_s = command_sim_time_s
             if command_state.open_drogue == False:
                 print(f"[ESP32_cmd]: 'drogue_deployed' at sim_time={command_sim_time_s:.3f}s")
-                hil_events["open_drogue"].append(command_sim_time_s)
+                hil_events["open_drogue"].append(compact_hil_time(command_sim_time_s))
             command_state.open_drogue = True
         else:
             print("[E]: time mismatch, overwriting with old values new stuff.")
@@ -418,7 +441,7 @@ def on_set_air_brakes(command_sim_time_s, deployment_level):
                     f"[ESP32_cmd]: deployment_level={deployment_level} "
                     f"at sim_time={command_sim_time_s:.3f}s"
                 )
-                hil_events["airbrakes"].append((command_sim_time_s, deployment_level))
+                hil_events["airbrakes"].append((compact_hil_time(command_sim_time_s), deployment_level))
             command_state.airbrakes_lvl = deployment_level
         else:
             print("[E]: time mismatch, overwriting with old values new stuff.")
@@ -429,15 +452,19 @@ def on_fsm_state(command_sim_time_s, fsm_state):
 
     with command_state.lock:
         previous = command_state.fsm_state
+        command_state.latest_fsm_command_sim_time_s = command_sim_time_s
+        command_state.latest_fsm_response_id += 1
         command_state.fsm_state = fsm_state
         command_state.fsm_state_name = name
 
         if previous != fsm_state:
             print(f"[ESP32_fsm]: {name} at sim_time={command_sim_time_s:.3f}s")
-            hil_events["fsm_state"].append((command_sim_time_s, name))
+            hil_events["fsm_state"].append((compact_hil_time(command_sim_time_s), name))
 
         if fsm_state == hil_communication.FSM_STATE_READY_FOR_LAUNCH:
             command_state.fsm_ready_event.set()
+
+        command_state.fsm_response_condition.notify_all()
 
 
 def airbrakes_drag_function(level, mach):
@@ -454,7 +481,25 @@ def airbrakes_controller(controller_time_s, sampling_rate, state_vector, state_h
 seq = 0
 last_rocketpy_callback_time_s = None
 TIMESTAMP_EPS = 1e-9
-PREFLIGHT_CALIBRATION_DURATION_S = 0.0
+PREFLIGHT_DURATION_S = 0.0
+PREFLIGHT_FC_DURATION_S = 0.0
+PREFLIGHT_SENT_SAMPLES = 0
+PREFLIGHT_CAPTURED_CALIBRATION_SAMPLES = 0
+PREFLIGHT_ECLIPSED_DURATION_S = 0.0
+
+
+def compact_hil_time(raw_hil_time_s):
+    """Map raw FC HIL time into capture time by collapsing omitted intervals."""
+    if PREFLIGHT_ECLIPSED_DURATION_S <= 0.0:
+        return raw_hil_time_s
+
+    eclipse_start_s = PREFLIGHT_DURATION_S
+    eclipse_end_s = PREFLIGHT_FC_DURATION_S
+    if raw_hil_time_s >= eclipse_end_s:
+        return raw_hil_time_s - PREFLIGHT_ECLIPSED_DURATION_S
+    if raw_hil_time_s >= eclipse_start_s:
+        return eclipse_start_s
+    return raw_hil_time_s
 
 def require_callback_float(mapping, key, source):
     """Read a mandatory numeric field from a RocketPy callback mapping."""
@@ -554,11 +599,13 @@ def enqueue_data(rocketpy_time_s, state, sensors):
     ):
         return
 
-    hil_sim_time_s = PREFLIGHT_CALIBRATION_DURATION_S + rocketpy_time_s
+    fc_hil_sim_time_s = PREFLIGHT_FC_DURATION_S + rocketpy_time_s
+    capture_hil_sim_time_s = PREFLIGHT_DURATION_S + rocketpy_time_s
 
     if seq % sampling_rate == 0:
         print(
-            f"hil_sim_time={hil_sim_time_s:.6f}s | "
+            f"hil_sim_time={fc_hil_sim_time_s:.6f}s | "
+            f"capture_time={capture_hil_sim_time_s:.6f}s | "
             f"rocketpy_time={rocketpy_time_s:.6f}s | seq={seq}"
         )
 
@@ -600,10 +647,14 @@ def enqueue_data(rocketpy_time_s, state, sensors):
     # Build and send the payload to the FC
     payload = hil_communication.build_sim_input_payload(
         sequence_number=seq,
-        hil_sim_time_s=hil_sim_time_s,
+        hil_sim_time_s=fc_hil_sim_time_s,
         ax_m_s2=accel_x_m_s2,
         ay_m_s2=accel_y_m_s2,
         az_m_s2=accel_z_m_s2,
+        quaternion_w=e0,
+        quaternion_x=e1,
+        quaternion_y=e2,
+        quaternion_z=e3,
         pressure_pa=pressure_pa,
         temperature_k=temperature_k,
         latitude_deg=latitude_deg,
@@ -614,7 +665,7 @@ def enqueue_data(rocketpy_time_s, state, sensors):
 
     # Log only packets that were actually queued
     append_hil_log_sample(
-        seq_value=seq, hil_sim_time_s=hil_sim_time_s,
+        seq_value=seq, hil_sim_time_s=capture_hil_sim_time_s,
         accel_x_m_s2=accel_x_m_s2,
         accel_y_m_s2=accel_y_m_s2,
         accel_z_m_s2=accel_z_m_s2,
@@ -966,24 +1017,30 @@ def _apply_calibration_sensor_models(
     )
 
 
-def run_preflight_calibration(mailbox, max_samples, rate_hz):
-    """
-    Send stationary pad samples before Flight(...) is created.
+def run_preflight_calibration(mailbox, rate_hz):
+    """Send stationary pad samples before Flight(...) is created.
 
-    This lets the FC stay in CALIBRATING and fill its own calibration/filter
-    buffers using the normal MSG_TYPE_SIM_INPUT path.
+    Samples returned while the FC is ``INACTIVE`` or ``CALIBRATING`` are saved
+    in the capture as physical calibration time. Samples returned during
+    ``GROUND_SERVICES`` are still sent to the FC, but are omitted from the saved
+    time axis. The omitted span is recorded as a ``time_eclipses`` event so plots
+    can show where capture time was collapsed.
+
+    This lets the FC stay in CALIBRATING and then GROUND_SERVICES while filling
+    its own calibration/filter buffers using the normal MSG_TYPE_SIM_INPUT path.
+    The stream stops only after the FC reports READY_FOR_LAUNCH, which normally
+    happens after the operator acts through Ground Services.
 
     Calibration accelerometer, barometer, and GPS values are passed through the
     same RocketPy sensor objects configured for Flight(...), so clean/noisy
     behavior comes from the selected Sensors profile and is not duplicated here.
     """
     global seq
-    global PREFLIGHT_CALIBRATION_DURATION_S
-
-    if max_samples <= 0:
-        PREFLIGHT_CALIBRATION_DURATION_S = 0.0
-        print("[CALIBRATION] Skipped: max_samples <= 0")
-        return
+    global PREFLIGHT_DURATION_S
+    global PREFLIGHT_FC_DURATION_S
+    global PREFLIGHT_SENT_SAMPLES
+    global PREFLIGHT_CAPTURED_CALIBRATION_SAMPLES
+    global PREFLIGHT_ECLIPSED_DURATION_S
 
     sample_period_s = 1.0 / float(rate_hz)
     conditions = get_launch_site_conditions()
@@ -1026,8 +1083,8 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
     initial_e0, initial_e1, initial_e2, initial_e3 = initial_attitude_quaternion
 
     print(
-        "[CALIBRATION] Sending "
-        f"up to {max_samples} stationary samples at {rate_hz} Hz "
+        "[PREFLIGHT] Sending stationary samples at "
+        f"{rate_hz} Hz until the FC reports READY_FOR_LAUNCH "
         f"(pressure={launch_site_pressure_pa:.2f} Pa, "
         f"temperature={launch_site_temperature_k:.2f} K, "
         f"g={launch_site_gravity_m_s2:.5f} m/s^2, "
@@ -1071,9 +1128,15 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
     )
 
     sent_samples = 0
+    captured_calibration_samples = 0
+    last_reported_phase = None
+    consecutive_response_timeouts = 0
+    max_consecutive_response_timeouts = 5
 
-    for sample_index in range(max_samples):
-        calibration_sim_time_s = sample_index * sample_period_s
+    sample_index = 0
+    while not command_state.fsm_ready_event.is_set():
+        preflight_fc_time_s = sample_index * sample_period_s
+        preflight_capture_time_s = captured_calibration_samples * sample_period_s
 
         (
             sample_accel_x_m_s2,
@@ -1099,50 +1162,83 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
 
         payload = hil_communication.build_sim_input_payload(
             sequence_number=seq,
-            hil_sim_time_s=calibration_sim_time_s,
+            hil_sim_time_s=preflight_fc_time_s,
             ax_m_s2=sample_accel_x_m_s2,
             ay_m_s2=sample_accel_y_m_s2,
             az_m_s2=sample_accel_z_m_s2,
+            quaternion_w=initial_e0,
+            quaternion_x=initial_e1,
+            quaternion_y=initial_e2,
+            quaternion_z=initial_e3,
             pressure_pa=sample_pressure_pa,
             temperature_k=sample_temperature_k,
             latitude_deg=sample_latitude_deg,
             longitude_deg=sample_longitude_deg,
             altitude_m=sample_altitude_m,
         )
+        previous_response_id = command_state.get_fsm_response_id()
         mailbox.put(payload)
+
+        try:
+            fsm_state, fsm_name = command_state.wait_for_fsm_response(
+                previous_response_id,
+                preflight_fc_time_s,
+            )
+        except TimeoutError as exc:
+            mailbox.clear()
+            consecutive_response_timeouts += 1
+            print(
+                "[PREFLIGHT] no FC response for sample "
+                f"{sample_index + 1} response "
+                f"({consecutive_response_timeouts}/"
+                f"{max_consecutive_response_timeouts}): {exc}"
+            )
+            if consecutive_response_timeouts >= max_consecutive_response_timeouts:
+                raise
+            continue
+
+        consecutive_response_timeouts = 0
         sent_samples += 1
-
-        append_hil_log_sample(
-            seq_value=seq,
-            hil_sim_time_s=calibration_sim_time_s,
-            accel_x_m_s2=sample_accel_x_m_s2,
-            accel_y_m_s2=sample_accel_y_m_s2,
-            accel_z_m_s2=sample_accel_z_m_s2,
-            pressure_pa=sample_pressure_pa,
-            temperature_k=sample_temperature_k,
-            latitude_deg=sample_latitude_deg,
-            longitude_deg=sample_longitude_deg,
-            altitude_m=sample_altitude_m,
-
-            # Synthetic stationary truth state for pre-Flight calibration.
-            # Use the same rail attitude used to create the synthetic
-            # accelerometer samples so the 3D replay is physically consistent.
-            x=0.0, y=0.0, z=launch_site_elevation_m,
-            vx=0.0, vy=0.0, vz=0.0,
-            e0=initial_e0, e1=initial_e1, e2=initial_e2, e3=initial_e3,
-            omega1=0.0, omega2=0.0, omega3=0.0,
+        capture_sample = fsm_state in (
+            hil_communication.FSM_STATE_INACTIVE,
+            hil_communication.FSM_STATE_CALIBRATING,
         )
+
+        if capture_sample:
+            append_hil_log_sample(
+                seq_value=seq,
+                hil_sim_time_s=preflight_capture_time_s,
+                accel_x_m_s2=sample_accel_x_m_s2,
+                accel_y_m_s2=sample_accel_y_m_s2,
+                accel_z_m_s2=sample_accel_z_m_s2,
+                pressure_pa=sample_pressure_pa,
+                temperature_k=sample_temperature_k,
+                latitude_deg=sample_latitude_deg,
+                longitude_deg=sample_longitude_deg,
+                altitude_m=sample_altitude_m,
+
+                # Synthetic stationary truth state for pre-Flight calibration.
+                # Use the same rail attitude used to create the synthetic
+                # accelerometer samples so the 3D replay is physically consistent.
+                x=0.0, y=0.0, z=launch_site_elevation_m,
+                vx=0.0, vy=0.0, vz=0.0,
+                e0=initial_e0, e1=initial_e1, e2=initial_e2, e3=initial_e3,
+                omega1=0.0, omega2=0.0, omega3=0.0,
+            )
+            captured_calibration_samples += 1
 
         if (
             sample_index == 0
-            or (sample_index + 1) == max_samples
             or (sample_index + 1) % max(1, rate_hz) == 0
+            or fsm_name != last_reported_phase
         ):
-            with command_state.lock:
-                fsm_name = command_state.fsm_state_name
+            last_reported_phase = fsm_name
             print(
-                f"[CALIBRATION] sample {sample_index + 1}/{max_samples} "
-                f"hil_sim_time={calibration_sim_time_s:.3f}s seq={seq} fsm={fsm_name} "
+                f"[PREFLIGHT] sample {sample_index + 1} "
+                f"hil_sim_time={preflight_fc_time_s:.3f}s "
+                f"capture_time={preflight_capture_time_s:.3f}s "
+                f"seq={seq} fsm={fsm_name} "
+                f"capture={'yes' if capture_sample else 'no'} "
                 f"p={sample_pressure_pa:.2f}Pa T={sample_temperature_k:.2f}K "
                 f"a=({sample_accel_x_m_s2:.3f},"
                 f"{sample_accel_y_m_s2:.3f},"
@@ -1153,25 +1249,38 @@ def run_preflight_calibration(mailbox, max_samples, rate_hz):
             )
 
         seq += 1
+        sample_index += 1
 
-        if command_state.fsm_ready_event.is_set():
-            print(f"[CALIBRATION] FC reported READY_FOR_LAUNCH after {sent_samples} samples")
-            break
-
-    PREFLIGHT_CALIBRATION_DURATION_S = sent_samples * sample_period_s
-
-    if not command_state.fsm_ready_event.is_set():
-        with command_state.lock:
-            fsm_name = command_state.fsm_state_name
-        raise TimeoutError(
-            "Calibration did not complete before the configured sample limit. "
-            f"Sent {sent_samples}/{max_samples} samples at {rate_hz} Hz; "
-            f"last_fsm_state={fsm_name}. Increase --calibration-samples or fix the FC/mock."
+    PREFLIGHT_DURATION_S = captured_calibration_samples * sample_period_s
+    PREFLIGHT_FC_DURATION_S = sent_samples * sample_period_s
+    PREFLIGHT_SENT_SAMPLES = sent_samples
+    PREFLIGHT_CAPTURED_CALIBRATION_SAMPLES = captured_calibration_samples
+    PREFLIGHT_ECLIPSED_DURATION_S = max(
+        0.0,
+        (sent_samples - captured_calibration_samples) * sample_period_s,
+    )
+    if PREFLIGHT_ECLIPSED_DURATION_S > 0.0:
+        hil_events["time_eclipses"].append(
+            {
+                "label": "GROUND_SERVICES",
+                "time_s": PREFLIGHT_DURATION_S,
+                "omitted_duration_s": PREFLIGHT_ECLIPSED_DURATION_S,
+                "omitted_samples": sent_samples - captured_calibration_samples,
+            }
         )
+        hil_events["fsm_state"] = [
+            (compact_hil_time(event_time_s), state)
+            for event_time_s, state in hil_events["fsm_state"]
+        ]
 
     print(
-        "[CALIBRATION] Completed. Flight samples will start at "
-        f"hil_sim_time={PREFLIGHT_CALIBRATION_DURATION_S:.3f}s"
+        "[PREFLIGHT] FC reported READY_FOR_LAUNCH after "
+        f"{sent_samples} stationary samples "
+        f"({captured_calibration_samples} calibration samples captured, "
+        f"{PREFLIGHT_ECLIPSED_DURATION_S:.3f}s Ground Services eclipsed). "
+        "Flight samples will start at "
+        f"hil_sim_time={PREFLIGHT_FC_DURATION_S:.3f}s "
+        f"(capture_time={PREFLIGHT_DURATION_S:.3f}s)"
     )
 
 
@@ -1254,13 +1363,17 @@ def build_capture_metadata():
         "sensors": selected_sensor_metadata,
         "startup_reset_enabled": startup_reset_enabled,
         "startup_reset_timeout_s": startup_reset_timeout_s,
-        "calibration_samples": calibration_samples,
-        "calibration_rate_hz": calibration_rate,
-        "preflight_calibration_duration_s": PREFLIGHT_CALIBRATION_DURATION_S,
+        "preflight_rate_hz": sampling_rate,
+        "preflight_duration_s": PREFLIGHT_DURATION_S,
+        "preflight_fc_duration_s": PREFLIGHT_FC_DURATION_S,
+        "preflight_sent_samples": PREFLIGHT_SENT_SAMPLES,
+        "preflight_captured_calibration_samples": PREFLIGHT_CAPTURED_CALIBRATION_SAMPLES,
+        "ground_services_eclipsed_duration_s": PREFLIGHT_ECLIPSED_DURATION_S,
         "notes": (
             "HIL payload stream sent to ESP32 flight controller. "
             "A startup reset is sent before calibration unless disabled. "
-            "Pre-flight calibration samples are sent before Flight(...) is created. "
+            "Preflight stationary samples are sent before Flight(...) is created, "
+            "covering calibration and Ground Services until READY_FOR_LAUNCH. "
             "Calibration accelerometer/barometer samples reuse the selected RocketPy "
             "sensor objects for noise, drift, bias and quantization. "
             "The TCP link is closed locally at the end; no final FC reset is sent. "
@@ -1280,8 +1393,7 @@ capture_file = create_capture_file(BASE_DIR / "hil_captures")
 try:
     run_preflight_calibration(
         mailbox=mailbox,
-        max_samples=calibration_samples,
-        rate_hz=calibration_rate,
+        rate_hz=sampling_rate,
     )
 
     print("Setup completed. Starting Flight...")

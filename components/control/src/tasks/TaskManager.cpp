@@ -4,32 +4,42 @@
 #include "TaskManager.hpp"
 #include <config.h>
 #include <board.h>
+#include <array>
 
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
-                         IStateMachine* fsm) :
+                         IBoardHardware* board,
+                         IStateMachine* fsm,
+                         std::shared_ptr<IGroundTestRunner> testRunner) :
                          _rocketModel(rocketModel),
                          _logger(logger),
                          _sd(sd),
-                         _fsm(fsm)
+                         _fsm(fsm),
+                         _board(board),
+                         _testRunner(testRunner)
 {
     LOG_INFO("TaskMgr", "Initialized with model");
 
-    // Initialize ESP-NOW transmitter
-    uint8_t peerMac[] = ESPNOW_PEER_MAC;
-    _espNowTransmitter = std::make_shared<EspNowTransmitter>(peerMac, ESPNOW_CHANNEL);
+    
+    LOG_INFO("TaskMgr", "Skipping ESP-NOW init. We are not using it and it conflicts with WiFi SoftAP for GroundService and HIL.");
+    _espNowTransmitter = nullptr;
 
-    // Initialize transmitter
-    ResponseStatusContainer initResult = _espNowTransmitter->init();
-    if (initResult.getCode() != 0)
-    {
-        LOG_ERROR("TaskMgr", "Failed to initialize ESP-NOW: %s", initResult.getDescription().c_str());
-    }
-    else
-    {
-        LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
-    }
+    // Initialize ESP-NOW transmitter. ESP-NOW uses board-managed WiFi STA mode.
+    // uint8_t peerMac[] = ESPNOW_PEER_MAC;
+    // _espNowTransmitter = std::make_shared<EspNowTransmitter>(_board, peerMac, ESPNOW_CHANNEL);
+
+    // // Initialize transmitter
+    // ResponseStatusContainer initResult = _espNowTransmitter->init();
+    // if (initResult.getCode() != 0)
+    // {
+    //     LOG_ERROR("TaskMgr", "Failed to initialize ESP-NOW: %s", initResult.getDescription().c_str());
+    //     _espNowTransmitter = nullptr;
+    // }
+    // else
+    // {
+    //     LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
+    // }
 
 
     // Initialize and configure LoRa transmitter
@@ -75,10 +85,11 @@ void TaskManager::initializeTasks()
         _rocketModel,
         _logger);
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
         _logger,
+        _board,
         _fsm);
 #endif
         
@@ -92,7 +103,6 @@ void TaskManager::initializeTasks()
     auto telemetryTask = std::make_unique<TelemetryTask>(
         _rocketModel,
         _espNowTransmitter,
-        TELEMETRY_INTERVAL_MS,
         _fsm);
     if (_loraTransmitter)
     {
@@ -102,6 +112,13 @@ void TaskManager::initializeTasks()
 
     _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
         _rocketModel);
+
+    _tasks[TaskType::GROUND_SERVICES] = std::make_unique<GroundServicesTask>(
+        _rocketModel,
+        _logger,
+        _board,
+        _fsm,
+        _testRunner);
 
     LOG_INFO("TaskManager", "Created %d task instances", _tasks.size());
 }
@@ -216,7 +233,7 @@ bool TaskManager::isTaskRunning(TaskType type) const
     return (it != _tasks.end()) && it->second->isRunning();
 }
 
-uint32_t TaskManager::getTaskStackUsage(TaskType type) const
+uint32_t TaskManager::getTaskStackHighWaterMark(TaskType type) const
 {
     auto it = _tasks.find(type);
     if (it != _tasks.end())
@@ -224,6 +241,32 @@ uint32_t TaskManager::getTaskStackUsage(TaskType type) const
         return it->second->getStackHighWaterMark();
     }
     return 0;
+}
+
+void TaskManager::logActiveTaskStackHealth() const
+{
+    std::array<TaskStackHealth, MAX_MANAGED_TASK_HEALTH_ENTRIES> tasks = {};
+    const size_t taskCount = getActiveTaskStackHealth(tasks.data(), tasks.size());
+    for (size_t index = 0; index < taskCount; ++index)
+    {
+        LOG_INFO("TaskManager", "Task stack: [%s] %s remaining=%u bytes",
+                 tasks[index].type, tasks[index].name, tasks[index].high_water_mark_bytes);
+    }
+}
+
+size_t TaskManager::getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const
+{
+    if (out == nullptr || capacity == 0) return 0;
+
+    size_t count = 0;
+    for (const auto &[type, task] : _tasks)
+    {
+        if (!task || !task->isRunning()) continue;
+        if (count == capacity) break;
+
+        out[count++] = {taskTypeToString(type), task->getName(), task->getStackHighWaterMark()};
+    }
+    return count;
 }
 
 void TaskManager::printTaskStatus() const
@@ -244,6 +287,13 @@ void TaskManager::printTaskStatus() const
         }
     }
     LOG_INFO("TaskManager", "=================");
+}
+
+bool TaskManager::prepareStorageLogging()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    if (it == _tasks.end() || !it->second) return false;
+    return static_cast<StorageLoggingTask *>(it->second.get())->prepareTelemetryFilename();
 }
 
 int TaskManager::getRunningTaskCount()
