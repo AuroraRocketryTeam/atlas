@@ -66,6 +66,11 @@ void TelemetryTask::taskFunction()
 {
     const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
     const uint32_t transmitIntervalMs = runtimeConfig.telemetry.period_ms;
+    const uint32_t pollingIntervalMs = transmitIntervalMs / 10 < 10
+        ? 10
+        : transmitIntervalMs / 10;
+    const TickType_t pollingPeriod = pdMS_TO_TICKS(pollingIntervalMs);
+    TickType_t lastWakeTime = xTaskGetTickCount();
     LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", static_cast<unsigned long>(transmitIntervalMs));
 
     while (running)
@@ -129,15 +134,9 @@ void TelemetryTask::taskFunction()
                      _messagesCreated, _transmitErrors,
                      lora.successful_messages, lora.failed_messages, esp_get_free_heap_size());
 
-        // Check running flag frequently during delay (50ms chunks)
-        uint32_t delayRemaining = transmitIntervalMs / 10; // Split into 10 chunks
-        if (delayRemaining < 10)
-            delayRemaining = 10;
-
-        for (uint32_t i = 0; i < 10 && running; i++)
-        {
-            vTaskDelay(pdMS_TO_TICKS(delayRemaining));
-        }
+        // Wake ten times per transmit interval (minimum 10 ms) so shutdown
+        // reacts promptly without adding the preceding work time to the schedule.
+        vTaskDelayUntil(&lastWakeTime, pollingPeriod);
     }
 }
 

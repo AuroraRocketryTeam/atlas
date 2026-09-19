@@ -6,8 +6,8 @@ static const char* TAG = "Airbrakes";
 
 namespace
 {
+    // Maximum control-command rate. Raise this only after validating actuator response.
     static constexpr uint32_t TASK_PERIOD_MS = 50;
-    static constexpr float TASK_PERIOD_SEC   = TASK_PERIOD_MS / 1000.0f;
 
     /*
      * Deployment command is normalized:
@@ -87,12 +87,19 @@ void AirbrakesTask::taskFunction()
 {
     const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
     AirbrakesState airbrakesState = AirbrakesState::WAITING_TO_OPEN;
+    const TickType_t taskPeriod = pdMS_TO_TICKS(TASK_PERIOD_MS);
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    TickType_t lastControlTime = lastWakeTime - taskPeriod;
 
     float targetDeployment = 0.0f;
 
     while (running)
     {
         esp_task_wdt_reset();
+
+        const TickType_t controlTime = xTaskGetTickCount();
+        const TickType_t elapsedTicks = controlTime - lastControlTime;
+        lastControlTime = controlTime;
 
         float altitude = 0.0f;
         float currentLevel = 0.0f;
@@ -152,7 +159,10 @@ void AirbrakesTask::taskFunction()
                 ? runtimeConfig.airbrakes.open_rate_per_s
                 : runtimeConfig.airbrakes.close_rate_per_s;
 
-        const float maxStep = ratePerSec * TASK_PERIOD_SEC;
+        // Never replay missed periods as a burst of actuator commands. A delayed
+        // cycle may slow the response, but cannot exceed the configured slew rate.
+        const TickType_t limitedElapsedTicks = elapsedTicks > taskPeriod ? taskPeriod : elapsedTicks;
+        const float maxStep = ratePerSec * static_cast<float>(limitedElapsedTicks) / configTICK_RATE_HZ;
 
         const float newDeployment = moveTowards(
             currentLevel,
@@ -177,6 +187,11 @@ void AirbrakesTask::taskFunction()
          *          static_cast<int>(airbrakesState));
          */
 
-        vTaskDelay(pdMS_TO_TICKS(TASK_PERIOD_MS));
+        // Re-anchor after a missed period so vTaskDelayUntil() cannot run catch-up
+        // iterations back-to-back and spam identical control commands.
+        if (elapsedTicks >= taskPeriod * 2) {
+            lastWakeTime = controlTime;
+        }
+        vTaskDelayUntil(&lastWakeTime, taskPeriod);
     }
 }
