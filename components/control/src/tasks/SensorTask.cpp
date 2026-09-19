@@ -34,6 +34,10 @@ void SensorTask::taskFunction()
 {
 #if !AURORA_HIL_ENABLED
     uint32_t sensorLogCounter = 0;
+    uint32_t lastLoggedBaro1Timestamp = 0;
+    uint32_t lastLoggedBaro2Timestamp = 0;
+    bool hasLoggedBaro1Sample = false;
+    bool hasLoggedBaro2Sample = false;
 #endif
     TickType_t lastWakeTime = xTaskGetTickCount();
 
@@ -81,14 +85,22 @@ void SensorTask::taskFunction()
 
                 PressureSensorData outMs56Data1;
                 SensorReadStatus baro1Status = rocketModel->getMS561101BA03Data_1(outMs56Data1);
-                if (baro1Status == SensorReadStatus::OK) {
+                // The model retains its last valid barometer sample while D1/D2
+                // conversions are in progress. Record it once, not every log tick.
+                if (baro1Status == SensorReadStatus::OK &&
+                    (!hasLoggedBaro1Sample || outMs56Data1.timestamp != lastLoggedBaro1Timestamp)) {
                     logger->logSensorData(outMs56Data1);
+                    lastLoggedBaro1Timestamp = outMs56Data1.timestamp;
+                    hasLoggedBaro1Sample = true;
                 }
 
                 PressureSensorData outMs56Data2;
                 SensorReadStatus baro2Status = rocketModel->getMS561101BA03Data_2(outMs56Data2);
-                if (baro2Status == SensorReadStatus::OK) {
+                if (baro2Status == SensorReadStatus::OK &&
+                    (!hasLoggedBaro2Sample || outMs56Data2.timestamp != lastLoggedBaro2Timestamp)) {
                     logger->logSensorData(outMs56Data2);
+                    lastLoggedBaro2Timestamp = outMs56Data2.timestamp;
+                    hasLoggedBaro2Sample = true;
                 }
 
                 AccelerometerSensorData outLis3dhData;
