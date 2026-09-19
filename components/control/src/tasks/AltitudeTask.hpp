@@ -9,6 +9,8 @@
 #include <array>
 #include <algorithm>
 
+class RocketLogger;
+
 // Barometer noise filtering
 // ALTITUDE_FILTER_WINDOW: Size of median filter window for pressure/altitude smoothing
 // Smaller = faster response but more noise (1 = no filtering)
@@ -165,6 +167,7 @@ public:
     }
 
     float getVelocity() const { return _estimatedVelocityMps; }
+    bool isReady() const { return _sampleCount >= _activeWindowSize; }
     void reset()
     {
         _nextWriteIndex = 0;
@@ -191,9 +194,11 @@ private:
 class AltitudeTask : public BaseTask
 {
 public:
-    AltitudeTask(std::shared_ptr<RocketModel> rocketModel)
+    AltitudeTask(std::shared_ptr<RocketModel> rocketModel,
+                 std::shared_ptr<RocketLogger> logger)
         : BaseTask("AltitudeTask"),
           _rocketModel(rocketModel),
+          _logger(logger),
           _max_altitude_read(-1000.0f)
     {
     }
@@ -213,6 +218,7 @@ public:
  
 private:
     std::shared_ptr<RocketModel> _rocketModel;
+    std::shared_ptr<RocketLogger> _logger;
 
     float _max_altitude_read;
     

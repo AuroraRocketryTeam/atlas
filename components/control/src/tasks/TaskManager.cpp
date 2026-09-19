@@ -90,7 +90,8 @@ void TaskManager::initializeTasks()
     _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
 
     _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
-        _rocketModel);
+        _rocketModel,
+        _logger);
 
     _tasks[TaskType::GROUND_SERVICES] = std::make_unique<GroundServicesTask>(
         _rocketModel,

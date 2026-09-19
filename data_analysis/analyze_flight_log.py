@@ -595,6 +595,10 @@ def create_plots(
     imu_sources = [source for source, values in grouped.items() if source_has_fields(values, "ax", "ay", "az", "qw")]
     accel_sources = [source for source, values in grouped.items() if source_has_fields(values, "acceleration_x", "acceleration_y", "acceleration_z")]
     pressure_sources = [source for source, values in grouped.items() if source_has_fields(values, "pressure", "temperature")]
+    altitude_estimate_sources = [
+        source for source, values in grouped.items()
+        if source_has_fields(values, "filtered_pressure_pa", "altitude_m", "ols_slope_mps")
+    ]
     gps_sources = [source for source, values in grouped.items() if source_has_fields(values, "latitude", "longitude", "altitude")]
 
     # Record density, FSM state intervals, and timing quality share one time base.
@@ -710,6 +714,26 @@ def create_plots(
         finish_axis(axes[2], "Altitude comparison", "Altitude / relative altitude [m]", transitions, 0.0, end_s)
         finish_axis(axes[3], "IMU temperature", "Temperature [°C]", transitions, 0.0, end_s)
         plots.append(("environment", fig))
+
+    if altitude_estimate_sources:
+        fig, axes = plt.subplots(4, 1, figsize=(14, 12), sharex=True, constrained_layout=True)
+        plot_fields(axes[0], grouped, pressure_sources, ("pressure",), origin_ms)
+        plot_fields(axes[0], grouped, altitude_estimate_sources, ("filtered_pressure_pa",), origin_ms)
+        plot_fields(axes[1], grouped, altitude_estimate_sources, ("altitude_m",), origin_ms)
+        plot_fields(axes[2], grouped, altitude_estimate_sources, ("ols_slope_mps",), origin_ms)
+        for source in altitude_estimate_sources:
+            ready_time_s, ready = numeric_series(grouped[source], "ols_ready", origin_ms)
+            rising_time_s, rising = numeric_series(grouped[source], "rising", origin_ms)
+            if ready.size:
+                axes[3].step(ready_time_s, ready, where="post", label=f"{source}: OLS ready", alpha=0.6)
+            if rising.size:
+                axes[3].step(rising_time_s, rising, where="post", label=f"{source}: rising", alpha=0.6)
+        finish_axis(axes[0], "Raw and filtered pressure", "Pressure [Pa]", transitions, 0.0, end_s)
+        finish_axis(axes[1], "Altitude estimator output", "Altitude [m]", transitions, 0.0, end_s)
+        finish_axis(axes[2], "OLS apogee-detector slope", "Slope [m/s]", transitions, 0.0, end_s)
+        finish_axis(axes[3], "OLS apogee-detector state", "Boolean [0/1]", transitions, 0.0, end_s)
+        axes[3].set_yticks([0, 1])
+        plots.append(("altitude_estimator", fig))
 
     for gps_source in gps_sources:
         time_s, latitude = numeric_series(grouped[gps_source], "latitude", origin_ms)
