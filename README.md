@@ -1,404 +1,399 @@
-# Nemesis Flight Computer
+# Atlas Flight Software
 
-[![PlatformIO CI](https://github.com/AuroraRocketryTeam/Aurora_Rocketry_SW_24_25/actions/workflows/platformio.yml/badge.svg)](https://github.com/AuroraRocketryTeam/Aurora_Rocketry_SW_24_25/actions/workflows/platformio.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Platform](https://img.shields.io/badge/platform-ESP32-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
-
+[![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.5-red.svg)](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/)
+[![Target](https://img.shields.io/badge/target-ESP32--S3-blue.svg)](https://www.espressif.com/en/products/socs/esp32-s3)
 [![FreeRTOS](https://img.shields.io/badge/RTOS-FreeRTOS-green.svg)](https://www.freertos.org/)
-[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C.svg?logo=c%2B%2B)](https://isocpp.org/)
-[![LoRa](https://img.shields.io/badge/radio-LoRa-orange.svg)](https://www.semtech.com/lora)
+[![LoRa](https://img.shields.io/badge/radio-LoRa%20E220-orange.svg)](https://www.cdebyte.com/)
 
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://aurorarocketryteam.github.io/nemesis/)
-
-**Advanced flight computer software for high-power rocketry**, featuring real-time telemetry, sensor fusion, and autonomous flight state management.
+Flight computer firmware of the **Aurora Rocketry Team** (Università di Bologna).
+Atlas runs on the team's **Manny** board (ESP32-S3, 16 MB flash). It reads the
+on-board sensors, runs the flight state machine, fires the recovery charges,
+records every flight to external flash and sends live telemetry over LoRa. Before
+launch, the board hosts a Wi-Fi web dashboard used to check, configure and update it.
 
 ---
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Features](#features)
 - [Hardware](#hardware)
+- [Repository Layout](#repository-layout)
+- [Architecture](#architecture)
+- [Flight State Machine](#flight-state-machine)
+- [Recovery](#recovery)
+- [Ground Services (Web Dashboard)](#ground-services-web-dashboard)
+- [Telemetry](#telemetry)
+- [Flight Recorder](#flight-recorder)
 - [Getting Started](#getting-started)
-- [Building & Flashing](#building--flashing)
-- [Telemetry System](#telemetry-system)
-- [Flight States](#flight-states)
-- [Development](#development)
+- [Configuration](#configuration)
+- [Hardware-in-the-Loop Simulation](#hardware-in-the-loop-simulation)
+- [Post-Flight Analysis](#post-flight-analysis)
+- [Hardware Test Routine](#hardware-test-routine)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
 
 ---
 
-## Overview
-
-Nemesis is a sophisticated flight computer designed for the **Aurora Rocket Team** competition rockets. Built on the ESP32 platform with PlatformIO, it provides:
-
-- **Real-time sensor data acquisition** from IMUs, barometers, and GPS
-- **Finite State Machine (FSM)** for autonomous flight phase management
-- **Binary telemetry protocol** over LoRa for efficient ground station communication
-- **Kalman filtering** for accurate altitude and velocity estimation
-- **SD card logging** for post-flight analysis
-- **FreeRTOS-based** concurrent task management
-
-This system has been developed to meet the demands of high-altitude flights with real-time decision-making capabilities and robust data logging.
-
----
-
 ## Features
 
-### Sensor Suite
-- **Inertial Measurement**: BNO055 9-DOF IMU with sensor fusion, LIS3DHTR accelerometer
-- **Barometric Pressure**: MS5611 high-precision barometers
-- **Navigation**: u-blox GPS module with UBX protocol support
-
-### Flight Management
-- **7-phase FSM**: Idle → Armed → Powered Flight → Coasting → Apogee → Descent → Landed
-- **State-specific tasks**: Concurrent execution of sensor sampling, data logging, and telemetry
-- **Transition detection**: Accelerometer-based launch detection, barometric apogee detection
-- **Safety features**: Automated arming sequences, failsafe mechanisms
-
-### Telemetry & Communication
-- **Binary protocol**: Custom telemetry protocol for packet fragmentation
-- **LoRa radio**: Long-range communication (868 MHz)
-- **Real-time metrics**: Altitude, velocity, acceleration, orientation, GPS position, battery status and logging
-- **Ground station**: Dedicated receiver with OLED display and serial output
+- **12-state flight FSM**: calibration → ground services → ready → launch → powered and ballistic flight → apogee → recovery → recovered. Each state starts only the FreeRTOS tasks it needs.
+- **Barometric apogee detection**: a median filter smooths the pressure altitude, and a least-squares fit over a sliding window estimates vertical velocity. Apogee also has a time lockout and a time backstop.
+- **One- or two-parachute recovery**: the recovery outputs fire as configurable pulses.
+- **Runtime configuration stored in NVS**: flight parameters can be edited from the dashboard. They are validated, then locked into an immutable snapshot at ready-for-launch.
+- **Ground Services web app**: the board serves a dashboard over its own Wi-Fi SoftAP, with live data, health diagnostics, a pre-launch checklist, guided hardware tests, a serial monitor, flight-file download and OTA updates. Critical actions must be HMAC-signed.
+- **OTA with rollback**: the flash holds two app slots. The bootloader reverts a new image unless that image finishes setup and marks itself valid.
+- **LoRa downlink**: a packed 67-byte telemetry frame goes out through an EByte E220 module.
+- **Flight recorder**: each flight is written as JSONL to external SPI NOR flash (LittleFS), in a new file per flight.
+- **Hardware-in-the-loop**: a build profile swaps the real sensors for a RocketPy simulation driven over TCP.
 
 ---
 
 ## Hardware
 
-### Primary Flight Computer
-- **MCU**: ESP32-based board (Arduino Nano ESP32 or similar)
-- **Storage**: SD card module (SPI interface)
-- **Radio**: SX1262 LoRa transceiver (RadioLib compatible)
+### Manny flight computer
 
-### Supported Sensors
-| Sensor | Interface | Purpose |
-|--------|-----------|---------|
-| BNO055 | I2C | 9-DOF IMU with built-in fusion |
-| LIS3DHTR | I2C | High-G accelerometer |
-| MS5611  | I2C | Precision barometers |
-| u-blox GPS | I2C/UART | Global positioning |
+| Item | Part / interface | Notes |
+|------|------------------|-------|
+| MCU | ESP32-S3-WROOM-1-N16 | 16 MB flash, dual core |
+| IMU | Bosch **BNO055** (I2C, `0x29`) | 9-DOF with on-chip fusion; primary source for launch detection |
+| Accelerometer | ST **LIS3DHTR** (I2C) | Secondary accelerometer |
+| Barometer | TE **MS5611** (`MS561101BA03`, SPI) | A second barometer is supported but not fitted on Manny |
+| External flash | SPI NOR, LittleFS at `/ext` | Flight recorder storage |
+| Radio | EByte **E220-900T22D** (UART) | 868 MHz band LoRa telemetry and command uplink |
+| GNSS | NMEA receiver (UART) | Driver present; pins not assigned on Manny |
+| SD card | SPI | Driver present; not fitted on Manny |
+| Recovery outputs | GPIO 5 (drogue), GPIO 4 (main) | Valid only with a 6.4 V board supply |
+| Status | RGB LED (18/8/7), buzzer (21) | Status codes via `StatusManager` |
 
-### Ground Station Hardware
-- **Heltec WiFi LoRa 32 V3**: ESP32-S3 + SX1262 + OLED display
-- **Power**: USB or battery (supports remote deployment)
+Manny's full pin map is in [`components/model/boards_hardware/manny/board.h`](components/model/boards_hardware/manny/board.h).
+Manny has no arming input, so `MannyBoard::is_armed()` always returns `true`.
 
----
+### Adding a board
 
-### Module Organization
+Board-specific code sits behind [`IBoardHardware`](components/model/boards_hardware/IBoardHardware.hpp).
+The board class owns the pin map, the shared I2C/SPI buses, NVS and the Wi-Fi SoftAP.
+To add a board:
 
-```
-lib/
-+-- control/          # FSM, state machine, flight logic
-|   +-- RocketFSM     # Main FSM implementation
-|   +-- states/       # State actions and transitions
-|   +-- tasks/        # FreeRTOS tasks per flight phase
-+-- BNO055/           # IMU driver
-+-- MS5611/           # Barometer driver
-+-- GPS/              # GNSS driver
-+-- ...
-+-- telemetry/        # Binary protocol, packet management
-+-- LoRa/             # Radio transmitter/receiver
-+-- kalman/           # Kalman filter implementations
-+-- logger/           # SD card logging utilities
-+-- data/             # Data structures (TelemetryPacket, etc.)
-```
-
-### Key Design Patterns
-- **Dependency Injection**: Sensors passed as `shared_ptr` to FSM for testability
-- **RAII**: Automatic resource management for SD files, I2C devices
-- **Thread-safe logging**: Mutex-protected serial output via `Logger` namespace
+1. Implement `IBoardHardware`.
+2. Add it to the `COMPILE_BOARD` choice in `main/Kconfig.projbuild`.
+3. Alias it as `Board`.
 
 ---
 
-## Getting Started
+## Repository Layout
 
-### Prerequisites
-
-1. **Install PlatformIO**:
-   ```bash
-   # Via pip
-   pip install platformio
-   
-   # Or install VSCode + PlatformIO IDE extension
-   ```
-
-2. **Clone the repository**:
-   ```bash
-   git clone https://github.com/AuroraRocketryTeam/Aurora_Rocketry_SW_24_25.git
-   cd Aurora_Rocketry_SW_24_25
-   ```
-
-3. **Install dependencies**:
-   ```bash
-   pio pkg install
-   ```
-
-### Configuration
-
-
-Key settings are in `lib/global/src/`:
-- **`config.h`**: Flight parameters, sensor calibration, thresholds
-- **`pins.h`**: GPIO pin assignments for your hardware
-
-Edit these files to match your specific hardware configuration.
-
----
-
-## Building & Flashing
-
-### Default Environment (Arduino Nano ESP32)
-
-```bash
-# Build the project
-pio run
-
-# Upload to board
-pio run --target upload
-
-# Open serial monitor (115200 baud)
-pio device monitor
 ```
-
-### Custom Environment
-
-Modify `platformio.ini` to add your board. Example for a custom ESP32 target:
-
-```ini
-[env:my_custom_board]
-platform = espressif32
-board = esp32dev
-framework = arduino
-monitor_speed = 115200
-build_flags = ${env.build_flags}
-lib_deps = ${env.lib_deps}
-```
-
-Then build with: `pio run -e my_custom_board`
-
-### Ground Station
-
-The telemetry receiver is a separate Arduino sketch:
-
-```bash
-# Navigate to receiver folder
-cd lib/LoRa/src/
-
-# Open telemetry_lora_receiver.ino in Arduino IDE or:
-pio ci --board=heltec_wifi_lora_32_V3 telemetry_lora_receiver.ino
+atlas/
+├── CMakeLists.txt            # ESP-IDF project; component list; AURORA_HIL_ENABLED switch
+├── sdkconfig.defaults        # Target (esp32s3), FreeRTOS, partitions, console, HTTPD WS
+├── partitions.csv            # nvs, otadata, phy_init, coredump, ota_0, ota_1 (7.5 MB each)
+├── main/
+│   ├── app_entry.cpp         # app_main(): selects flight or HIL setup/loop
+│   ├── main.cpp              # Flight firmware bring-up
+│   ├── main_hil.cpp          # HIL firmware bring-up (only built when HIL is enabled)
+│   ├── Kconfig.projbuild     # Board, Ground Services secret, SoftAP settings
+│   ├── idf_component.yml     # arduino-esp32, littlefs
+│   ├── hil/                  # RocketPy HIL simulator, configs, captures (see its README)
+│   └── dashboard/            # Legacy serial dashboards (Dash/Flask)
+├── components/
+│   ├── common/data/          # Sensor data types, ISensor, HIL command packet
+│   ├── control/              # RocketFSM, TransitionManager, tasks, RuntimeConfig, web UI
+│   │   └── src/tasks/web/    # Ground Services front end (embedded into the firmware)
+│   ├── global/               # config.h, pins.h, SerialLogger, telemetry field names
+│   ├── model/                # RocketModel (shared sensor/state store) + board hardware
+│   ├── sensors/              # BNO055, LIS3DHTR, MS561101BA03 (MS5611), GPS
+│   ├── telemetry/            # Packet protocol + E220 / SX126x LoRa transmitters
+│   ├── logger/               # RocketLogger ring buffer + JSON payload serializers
+│   ├── persistence/          # IStorage, MirrorStorage, Flash (LittleFS), SD
+│   ├── protocols/            # I2CBus, SPIBus wrappers
+│   ├── status/               # LED, buzzer, StatusManager
+│   ├── tests/                # TestRoutine: guided hardware tests
+│   └── third_party/          # Vendored libraries (RadioLib, E220, Eigen, TinyEKF, ...)
+├── data_analysis/            # Flight-log analysis and flash dump tools
+├── test/                     # Legacy manual sensor printers (Arduino/PlatformIO era)
+└── Doxyfile                  # API documentation config
 ```
 
 ---
 
-## Building & Flashing
+## Architecture
 
-### Default Environment (Arduino Nano ESP32)
+### Boot sequence (`main/main.cpp`)
 
-```bash
-# Build the project
-pio run
+1. Initialize the board, LEDs, buzzer and status patterns.
+2. Initialize NVS and load `RuntimeConfig`. If this fails, the firmware keeps running on the compiled defaults.
+3. Create the sensors (BNO055, MS5611, LIS3DHTR, GPS), the SD card and the external flash. A sensor that fails to initialize is logged and skipped.
+4. Build the `RocketLogger` (JSON serializer), the `RocketModel` and the `TestRoutine`.
+5. Wait for a GPS fix if a GPS is present, with a 3-minute timeout.
+6. Create and start `RocketFSM`.
+7. Mark a pending OTA image as valid, which cancels rollback.
+8. Loop forever. The main loop logs a heartbeat every 5 s (heap, task stacks, logger usage) and the FSM state.
 
-# Upload to board
-pio run --target upload
+### Components
 
-# Open serial monitor (115200 baud)
-pio device monitor
-```
+- **`RocketModel`** is the thread-safe store for the latest sensor readings and the estimated state (altitude, velocity, max altitude, rising flag, deployment commands). Tasks write to it and read from it. Its storage goes through a `MirrorStorage` that combines SD and flash.
+- **`RocketFSM`** runs a 50 Hz FreeRTOS task. It checks automatic transitions, handles queued events and diffs the task sets on each transition: tasks that are not needed are stopped and new ones are started. A task watchdog guards the FSM task.
+- **`TaskManager`** owns one instance of each task type and monitors stack usage.
 
-### Custom Environment
+### Tasks
 
-Modify `platformio.ini` to add your board. Example for a custom ESP32 target:
-
-```ini
-[env:my_custom_board]
-platform = espressif32
-board = esp32dev
-framework = arduino
-monitor_speed = 115200
-build_flags = ${env.build_flags}
-lib_deps = ${env.lib_deps}
-```
-
-Then build with: `pio run -e my_custom_board`
-
-### Ground Station
-
-The telemetry receiver is a separate Arduino sketch:
-
-```bash
-# Navigate to receiver folder
-cd lib/LoRa/src/
-
-# Open telemetry_lora_receiver.ino in Arduino IDE or:
-pio ci --board=heltec_wifi_lora_32_V3 telemetry_lora_receiver.ino
-```
+| Task | Rate | Core | Role |
+|------|------|------|------|
+| `SensorTask` | 50 Hz | 0 | Polls BNO055, LIS3DHTR, MS5611 into `RocketModel`, with health checks |
+| `GpsTask` | event-driven | 1 | Reads the NMEA parser into `RocketModel` |
+| `AltitudeTask` | 50 Hz (configurable) | 0 | Pressure → altitude, median filter, OLS vertical velocity, apogee detection |
+| `StorageLoggingTask` | ~12.5 Hz | 1 | Batches serialized log entries (4 KB buffer, 1 s flush) to the flight file |
+| `TelemetryTask` | 500 ms | 1 | Builds and sends `TelemetryPacket` over LoRa; publishes link status |
+| `GroundServicesTask` | — | 1 | HTTP/WebSocket server for the dashboard |
+| `HilSimulationTask` | lockstep | 0 | Replaces Sensor/GPS tasks in HIL builds (TCP server on port 5000) |
+| `AirbrakesTask` | — | 0 | Implemented and configurable, but currently disabled in every state |
 
 ---
 
-## Telemetry System
+## Flight State Machine
 
-### Binary Protocol
+States are declared in [`FlightState.hpp`](components/control/src/FlightState.hpp).
+Detection logic is in `RocketFSM::checkTransitions()` in [`RocketFSM.cpp`](components/control/src/RocketFSM.cpp).
+All thresholds below are defaults and can be changed through `RuntimeConfig`.
 
-Telemetry uses a fixed-size packet structure for reliable LoRa transmission:
+| # | State | Exit condition (default) | Active tasks |
+|---|-------|--------------------------|--------------|
+| 0 | `INACTIVE` | Immediately → `CALIBRATING` | — |
+| 1 | `CALIBRATING` | Barometer zeroed (100 samples) **and** IMU calibrated, or a 10 s timeout | Sensor, GPS, Telemetry |
+| 2 | `GROUND_SERVICES` | An authenticated *Ready for launch* request from the dashboard. The FSM then prepares the flight file and locks the config | Ground Services, Sensor, GPS, Telemetry |
+| 3 | `READY_FOR_LAUNCH` | Acceleration magnitude above 3 g for 250 ms | Sensor, GPS, Altitude, Telemetry |
+| 4 | `LAUNCH` | Immediately → `ACCELERATED_FLIGHT` | + Storage |
+| 5 | `ACCELERATED_FLIGHT` | 4000 ms after launch detection | Sensor, GPS, Altitude, Storage, Telemetry |
+| 6 | `BALLISTIC_FLIGHT` | After a 5000 ms lockout, when the altitude is no longer rising, or 6700 ms after launch at the latest | same |
+| 7 | `APOGEE` | Recovery fires on entry. Exits after the drogue delay (0 ms) | same |
+| 8 | `STABILIZATION` | Altitude below 50 m AGL. Main fires on exit in two-parachute mode | same |
+| 9 | `DECELERATION` | Altitude below 15 m AGL | same |
+| 10 | `LANDING` | 2 s | same |
+| 11 | `RECOVERED` | Terminal. Recorder stopped | Sensor, GPS, Telemetry |
+
+An `EMERGENCY_ABORT` event returns the FSM to `INACTIVE` from any state.
+`FORCE_TRANSITION` jumps directly to the target state.
+
+---
+
+## Recovery
+
+`RecoveryConfig.mode` sets the recovery mode. The compiled default is
+`AURORA_RECOVERY_MODE` in `config.h`, and the mode can be edited from the dashboard.
+
+| Mode | At `APOGEE` | On leaving `STABILIZATION` |
+|------|-------------|----------------------------|
+| `OneParachuteMode` (default) | Fire **main and drogue** outputs (single chute wired to both) | — |
+| `TwoParachuteMode` | Fire **drogue** | Fire **main** |
+
+Each output fires as `pulse_count` pulses of `pulse_duration_ms` each (default 3 × 3 ms), and at most once per flight.
+
+---
+
+## Ground Services (Web Dashboard)
+
+Ground Services runs only in the `GROUND_SERVICES` state. The board starts a Wi-Fi
+SoftAP (default SSID `Aurora AP`, IP `192.168.4.1`) and serves a web app. The web
+app lives in [`components/control/src/tasks/web/`](components/control/src/tasks/web/)
+and is compiled into the firmware.
+
+| Page | Purpose |
+|------|---------|
+| Info | Identity, FSM state, firmware details, pre-launch checklist, *Ready for launch* |
+| Health | Sensors, hardware, FreeRTOS tasks, memory, HTTP/WebSocket and LoRa diagnostics |
+| Live Data | Current sensor values, time series, acceleration and attitude (`/ws/live-data`) |
+| Config | Edit and inspect `RuntimeConfig`, with validation and schema-driven forms |
+| OTA | Upload and verify a firmware image, then reboot into it |
+| Tests | Guided hardware tests from `TestRoutine`, with operator verdicts |
+| Serial Monitor | Live device logs (`/ws/logs`) with pause, filter and copy |
+| Files | List, stream-download and delete flight recorder files |
+
+**Security.** Wi-Fi access and operator authentication are separate:
+
+- Monitoring endpoints are read-only and open to anyone on the SoftAP.
+- Mutating endpoints need a single-use nonce from `/api/auth/nonce`, plus an **HMAC-SHA256** signature computed with the shared secret `CONFIG_GROUND_SERVICES_AUTH_TOKEN`.
+- Destructive actions also need a matching `X-Confirm` header, such as `READY_FOR_LAUNCH` or `REBOOT_TO_NEW_FIRMWARE`.
+- An OTA upload blocks all other mutations until it finishes.
+
+The REST API is registered in `GroundServicesTask::registerHandlers()`. Its
+endpoints live under `/api/status`, `/api/health`, `/api/config/*`,
+`/api/prelaunch/checklist`, `/api/fsm/ready-for-launch`, `/api/tests/*`,
+`/api/ota/*` and `/api/files`.
+
+---
+
+## Telemetry
+
+`TelemetryTask` sends a packed, little-endian `TelemetryPacket` (67 bytes) every
+500 ms. The packet is defined in [`TelemetryTask.hpp`](components/control/src/tasks/TelemetryTask.hpp):
 
 ```cpp
+#pragma pack(push, 1)
 struct TelemetryPacket {
-    uint32_t timestamp;          // Milliseconds since boot
-    RocketState state;           // Current flight state
-    float altitude;              // Meters ASL
-    float vertical_velocity;     // m/s
-    float acceleration[3];       // X, Y, Z in m/s²
-    float angular_velocity[3];   // Roll, pitch, yaw in deg/s
-    float gps_lat, gps_lon;      // Degrees
-    uint8_t gps_fix;            // Fix quality
-    float battery_voltage;       // Volts
-    // ... + CRC checksum
+    uint32_t timestamp;                 // ms since boot
+    bool     dataValid;
+    struct { float accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z; } imu;
+    struct { float pressure, temperature; } baro1, baro2;   // hPa, °C
+    float    baro_altitude;             // m above launch point
+    struct { float latitude, longitude, altitude; } gps;
+    float    velocity;                  // m/s
+    uint8_t  flight_phase;              // RocketState index (0 = INACTIVE … 11 = RECOVERED)
+    uint8_t  last_ack_command_id;       // last command received on the uplink
 };
+#pragma pack(pop)
 ```
 
-### Packet Management
-- **Fragmentation**: Large packets split into LoRa-compatible chunks
-- **Reassembly**: Sequence numbers ensure correct reconstruction
-- **CRC validation**: 16-bit CRC for error detection
-- **Metrics tracking**: RSSI, SNR, packet loss, throughput
+The E220 driver is configured in [`E220LoRaTransmitter.cpp`](components/telemetry/radio_lora/src/E220LoRaTransmitter.cpp):
 
-### Transmission Parameters
-- **Frequency**: 868 MHz (Europe) / 915 MHz (US)
-- **Spreading Factor**: SF7 (fast, shorter range) to SF12 (slow, max range)
-- **Bandwidth**: 125 kHz
-- **Coding Rate**: 4/7
+- Fixed transmission to the receiver address set in `config.h`
+- 9.6 kbps air data rate
+- 17 dBm transmit power
+- RSSI enabled
 
-Airtime for ~64-byte payload at SF7: **~50-80 ms**
+The *E220 Configuration* test writes this configuration into the module.
 
 ---
 
-## Flight States
+## Flight Recorder
 
-| State | Entry Condition | Active Tasks | Exit Condition |
-|-------|----------------|--------------|----------------|
-| **IDLE** | Power-on | Status LED | Arming sequence |
-| **ARMED** | User input | All sensors active | Accel > launch threshold |
-| **POWERED_FLIGHT** | Launch detected | High-rate logging | Motor burnout (accel < threshold) |
-| **COASTING** | Burnout | Altitude tracking | Apogee (velocity < 0) |
-| **APOGEE** | Velocity negative | Deploy drogue chute | Altitude dropping |
-| **DESCENT** | Post-apogee | GPS tracking | Altitude < 300m (deploy main) |
-| **LANDED** | Near-zero velocity | Beeper, data flush | Manual reset |
-
-Transition logic is in `lib/control/src/states/TransitionManager.cpp`.
+- **Format.** The recorder writes JSON Lines. `PayloadSerializers::toJson` turns each `RocketLogger` entry (sensor samples, estimator state, FSM transitions, events) into one line.
+- **Storage.** Files go to external SPI flash (LittleFS, mounted at `/ext`) through `MirrorStorage`. If an SD card is present, the same data is also written there.
+- **Per-flight files.** Each flight gets its own file (`flight_telemetry_NNNNNN.jsonl`). The file name is reserved and saved to NVS before the config is locked, so a reboot never overwrites a previous flight.
+- **Recording window.** The recorder runs from `LAUNCH` through `LANDING` and stops in `RECOVERED`.
+- **Retrieval.**
+  - From the dashboard's **Files** page.
+  - Over serial: run the *Dump JSONL telemetry from Flash* test and capture the output with `data_analysis/extract_flash_logs.py`.
 
 ---
 
-## Development
+## Configuration
 
-### Code Style
-- **C++17** standard (enforced by `-std=gnu++17`)
-- **Doxygen comments** for all public APIs
-- **Include guards** and `#pragma once` for headers
+Configuration lives in four places:
 
-### Debugging
+| Where | What | How to change |
+|-------|------|---------------|
+| `RuntimeConfig` (NVS) | Mission info, flight thresholds, altitude filter / apogee detector, recovery mode, actuator pulses, airbrakes. Calibration and telemetry values can be viewed but not edited | Dashboard **Config** page (before ready-for-launch) |
+| [`components/global/src/config.h`](components/global/src/config.h) | Compiled defaults for the above, LoRa addresses/channel, GPS fix timeout, sensor addresses | Edit and rebuild |
+| `main/Kconfig.projbuild` | Board selection, USB-JTAG driver, Ground Services secret, SoftAP settings | `idf.py menuconfig` |
+| Root `CMakeLists.txt` | `AURORA_HIL_ENABLED` build profile | Edit and rebuild |
 
-Enable verbose logging in `config.h`:
-```cpp
-#define LOG_LEVEL LOG_LEVEL_DEBUG
-```
-
-View logs via serial monitor:
-```bash
-pio device monitor --baud 115200
-```
-
-### Adding a New Sensor
-
-1. Create driver in `lib/YourSensor/src/`
-2. Implement `ISensor` interface (if applicable)
-3. Add to `RocketFSM` initialization
-4. Include in relevant state tasks
-5. Update `TelemetryPacket` if needed
+On a READY request, the FSM validates `RuntimeConfig`, saves it with a checksum and
+**locks** it into a flight snapshot. All flight-critical tasks read that snapshot,
+so dashboard edits cannot change parameters during a flight. After recovery, you can
+unlock the config from the dashboard. The comment block in
+[`RuntimeConfig.hpp`](components/control/src/tasks/RuntimeConfig.hpp) explains how
+to add a new parameter.
 
 ---
 
-## Documentation
-This project's docs are publicly available in the [Github pages](https://aurorarocketryteam.github.io/nemesis/) of this repository.
-Docs are generated using Doxygen inside a Github action.
-### Generate API Docs
+## Hardware-in-the-Loop Simulation
 
-The project includes a Doxygen configuration:
+To build the HIL firmware, set the switch in the root `CMakeLists.txt`:
+
+```cmake
+set(AURORA_HIL_ENABLED ON)   # OFF = flight firmware with no HIL code at all
+```
+
+In a HIL build, `HilSimulationTask` replaces the Sensor and GPS tasks. The task runs
+a TCP server on port 5000 over the SoftAP. A RocketPy simulator on the PC sends it
+IMU, barometer and GNSS samples in lockstep, and receives the FSM state and the
+recovery and airbrake commands in return.
 
 ```bash
-# Install Doxygen
-sudo apt-get install doxygen
-
-# Generate HTML documentation
-doxygen Doxyfile
-
-# Open in browser
-xdg-open docs/html/index.html
+cd main/hil
+python hil_rocketpy.py --rocket fred --sensor-profile clean      # or: nemesis, noisy, very_noisy
+python hil_capture.py hil_captures/<capture>.json                # replot / 3D replay
+python mock_manny_fc_server.py                                   # run without hardware
 ```
+
+Rocket configurations are in `main/hil/config/` (`fred`, `nemesis`).
+[`main/hil/README.md`](main/hil/README.md) covers the patched RocketPy setup, the
+config format, the sensor profiles, reference frames, the wire protocol and the
+capture format.
+
+---
+
+## Post-Flight Analysis
+
+```bash
+# Plots (altitude, velocity, acceleration, pressure, FSM timeline, ...) and interactive 3D replay
+python data_analysis/analyze_flight_log.py flash_logs/flight_telemetry_000001.jsonl --replay
+
+# Save the figures instead of showing them
+python data_analysis/analyze_flight_log.py <file.jsonl> --save-dir plots --no-show
+
+# Capture a flash dump streamed over serial by the "Dump JSONL telemetry from Flash" test
+python data_analysis/extract_flash_logs.py --port COM5 --out flash_logs
+```
+
+`data_analysis/AnalyzeJSONs.ipynb` is a notebook for exploring the logs.
+
+---
+
+## Hardware Test Routine
+
+[`TestRoutine`](components/tests/src/TestRoutine.cpp) provides guided checks. You can
+run them from the dashboard's **Tests** page, or at boot by defining
+`ENABLE_TEST_ROUTINE` in `main/main.cpp`. The checks are:
+
+- Power and LEDs
+- Sensors
+- Actuators
+- SD card
+- I2C scan
+- E220 configuration and connector checks
+- Telemetry transmission
+- LoRa command reception
+- Flash memory test, format and dump
+- BNO055 calibration saved to NVS
+
+Tests that are destructive, such as flash format or actuator firing, need explicit confirmation.
+
+---
 
 ## Contributing
 
-We welcome contributions from the Aurora Rocket Team and the wider rocketry community!
+1. Branch from `main`: `git checkout -b feature/<short-name>`.
+2. Name commits with a bracketed scope, following the history: `[FSM] ...`, `[GROUND] ...`, `[HIL] ...`, `[STORAGE] ...`.
+3. Open a pull request. The PR template asks for a test plan and a quality checklist.
 
-### Workflow
+Guidelines:
 
-1. **Fork** the repository
-2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
-3. **Commit changes**: `git commit -m 'Add amazing feature'`
-4. **Push to branch**: `git push origin feature/amazing-feature`
-5. **Open a Pull Request**
+- Write all code, comments and strings in English.
+- Add Doxygen comments to new classes and methods.
+- Tasks must read flight-critical values from `runtime_config_get_flight_snapshot()`, not straight from `config.h`.
+- Use bounded, static buffers in long-running tasks. The HTTP server and the flight tasks share a tight internal-RAM budget.
+- Test on hardware or in HIL before merging changes to flight logic.
 
-### Guidelines
-
-- Follow existing code style and naming conventions
-- Add Doxygen comments for new public APIs
-- Update documentation for user-facing changes
-- Test on hardware before submitting (if possible)
-
-### Issue Reporting
-
-Found a bug? Have a feature request? Open an issue with:
-- Clear description of the problem/feature
-- Steps to reproduce (for bugs)
-- Expected vs. actual behavior
-- Hardware/software versions
+To report a bug or request a feature, use the issue templates.
 
 ---
 
 ## License
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+This project is released under the **MIT License**. See [LICENSE](LICENSE).
 
-### Third-Party Libraries
+The vendored libraries in `components/third_party/` keep their own licenses:
 
-- **RadioLib**: LGPL-3.0 (LoRa communication)
-- **BME680 Library**: BSD (Bosch Sensortec)
-- **SparkFun u-blox Library**: MIT
-- **Eigen**: MPL2 (linear algebra)
-- **TinyEKF**: LGPL (Kalman filtering)
-
----
-
-## Team
-
-**Aurora Rocket Team** - Università di Bologna
-
-For questions or collaboration opportunities, reach out via GitHub issues or the team's official channels.
-
----
-
-## Acknowledgments
-
-- **Bosch Sensortec** for excellent sensor documentation
-- **RadioLib community** for LoRa protocol support  
-- **PlatformIO team** for the best embedded development platform
-- **FreeRTOS** for reliable real-time task scheduling
+- RadioLib
+- EByte LoRa E220 library
+- SX126x-Arduino
+- Eigen
+- TinyEKF
+- SdFat
+- Adafruit BusIO / Unified Sensor
+- Bosch BNO055 SensorAPI
+- nlohmann/json
+- ArxTypeTraits
+- NMEA0183 parser
+- lis3dh
 
 ---
 
 <div align="center">
 
-[Back to Top](#nemesis-flight-computer)
+**Aurora Rocketry Team**, Università di Bologna
 
 </div>
