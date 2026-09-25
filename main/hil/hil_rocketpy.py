@@ -413,7 +413,7 @@ def on_open_main(command_sim_time_s):
         if command_state.latest_command_sim_time_s <= command_sim_time_s:
             command_state.latest_command_sim_time_s = command_sim_time_s
             if command_state.open_main == False:
-                print(f"[ESP32_cmd] 'main_deployed' at sim_time={command_sim_time_s:.3f}s")
+                print(f"[ESP32_cmd] 'main_deployed' at sim_time={command_sim_time_s:.3f}s")\
                 hil_events["open_main"].append(compact_hil_time(command_sim_time_s))
             command_state.open_main = True
         else:
