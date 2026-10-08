@@ -525,6 +525,11 @@ void HilSimulationTask::taskFunction() {
                 LOG_WARNING(TAG, "closing: send_all failed");
                 break;
             }
+
+            if (wire.fsm_state == static_cast<uint8_t>(RocketState::RECOVERED)) {
+                LOG_INFO(TAG, "RECOVERED reported to simulator; rebooting board");
+                esp_restart();
+            }
         }
 
         if (_client_sock >= 0) {

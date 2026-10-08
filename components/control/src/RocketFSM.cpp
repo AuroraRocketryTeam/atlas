@@ -556,7 +556,14 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::RECOVERED] = std::make_unique<StateAction>(RocketState::RECOVERED);
     _stateActions[RocketState::RECOVERED]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering RECOVERED"); })
+                         {
+#if AURORA_HIL_ENABLED
+                             LOG_INFO("RocketFSM", "Entering RECOVERED; rebooting after the final HIL response");
+#else
+                             LOG_INFO("RocketFSM", "Entering RECOVERED; rebooting into pre-flight services");
+                             esp_restart();
+#endif
+                         })
         #if AURORA_HIL_ENABLED
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Recovered", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
