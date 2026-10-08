@@ -255,12 +255,14 @@ public:
      */
     float getHeightGainSpeed();
 
+    uint32_t getHeightGainSpeedTimestamp();
+
     /**
      * @brief Set the current estimated velocity
      *
      * @param heightGainSpeed The current estimated velocity
      */
-    void setHeightGainSpeed(float heightGainSpeed);
+    void setHeightGainSpeed(float heightGainSpeed, uint32_t timestamp);
 
     /**
      * @brief Get the Current Estimated Height
@@ -398,6 +400,7 @@ private:
     // Flight state variables (atomic to avoid caching issues)
     std::atomic<bool> _isRising;
     std::atomic<float> _heightGainSpeed;
+    std::atomic<uint32_t> _heightGainSpeedTimestamp;
     std::atomic<float> _currentHeight;
 
     IMUData _bnoData;

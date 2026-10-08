@@ -100,6 +100,7 @@ struct RuntimeConfig {
     // Append fields to preserve in-place migration of prior persisted layouts.
     StorageLoggingConfig storage_logging;
     ActuatorConfig actuators;
+    FlightTransitionConfig flight_transitions;
 };
 
 struct RuntimeConfigValidationItem {

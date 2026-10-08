@@ -9,6 +9,9 @@
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
 static constexpr uint32_t ACCELERATION_LOG_PERIOD_MS = 5000;
+static constexpr uint8_t BURNOUT_CONFIRMATION_SAMPLES = 3;
+static constexpr uint32_t FLIGHT_ESTIMATE_FRESHNESS_MS = 250;
+static constexpr uint32_t LANDING_RECOVERY_TIMEOUT_MS = 60000;
 
 namespace {
 void fireActuator(gpio_num_t pin, const ActuatorConfig &config)
@@ -460,7 +463,12 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::ACCELERATED_FLIGHT] = std::make_unique<StateAction>(RocketState::ACCELERATED_FLIGHT);
     _stateActions[RocketState::ACCELERATED_FLIGHT]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT"); })
+                         {
+                             _acceleratedPeakVelocityMps = 0.0f;
+                             _acceleratedLastVelocityTimestamp = 0;
+                             _burnoutConfirmationSamples = 0;
+                             LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT");
+                         })
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Accel", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         #if AURORA_HIL_ENABLED
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Accel", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
@@ -542,7 +550,11 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::LANDING] = std::make_unique<StateAction>(RocketState::LANDING);
     _stateActions[RocketState::LANDING]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering LANDING"); })
+                         {
+                             _landingStableSince = 0;
+                             _landingLastVelocityTimestamp = 0;
+                             LOG_INFO("RocketFSM", "Entering LANDING");
+                         })
         #if AURORA_HIL_ENABLED
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Landing", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
@@ -935,10 +947,51 @@ void RocketFSM::checkTransitions()
 
     case RocketState::ACCELERATED_FLIGHT:
     {
-        const uint32_t accelElapsed = Utils::millis() - _launchDetectionTime;
+        const uint32_t now = Utils::millis();
+        const uint32_t accelElapsed = now - _launchDetectionTime;
+        const uint32_t velocityTimestamp = _rocketModel->getHeightGainSpeedTimestamp();
 
-        if (accelElapsed >= runtimeCfg.flight.launch_to_ballistic_threshold_ms)
+        if (velocityTimestamp != 0 &&
+            velocityTimestamp != _acceleratedLastVelocityTimestamp &&
+            now - velocityTimestamp <= FLIGHT_ESTIMATE_FRESHNESS_MS)
         {
+            _acceleratedLastVelocityTimestamp = velocityTimestamp;
+            const float verticalVelocity = _rocketModel->getHeightGainSpeed();
+
+            if (std::isfinite(verticalVelocity))
+            {
+                if (verticalVelocity > _acceleratedPeakVelocityMps)
+                {
+                    _acceleratedPeakVelocityMps = verticalVelocity;
+                    _burnoutConfirmationSamples = 0;
+                }
+                else if (_acceleratedPeakVelocityMps > 0.0f &&
+                         _acceleratedPeakVelocityMps - verticalVelocity >=
+                             runtimeCfg.flight_transitions.burnout_velocity_drop_mps)
+                {
+                    if (_burnoutConfirmationSamples < BURNOUT_CONFIRMATION_SAMPLES)
+                    {
+                        ++_burnoutConfirmationSamples;
+                    }
+                }
+                else
+                {
+                    _burnoutConfirmationSamples = 0;
+                }
+            }
+        }
+
+        const bool velocityDropConfirmed =
+            _burnoutConfirmationSamples >= BURNOUT_CONFIRMATION_SAMPLES;
+        const bool fallbackTimeout =
+            accelElapsed >= runtimeCfg.flight.launch_to_ballistic_threshold_ms;
+
+        if (velocityDropConfirmed || fallbackTimeout)
+        {
+            LOG_INFO("RocketFSM", "Burnout detected: peak=%.2f m/s current=%.2f m/s source=%s",
+                     _acceleratedPeakVelocityMps,
+                     _rocketModel->getHeightGainSpeed(),
+                     velocityDropConfirmed ? "velocity" : "timeout");
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);
         }
         break;
@@ -1004,11 +1057,54 @@ void RocketFSM::checkTransitions()
     }
 
     case RocketState::LANDING:
-        if (Utils::millis() - _stateStartTime > 2000U)
+    {
+        const uint32_t now = Utils::millis();
+        const uint32_t velocityTimestamp = _rocketModel->getHeightGainSpeedTimestamp();
+        const bool velocityFresh = velocityTimestamp != 0 &&
+                                   now - velocityTimestamp <= FLIGHT_ESTIMATE_FRESHNESS_MS;
+        const bool imuFresh = imuStatus == SensorReadStatus::OK &&
+                              outBno055Data.timestamp != 0 &&
+                              now - outBno055Data.timestamp <= FLIGHT_ESTIMATE_FRESHNESS_MS;
+
+        if (velocityTimestamp != 0 && velocityTimestamp != _landingLastVelocityTimestamp)
         {
+            _landingLastVelocityTimestamp = velocityTimestamp;
+            const float verticalVelocity = _rocketModel->getHeightGainSpeed();
+            const bool velocityStable = velocityFresh && std::isfinite(verticalVelocity) &&
+                                        std::fabs(verticalVelocity) <=
+                                            runtimeCfg.flight_transitions.touchdown_velocity_threshold_mps;
+            const bool accelerationStable = imuFresh && std::isfinite(accMag) &&
+                                            std::fabs(accMag - GRAVITY) <=
+                                                runtimeCfg.flight_transitions.touchdown_accel_tolerance_mps2;
+
+            if (velocityStable && accelerationStable)
+            {
+                if (_landingStableSince == 0) _landingStableSince = now;
+            }
+            else
+            {
+                _landingStableSince = 0;
+            }
+        }
+
+        if (!velocityFresh || !imuFresh)
+        {
+            _landingStableSince = 0;
+        }
+
+        const bool stabilityConfirmed = _landingStableSince != 0 &&
+            now - _landingStableSince >= runtimeCfg.flight_transitions.landing_stability_ms;
+        const bool fallbackTimeout = now - _stateStartTime >= LANDING_RECOVERY_TIMEOUT_MS;
+
+        if (stabilityConfirmed || fallbackTimeout)
+        {
+            LOG_INFO("RocketFSM", "Landing complete: Vz=%.2f m/s accel=%.2f m/s^2 source=%s",
+                     _rocketModel->getHeightGainSpeed(), accMag,
+                     stabilityConfirmed ? "stability" : "timeout");
             sendEvent(FSMEvent::LANDING_COMPLETE);
         }
         break;
+    }
 
     case RocketState::RECOVERED:
         // Nothing to do

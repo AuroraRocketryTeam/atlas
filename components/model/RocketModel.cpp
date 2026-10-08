@@ -29,6 +29,7 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _flash(flash),
     _isRising(false),
     _heightGainSpeed(0.0f),
+    _heightGainSpeedTimestamp(0),
     _currentHeight(0.0f),
     _storageMutex(xSemaphoreCreateMutex())
 {
@@ -371,8 +372,13 @@ float RocketModel::getHeightGainSpeed() {
     return _heightGainSpeed.load(std::memory_order_relaxed);
 }
 
-void RocketModel::setHeightGainSpeed(float heightGainSpeed) {
+uint32_t RocketModel::getHeightGainSpeedTimestamp() {
+    return _heightGainSpeedTimestamp.load(std::memory_order_acquire);
+}
+
+void RocketModel::setHeightGainSpeed(float heightGainSpeed, uint32_t timestamp) {
     _heightGainSpeed.store(heightGainSpeed, std::memory_order_relaxed);
+    _heightGainSpeedTimestamp.store(timestamp, std::memory_order_release);
 }
 
 float RocketModel::getCurrentHeight() {

@@ -93,7 +93,7 @@ void AltitudeTask::taskFunction()
         
         float currentVelocity = apogeeDetector.getVelocity();
 
-        _rocketModel->setHeightGainSpeed(currentVelocity);
+        _rocketModel->setHeightGainSpeed(currentVelocity, baroData.timestamp);
 
         // Preserve the exact data consumed by the apogee detector so flight
         // analysis can compare raw pressure with the filtered estimator input.

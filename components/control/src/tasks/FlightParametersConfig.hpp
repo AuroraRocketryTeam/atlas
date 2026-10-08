@@ -15,6 +15,13 @@ struct FlightParametersConfig {
     float touchdown_altitude_threshold_m;
 };
 
+struct FlightTransitionConfig {
+    float burnout_velocity_drop_mps;
+    float touchdown_velocity_threshold_mps;
+    float touchdown_accel_tolerance_mps2;
+    uint32_t landing_stability_ms;
+};
+
 struct CalibrationConfig {
     uint32_t timeout_ms;
     uint32_t barometer_samples;

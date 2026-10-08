@@ -138,4 +138,9 @@ private:
 
     // Important timers and tresholds
     unsigned long _launchDetectionTime = 0;
+    float _acceleratedPeakVelocityMps = 0.0f;
+    uint32_t _acceleratedLastVelocityTimestamp = 0;
+    uint8_t _burnoutConfirmationSamples = 0;
+    uint32_t _landingStableSince = 0;
+    uint32_t _landingLastVelocityTimestamp = 0;
 };
