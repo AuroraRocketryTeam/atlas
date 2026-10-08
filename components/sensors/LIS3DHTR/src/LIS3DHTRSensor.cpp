@@ -45,7 +45,7 @@ bool LIS3DHTRSensor::init()
     // Initialize sensor using ST's semantic APIs
     lis3dh_block_data_update_set(&_dev_ctx, PROPERTY_ENABLE);    // Enable BDU
     lis3dh_data_rate_set(&_dev_ctx, LIS3DH_ODR_50Hz);            // 50Hz Output Data Rate
-    lis3dh_full_scale_set(&_dev_ctx, LIS3DH_2g);                 // 2G range
+    lis3dh_full_scale_set(&_dev_ctx, LIS3DH_16g);                // 16G range (FULL_SCALE_MPS2)
     lis3dh_operating_mode_set(&_dev_ctx, LIS3DH_HR_12bit);       // High resolution (12-bit)
 
     setInitialized(true);
@@ -70,9 +70,9 @@ bool LIS3DHTRSensor::updateData()
         lis3dh_acceleration_raw_get(&_dev_ctx, data_raw_acceleration);
 
         // ST provides macro functions to convert raw integers to float mg based on the scale/resolution
-        _data.acceleration_x = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[0]) * 0.001f * GRAVITY;
-        _data.acceleration_y = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[1]) * 0.001f * GRAVITY;
-        _data.acceleration_z = lis3dh_from_fs2_hr_to_mg(data_raw_acceleration[2]) * 0.001f * GRAVITY;
+        _data.acceleration_x = lis3dh_from_fs16_hr_to_mg(data_raw_acceleration[0]) * 0.001f * GRAVITY;
+        _data.acceleration_y = lis3dh_from_fs16_hr_to_mg(data_raw_acceleration[1]) * 0.001f * GRAVITY;
+        _data.acceleration_z = lis3dh_from_fs16_hr_to_mg(data_raw_acceleration[2]) * 0.001f * GRAVITY;
 
         _data.timestamp = (uint32_t)(esp_timer_get_time() / 1000ULL);
 

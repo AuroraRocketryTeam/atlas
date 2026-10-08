@@ -23,7 +23,8 @@ class IBoardHardware;
  *    AltitudeConfig), then compose that struct in RuntimeConfig. Prefer
  *    fixed-size primitive types or char arrays because the whole value is one
  *    NVS blob.
- * 2. Increment the schema_version assigned in make_default_config().
+ * 2. Increment RUNTIME_CONFIG_SCHEMA_VERSION and migrate the previous
+ *    layout in runtime_config_init().
  * 3. Set a safe firmware default in make_default_config(), usually from
  *    config.h while legacy code is still sharing those constants.
  * 4. Add validation in runtime_config_validate_each(). Keep the validation
@@ -101,6 +102,7 @@ struct RuntimeConfig {
     StorageLoggingConfig storage_logging;
     ActuatorConfig actuators;
     FlightTransitionConfig flight_transitions;
+    ApogeeDetectionConfig apogee_detection;
 };
 
 struct RuntimeConfigValidationItem {

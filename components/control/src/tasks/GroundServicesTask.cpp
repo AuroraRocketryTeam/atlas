@@ -1582,6 +1582,18 @@ static const char *recoveryModeToChecklistMessage(RecoveryMode mode)
     }
 }
 
+static const char *apogeeSourceToChecklistMessage(ApogeeSource source)
+{
+    switch (source) {
+        case ApogeeSource::Barometer:
+            return "Runtime apogee source: barometer";
+        case ApogeeSource::Accelerometer:
+            return "Runtime apogee source: accelerometer (LIS3DHTR), barometer fallback if invalid";
+        default:
+            return "Runtime apogee source: unknown";
+    }
+}
+
 esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *self, char *body, size_t body_size, bool *ok_out)
 {
     if (self == nullptr || body == nullptr || ok_out == nullptr) return ESP_ERR_INVALID_ARG;
@@ -1609,6 +1621,8 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
                              lora.available ? "LoRa module initialized" : "LoRa unavailable; explicit operator override is required")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "recovery_mode", "Recovery mode", "info",
                              recoveryModeToChecklistMessage(static_cast<RecoveryMode>(cfg.recovery.mode)))) return ESP_ERR_NO_MEM;
+    if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "apogee_source", "Apogee source", "info",
+                             apogeeSourceToChecklistMessage(cfg.apogee_detection.source))) return ESP_ERR_NO_MEM;
 
     written = snprintf(body + offset, body_size - offset, "],\"ok\":%s}", all_ok ? "true" : "false");
     if (written < 0 || static_cast<size_t>(written) >= body_size - offset) return ESP_ERR_NO_MEM;

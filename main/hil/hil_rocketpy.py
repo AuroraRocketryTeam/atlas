@@ -40,6 +40,10 @@ from hil_utils import (
     rotation_matrix_to_rocketpy_quaternion as _rotation_matrix_to_rocketpy_quaternion,
 )
 from hil_capture import create_capture_file, save_hil_capture, plot_hil_log
+from accelerometer_patch import apply_accelerometer_patch
+
+# Stock RocketPy reads -2 g in free fall; fix it before any sensor is measured.
+apply_accelerometer_patch()
 
 
 class CommandState:

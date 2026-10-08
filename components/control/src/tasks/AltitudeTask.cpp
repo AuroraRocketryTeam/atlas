@@ -5,6 +5,7 @@
 #include "RuntimeConfig.hpp"
 #include "RocketLogger.hpp"
 #include "AltitudeData.hpp"
+#include <LIS3DHTRSensor.hpp>
 
 static constexpr uint32_t ALTITUDE_LOG_PERIOD_MS = 1000;
 static constexpr uint32_t ALTITUDE_DIAGNOSTIC_PERIOD_MS = 1000;
@@ -13,6 +14,8 @@ static constexpr uint32_t UNUSUAL_BAROMETER_DT_MS = 75;
 // Increase this value to reduce flash/SPI load without changing estimator behavior.
 static constexpr uint32_t ALTITUDE_LOG_INTERVAL_SAMPLES = 1;
 static_assert(ALTITUDE_LOG_INTERVAL_SAMPLES > 0);
+// Readings this close to full scale are treated as clipped.
+static constexpr float ACCEL_SATURATION_FRACTION = 0.98f;
 
 void AltitudeTask::taskFunction()
 {
@@ -26,6 +29,21 @@ void AltitudeTask::taskFunction()
     apogeeDetector.configure(runtimeConfig.altitude.apogee_window_size,
                              runtimeConfig.altitude.apogee_trigger_velocity_mps,
                              runtimeConfig.altitude.apogee_confirmation_windows);
+
+    // Liftoff uses the FSM's thresholds so both latch on the same event.
+    accelApogeeDetector.configure(runtimeConfig.flight.liftoff_accel_threshold_mps2,
+                                  runtimeConfig.flight.liftoff_timeout_ms,
+                                  runtimeConfig.apogee_detection.accel_trigger_velocity_mps,
+                                  runtimeConfig.apogee_detection.accel_confirmation_samples,
+                                  ACCEL_SATURATION_FRACTION * LIS3DHTRSensor::FULL_SCALE_MPS2);
+    float padX = 0.0f, padY = 0.0f, padZ = 0.0f;
+    if (_rocketModel->getLaunchpadSpecificForce(padX, padY, padZ)) {
+        accelApogeeDetector.seedPadReference(padX, padY, padZ);
+    }
+    _apogeeSource = runtimeConfig.apogee_detection.source;
+    LOG_INFO("AltitudeTask", "Apogee source: %s | accelerometer pad reference: %s",
+             _apogeeSource == ApogeeSource::Accelerometer ? "accelerometer" : "barometer",
+             accelApogeeDetector.hasPadReference() ? "seeded from calibration" : "collecting on pad");
     
     // Baseline for the slew rate limiter
     float lastValidPressure = -1.0f;
@@ -34,6 +52,9 @@ void AltitudeTask::taskFunction()
     {
         esp_task_wdt_reset();
         if(!running) break;
+
+        // The inertial detector must not wait for barometer samples.
+        updateAccelerometerApogee();
 
         PressureSensorData baroData;
         SensorReadStatus baro_status = runtimeConfig.altitude.selected_barometer == 1
@@ -106,11 +127,15 @@ void AltitudeTask::taskFunction()
                 apogeeDetector.isReady(),
                 apogeeDetector.isRising(),
                 baroData.timestamp,
+                accelApogeeDetector.getVelocity(),
+                accelApogeeDetector.isValid(),
+                accelApogeeDetector.isRising(),
             });
         }
 
-        LOG_EVERY_MS(ALTITUDE_LOG_PERIOD_MS, INFO, "AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m",
-                     currentAltitude, currentVelocity, _max_altitude_read);
+        LOG_EVERY_MS(ALTITUDE_LOG_PERIOD_MS, INFO, "AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m | Accel Vz: %0.2f m/s%s",
+                     currentAltitude, currentVelocity, _max_altitude_read,
+                     accelApogeeDetector.getVelocity(), accelApogeeDetector.isValid() ? "" : " (invalid)");
 
         const uint32_t sampleAgeMs = Utils::millis() - baroData.timestamp;
         LOG_EVERY_MS(ALTITUDE_DIAGNOSTIC_PERIOD_MS, INFO, "AltitudeTask", "Baro timing: dt=%lu ms age=%lu ms Vz=%0.2f m/s%s",
@@ -129,6 +154,10 @@ void AltitudeTask::onTaskStart()
     // (no power cycle) doesn't inherit filter state from the last flight.
     pressureFilter.reset();
     apogeeDetector.reset();
+    accelApogeeDetector.reset();
+    _accelWasLaunched = false;
+    _accelWasRising = true;
+    _accelLastFault = AccelerometerApogeeDetector::Fault::None;
     _max_altitude_read = -1000.0f;
     LOG_INFO("AltitudeTask", "State reset for new run");
 }
@@ -148,5 +177,59 @@ float AltitudeTask::calculateAltitude(float pressure, float pressureRef)
 void AltitudeTask::updateRisingTrend(float currentAltitude, uint32_t timestamp)
 {
     apogeeDetector.update(currentAltitude, timestamp);
-    _rocketModel->setIsRising(apogeeDetector.isRising());
+    publishRisingState();
+}
+
+void AltitudeTask::updateAccelerometerApogee()
+{
+    AccelerometerSensorData accelData;
+    if (_rocketModel->getLIS3DHTRData(accelData) != SensorReadStatus::OK) return;
+
+    // The detector ignores a repeated timestamp, so polling faster than the
+    // sensor updates is harmless.
+    accelApogeeDetector.update(accelData.acceleration_x,
+                               accelData.acceleration_y,
+                               accelData.acceleration_z,
+                               accelData.timestamp);
+    reportAccelerometerApogeeTransitions();
+    publishRisingState();
+}
+
+void AltitudeTask::reportAccelerometerApogeeTransitions()
+{
+    char message[96];
+
+    if (!_accelWasLaunched && accelApogeeDetector.isLaunched()) {
+        _accelWasLaunched = true;
+        LOG_INFO("AltitudeTask", "Accelerometer detector latched liftoff");
+    }
+
+    const AccelerometerApogeeDetector::Fault fault = accelApogeeDetector.getFault();
+    if (fault != _accelLastFault) {
+        _accelLastFault = fault;
+        snprintf(message, sizeof(message), "Accelerometer apogee invalid: %s%s",
+                 AccelerometerApogeeDetector::faultName(fault),
+                 _apogeeSource == ApogeeSource::Accelerometer ? "; barometer takes over" : "");
+        LOG_WARNING("AltitudeTask", "%s", message);
+        if (_logger) _logger->logWarning("AltitudeTask", message);
+    }
+
+    if (_accelWasRising && !accelApogeeDetector.isRising()) {
+        _accelWasRising = false;
+        snprintf(message, sizeof(message), "Accelerometer apogee at Vz=%.2f m/s (%s)",
+                 static_cast<double>(accelApogeeDetector.getVelocity()),
+                 accelApogeeDetector.isValid() ? "valid" : "invalid");
+        LOG_INFO("AltitudeTask", "%s", message);
+        if (_logger) _logger->logInfo("AltitudeTask", message);
+    }
+}
+
+void AltitudeTask::publishRisingState()
+{
+    // The accelerometer decides only while its integral covers the whole
+    // ascent; otherwise the barometer detector stays the authority.
+    const bool useAccelerometer = _apogeeSource == ApogeeSource::Accelerometer &&
+                                  accelApogeeDetector.isValid();
+    _rocketModel->setIsRising(useAccelerometer ? accelApogeeDetector.isRising()
+                                               : apogeeDetector.isRising());
 }

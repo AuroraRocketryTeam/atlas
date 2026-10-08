@@ -600,3 +600,19 @@ float RocketModel::getLaunchpadBasePressure() const {
 float RocketModel::getLaunchpadBaseTemperature() const {
     return _launchpadBaseTemperature;
 }
+
+void RocketModel::addAccelerometerSample(float x, float y, float z) {
+    _accelerometerPadSum[0] += x;
+    _accelerometerPadSum[1] += y;
+    _accelerometerPadSum[2] += z;
+    ++_accelerometerPadSamples;
+}
+
+bool RocketModel::getLaunchpadSpecificForce(float& x, float& y, float& z) const {
+    if (_accelerometerPadSamples < MIN_ACCELEROMETER_PAD_SAMPLES) return false;
+    const float count = static_cast<float>(_accelerometerPadSamples);
+    x = _accelerometerPadSum[0] / count;
+    y = _accelerometerPadSum[1] / count;
+    z = _accelerometerPadSum[2] / count;
+    return true;
+}

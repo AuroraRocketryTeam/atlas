@@ -73,16 +73,9 @@ Bugs:
 2. Controllers callback are called twice: 
    - [self.__process_sensors_and_controllers_at_current_node(node, phase)](https://github.com/RocketPy-Team/RocketPy/blob/cb15a393ee2d9430cc21c57c98768dc1890a198a/rocketpy/simulation/flight.py#L699-L700)
    - COMMENT THIS ONE OUT in `flight.py#L701`: [for controller in node._controllers:](https://github.com/RocketPy-Team/RocketPy/blob/cb15a393ee2d9430cc21c57c98768dc1890a198a/rocketpy/simulation/flight.py#L701)
-3. `accelerometer.py` measure method gives weird values. Instead of -1g+1g=0g, it was giving -1g-1g=-2g and also there was a mix in the reference frames.
-   - Modify the Accelerometer class in `rocketpy/sensors/accelerometer.py`. Patch the `measure()` method with the code present in the `accelerometer_patch.py`.
-   - Modify the Sensor class in `rocketpy/sensors/sensor.py`. Make the `cross_axis_matrix` an attribute in order to make it visible outside the `init()` method:
-      ```python
-      self.cross_axis_matrix =  [...] # add self.
-
-      self._total_rotation_sensor_to_body = (
-          self.rotation_sensor_to_body @ self.cross_axis_matrix # add self.
-      )
-      ```
+3. [FIXED AT RUNTIME] `accelerometer.py` measure method gives weird values. Instead of -1g+1g=0g, it was giving -1g-1g=-2g and also there was a mix in the reference frames.
+   - `hil_rocketpy.py` now calls `apply_accelerometer_patch()` from `accelerometer_patch.py` at startup, replacing `Accelerometer.measure()` in memory. Do not edit `rocketpy/sensors/accelerometer.py` or `sensor.py`.
+   - Captures recorded before this fix (up to 2026-10-07) have every in-flight accelerometer sample off by 2 g; do not use them to judge `apogee_source = accelerometer`.
 
 ### 4. Install RocketPy from source
 ```bash

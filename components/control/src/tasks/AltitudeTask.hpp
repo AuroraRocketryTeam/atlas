@@ -1,5 +1,6 @@
 #pragma once
 #include "BaseTask.hpp"
+#include "AccelerometerApogeeDetector.hpp"
 
 #include <MS561101BA03.hpp>
 #include <SerialLogger.hpp>
@@ -30,6 +31,20 @@ struct AltitudeConfig {
     float apogee_trigger_velocity_mps;
     uint8_t apogee_confirmation_windows;
     uint8_t selected_barometer;
+};
+
+// Detector that drives RocketModel::isRising() during ascent.
+enum class ApogeeSource : uint8_t {
+    Barometer = 0,
+    // Falls back to the barometer while the accelerometer integral is invalid.
+    Accelerometer = 1,
+};
+
+// Appended to RuntimeConfig in schema 9; barometer tuning stays in AltitudeConfig.
+struct ApogeeDetectionConfig {
+    ApogeeSource source;
+    uint8_t accel_confirmation_samples;
+    float accel_trigger_velocity_mps;
 };
 
 /**
@@ -232,6 +247,15 @@ private:
     // as there is a strong drag force (which should be covered by the RuntimeConfig apogee lockout)
     OLSApogeeDetector<APOGEE_DETECTOR_MAX_WINDOW> apogeeDetector;
 
+    // Integrates the LIS3DHTR along the pad "up" axis. It always runs so flight
+    // logs can compare it with the barometer; RuntimeConfig selects which one
+    // the FSM acts on.
+    AccelerometerApogeeDetector accelApogeeDetector;
+    ApogeeSource _apogeeSource = ApogeeSource::Barometer;
+    bool _accelWasLaunched = false;
+    bool _accelWasRising = true;
+    AccelerometerApogeeDetector::Fault _accelLastFault = AccelerometerApogeeDetector::Fault::None;
+
     // Atmospheric Constants
     static constexpr float TEMP_GRADIENT = 0.0065f; // [K/m]
     static constexpr float AIR_GAS_CONST = 287.05f; // [J/Kg/K]
@@ -249,4 +273,19 @@ private:
      * @brief Updates the trend buffer and evaluates if the rocket is still rising.
      */
     void updateRisingTrend(float currentAltitude, uint32_t timestamp);
+
+    /**
+     * @brief Feeds the latest accelerometer sample to the inertial detector.
+     */
+    void updateAccelerometerApogee();
+
+    /**
+     * @brief Logs inertial detector milestones and faults once each.
+     */
+    void reportAccelerometerApogeeTransitions();
+
+    /**
+     * @brief Publishes the rising flag from the configured apogee source.
+     */
+    void publishRisingState();
 };

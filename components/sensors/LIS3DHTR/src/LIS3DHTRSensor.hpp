@@ -10,6 +10,10 @@
 class LIS3DHTRSensor : public ISensor
 {
 public:
+    // Configured full scale. Boost loads exceed 2 g, and the accelerometer
+    // apogee detector treats readings near this limit as clipped.
+    static constexpr float FULL_SCALE_MPS2 = 16.0f * GRAVITY;
+
     LIS3DHTRSensor(const char *sensorName, I2CBus* bus, uint8_t address = 0x18);
     ~LIS3DHTRSensor();
 

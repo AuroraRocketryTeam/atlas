@@ -1,5 +1,6 @@
 #include "RocketFSM.hpp"
 #include "tasks/RuntimeConfig.hpp"
+#include "tasks/AccelerometerApogeeDetector.hpp"
 #include "esp_system.h"
 #include "esp_task_wdt.h"
 #include <utils.h>
@@ -888,6 +889,24 @@ void RocketFSM::checkTransitions()
             }
 
             _rocketModel->addTemperatureSample(outBaroData.temperature + 273.15f);
+        }
+
+        // Pad reference for the accelerometer apogee detector. It must come
+        // from the same accelerometer AltitudeTask integrates in flight.
+        static uint32_t lastAccelPadTimestamp = 0;
+        AccelerometerSensorData outAccelData;
+        if (_rocketModel->getLIS3DHTRData(outAccelData) == SensorReadStatus::OK &&
+            outAccelData.timestamp != lastAccelPadTimestamp)
+        {
+            lastAccelPadTimestamp = outAccelData.timestamp;
+            if (AccelerometerApogeeDetector::isStationary(outAccelData.acceleration_x,
+                                                          outAccelData.acceleration_y,
+                                                          outAccelData.acceleration_z))
+            {
+                _rocketModel->addAccelerometerSample(outAccelData.acceleration_x,
+                                                     outAccelData.acceleration_y,
+                                                     outAccelData.acceleration_z);
+            }
         }
 
         const bool isBaroReady = _rocketModel->isBarometerZeroed();

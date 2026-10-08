@@ -375,6 +375,21 @@ public:
      * @brief Get the calculated launchpad baseline temperature
      */
     float getLaunchpadBaseTemperature() const;
+
+    /**
+     * @brief Feed an at-rest accelerometer reading into the pad reference
+     *
+     * The mean is the specific force the accelerometer apogee detector treats
+     * as "at rest, pointing up". The caller filters out non-stationary samples.
+     */
+    void addAccelerometerSample(float x, float y, float z);
+
+    /**
+     * @brief Get the mean pad specific force in the accelerometer frame
+     *
+     * @return false until enough samples have been averaged
+     */
+    bool getLaunchpadSpecificForce(float& x, float& y, float& z) const;
     
 private:
     // Sensor instances
@@ -432,4 +447,8 @@ private:
     std::vector<float> _temperatureSamples;
     float _launchpadBaseTemperature = 0.0f;
     bool _temperatureZeroed = false;
+
+    static constexpr size_t MIN_ACCELEROMETER_PAD_SAMPLES = 25;
+    float _accelerometerPadSum[3] = {0.0f, 0.0f, 0.0f};
+    size_t _accelerometerPadSamples = 0;
 };

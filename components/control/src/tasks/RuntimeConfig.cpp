@@ -15,6 +15,7 @@
 static const char *TAG = "RuntimeConfig";
 static const char *NVS_NAMESPACE = "runtime_cfg";
 static const char *NVS_KEY_ACTIVE = "active";
+static constexpr uint32_t RUNTIME_CONFIG_SCHEMA_VERSION = 10;
 
 static RuntimeConfig s_active_config;
 static RuntimeConfig s_flight_snapshot;
@@ -54,7 +55,7 @@ static portMUX_TYPE s_config_mux = portMUX_INITIALIZER_UNLOCKED;
 static RuntimeConfig make_default_config()
 {
     RuntimeConfig cfg = {};
-    cfg.schema_version = 9;
+    cfg.schema_version = RUNTIME_CONFIG_SCHEMA_VERSION;
     cfg.config_revision = 1;
     snprintf(cfg.mission.rocket_name, sizeof(cfg.mission.rocket_name), "%s", "Atlas Manny");
     snprintf(cfg.mission.launch_site, sizeof(cfg.mission.launch_site), "%s", "Launch Site");
@@ -82,6 +83,11 @@ static RuntimeConfig make_default_config()
     cfg.altitude.apogee_trigger_velocity_mps = -0.5f;
     cfg.altitude.apogee_confirmation_windows = 5;
     cfg.altitude.selected_barometer = 1;
+    // The accelerometer detector still runs and is logged; it only drives the
+    // FSM when an operator selects it.
+    cfg.apogee_detection.source = ApogeeSource::Barometer;
+    cfg.apogee_detection.accel_confirmation_samples = 5;
+    cfg.apogee_detection.accel_trigger_velocity_mps = 0.0f;
     cfg.calibration.timeout_ms = 10000;
     cfg.calibration.barometer_samples = 100;
     cfg.calibration.temperature_samples = 100;
@@ -101,6 +107,18 @@ static RuntimeConfig make_default_config()
 static int gpio_to_int(gpio_num_t pin)
 {
     return static_cast<int>(pin);
+}
+
+static const char *apogee_source_to_string(ApogeeSource source)
+{
+    switch (source) {
+        case ApogeeSource::Barometer:
+            return "barometer";
+        case ApogeeSource::Accelerometer:
+            return "accelerometer";
+        default:
+            return "unknown";
+    }
 }
 
 static const char *recovery_mode_to_string(RecoveryMode mode)
@@ -164,6 +182,13 @@ static bool legacy_v8_checksum_ok(RuntimeConfig cfg)
     const uint32_t storedChecksum = cfg.checksum;
     cfg.checksum = 0;
     return storedChecksum == fnv1a32(&cfg, offsetof(RuntimeConfig, flight_transitions));
+}
+
+static bool legacy_v9_checksum_ok(RuntimeConfig cfg)
+{
+    const uint32_t storedChecksum = cfg.checksum;
+    cfg.checksum = 0;
+    return storedChecksum == fnv1a32(&cfg, offsetof(RuntimeConfig, apogee_detection));
 }
 
 static void update_checksum(RuntimeConfig *cfg)
@@ -236,7 +261,7 @@ esp_err_t runtime_config_validate_each(const RuntimeConfig *cfg, RuntimeConfigVa
     // Keep validation ranges aligned with runtime_config_schema_json(). The
     // dashboard uses schema ranges for client-side checks, but firmware repeats
     // validation here because NVS and HTTP input cannot be trusted.
-    if (cfg->schema_version != 9) error("schema_version", "Unsupported runtime config schema");
+    if (cfg->schema_version != RUNTIME_CONFIG_SCHEMA_VERSION) error("schema_version", "Unsupported runtime config schema");
     if (cfg->storage_logging.flight_filename[0] == '\0') error("storage.flight_filename", "Flight filename is required");
     if (cfg->actuators.pulse_count < 1 || cfg->actuators.pulse_count > 10) {
         error("actuators.pulse_count", "Actuator pulse count must be between 1 and 10");
@@ -310,6 +335,9 @@ esp_err_t runtime_config_validate_each(const RuntimeConfig *cfg, RuntimeConfigVa
     if (!std::isfinite(cfg->altitude.apogee_trigger_velocity_mps) || cfg->altitude.apogee_trigger_velocity_mps < -20.0f || cfg->altitude.apogee_trigger_velocity_mps > 20.0f) error("altitude.apogee_trigger_velocity_mps", "Apogee trigger velocity must be between -20 and 20 m/s");
     if (cfg->altitude.apogee_confirmation_windows < 1 || cfg->altitude.apogee_confirmation_windows > 10) error("altitude.apogee_confirmation_windows", "Apogee confirmation must be between 1 and 10 consecutive fits");
     if (cfg->altitude.selected_barometer < 1 || cfg->altitude.selected_barometer > 2) error("altitude.selected_barometer", "Selected barometer must be 1 or 2");
+    if (cfg->apogee_detection.source > ApogeeSource::Accelerometer) error("altitude.apogee_source", "Apogee source must be barometer or accelerometer");
+    if (!std::isfinite(cfg->apogee_detection.accel_trigger_velocity_mps) || cfg->apogee_detection.accel_trigger_velocity_mps < -20.0f || cfg->apogee_detection.accel_trigger_velocity_mps > 20.0f) error("altitude.accel_apogee_trigger_velocity_mps", "Accelerometer apogee trigger velocity must be between -20 and 20 m/s");
+    if (cfg->apogee_detection.accel_confirmation_samples < 1 || cfg->apogee_detection.accel_confirmation_samples > 10) error("altitude.accel_apogee_confirmation_samples", "Accelerometer apogee confirmation must be between 1 and 10 samples");
     if (cfg->calibration.timeout_ms < 1000 || cfg->calibration.timeout_ms > 120000) error("calibration.timeout_ms", "Calibration timeout must be between 1 and 120 seconds");
     if (cfg->calibration.barometer_samples < 1 || cfg->calibration.barometer_samples > 1000) error("calibration.barometer_samples", "Barometer calibration samples must be between 1 and 1000");
     if (cfg->calibration.temperature_samples < 1 || cfg->calibration.temperature_samples > 1000) error("calibration.temperature_samples", "Temperature samples must be between 1 and 1000");
@@ -418,12 +446,13 @@ esp_err_t runtime_config_init(IBoardHardware *board)
                           size == offsetof(RuntimeConfig, storage_logging) &&
                           cfg.schema_version == 6 && legacy_v6_checksum_ok(cfg);
     if (legacyV6) {
-        cfg.schema_version = 9;
+        cfg.schema_version = RUNTIME_CONFIG_SCHEMA_VERSION;
         snprintf(cfg.storage_logging.flight_filename, sizeof(cfg.storage_logging.flight_filename),
                  "%s", "flight_telemetry_000001.jsonl");
         cfg.actuators.pulse_count = 3;
         cfg.actuators.pulse_duration_ms = 3;
-        cfg.flight_transitions = make_default_config().flight_transitions;
+        cfg.flight_transitions = runtime_config_defaults().flight_transitions;
+        cfg.apogee_detection = runtime_config_defaults().apogee_detection;
         return runtime_config_save(&cfg);
     }
 
@@ -431,10 +460,11 @@ esp_err_t runtime_config_init(IBoardHardware *board)
                           size == offsetof(RuntimeConfig, actuators) &&
                           cfg.schema_version == 7 && legacy_v7_checksum_ok(cfg);
     if (legacyV7) {
-        cfg.schema_version = 9;
+        cfg.schema_version = RUNTIME_CONFIG_SCHEMA_VERSION;
         cfg.actuators.pulse_count = 3;
         cfg.actuators.pulse_duration_ms = 3;
-        cfg.flight_transitions = make_default_config().flight_transitions;
+        cfg.flight_transitions = runtime_config_defaults().flight_transitions;
+        cfg.apogee_detection = runtime_config_defaults().apogee_detection;
         return runtime_config_save(&cfg);
     }
 
@@ -442,8 +472,18 @@ esp_err_t runtime_config_init(IBoardHardware *board)
                           size == offsetof(RuntimeConfig, flight_transitions) &&
                           cfg.schema_version == 8 && legacy_v8_checksum_ok(cfg);
     if (legacyV8) {
-        cfg.schema_version = 9;
-        cfg.flight_transitions = make_default_config().flight_transitions;
+        cfg.schema_version = RUNTIME_CONFIG_SCHEMA_VERSION;
+        cfg.flight_transitions = runtime_config_defaults().flight_transitions;
+        cfg.apogee_detection = runtime_config_defaults().apogee_detection;
+        return runtime_config_save(&cfg);
+    }
+
+    const bool legacyV9 = err == ESP_OK &&
+                          size == offsetof(RuntimeConfig, apogee_detection) &&
+                          cfg.schema_version == 9 && legacy_v9_checksum_ok(cfg);
+    if (legacyV9) {
+        cfg.schema_version = RUNTIME_CONFIG_SCHEMA_VERSION;
+        cfg.apogee_detection = runtime_config_defaults().apogee_detection;
         return runtime_config_save(&cfg);
     }
 
@@ -621,6 +661,17 @@ static esp_err_t json_update_recovery_mode_if_present(const char *json, Recovery
     return ESP_OK;
 }
 
+static esp_err_t json_update_apogee_source_if_present(const char *json, ApogeeSource *out)
+{
+    if (find_key(json, "apogee_source") == nullptr || out == nullptr) return ESP_OK;
+    char value[24] = {};
+    if (!json_get_string(json, "apogee_source", value, sizeof(value))) return ESP_ERR_INVALID_ARG;
+    if (strcmp(value, "barometer") == 0) *out = ApogeeSource::Barometer;
+    else if (strcmp(value, "accelerometer") == 0) *out = ApogeeSource::Accelerometer;
+    else return ESP_ERR_INVALID_ARG;
+    return ESP_OK;
+}
+
 /**
  * @brief Apply dashboard edits to the active config.
  */
@@ -667,6 +718,12 @@ esp_err_t runtime_config_update_from_json(const char *json, RuntimeConfig *updat
     uint32_t selectedBarometer = cfg.altitude.selected_barometer;
     if (json_update_uint_if_present(json, "selected_barometer", &selectedBarometer) != ESP_OK || selectedBarometer > UINT8_MAX) return ESP_ERR_INVALID_ARG;
     cfg.altitude.selected_barometer = static_cast<uint8_t>(selectedBarometer);
+    if (json_update_apogee_source_if_present(json, &cfg.apogee_detection.source) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "accel_apogee_trigger_velocity_mps", &cfg.apogee_detection.accel_trigger_velocity_mps) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    uint32_t accelApogeeConfirmationSamples = cfg.apogee_detection.accel_confirmation_samples;
+    if (json_update_uint_if_present(json, "accel_apogee_confirmation_samples", &accelApogeeConfirmationSamples) != ESP_OK ||
+        accelApogeeConfirmationSamples > UINT8_MAX) return ESP_ERR_INVALID_ARG;
+    cfg.apogee_detection.accel_confirmation_samples = static_cast<uint8_t>(accelApogeeConfirmationSamples);
     if (json_update_recovery_mode_if_present(json, &cfg.recovery.mode) != ESP_OK) return ESP_ERR_INVALID_ARG;
     uint32_t actuatorPulseCount = cfg.actuators.pulse_count;
     if (json_update_uint_if_present(json, "actuator_pulse_count", &actuatorPulseCount) != ESP_OK ||
@@ -726,6 +783,7 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         "\"airbrakes_open_rate_per_s\":%.3f,\"airbrakes_close_rate_per_s\":%.3f,"
         "\"altitude_filter_window\":%lu,\"altitude_max_pressure_rate_pa_per_s\":%.3f,"
         "\"apogee_detection_window_size\":%lu,\"apogee_sample_rate_hz\":%.3f,\"apogee_trigger_velocity_mps\":%.3f,\"apogee_confirmation_windows\":%u,"
+        "\"apogee_source\":\"%s\",\"accel_apogee_trigger_velocity_mps\":%.3f,\"accel_apogee_confirmation_samples\":%u,"
         "\"selected_barometer\":%u,\"calibration_timeout_ms\":%lu,"
         "\"barometer_calibration_samples\":%lu,\"temperature_calibration_samples\":%lu,"
         "\"ms56_i2c_addr_1\":\"0x%02X\",\"ms56_i2c_addr_2\":\"0x%02X\",\"bno055_i2c_addr\":\"0x%02X\","
@@ -767,6 +825,9 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         static_cast<double>(cfg->altitude.apogee_sample_rate_hz),
         static_cast<double>(cfg->altitude.apogee_trigger_velocity_mps),
         static_cast<unsigned>(cfg->altitude.apogee_confirmation_windows),
+        apogee_source_to_string(cfg->apogee_detection.source),
+        static_cast<double>(cfg->apogee_detection.accel_trigger_velocity_mps),
+        static_cast<unsigned>(cfg->apogee_detection.accel_confirmation_samples),
         static_cast<unsigned>(cfg->altitude.selected_barometer),
         static_cast<unsigned long>(cfg->calibration.timeout_ms),
         static_cast<unsigned long>(cfg->calibration.barometer_samples),
@@ -829,6 +890,9 @@ esp_err_t runtime_config_schema_json(char *out, size_t out_size)
         "{\"key\":\"apogee_sample_rate_hz\",\"label\":\"Altitude polling rate\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"Hz\",\"editable\":true,\"locked_after_ready\":true,\"description\":\"How often the task checks for new barometer samples; velocity uses sensor timestamps.\"},"
         "{\"key\":\"apogee_trigger_velocity_mps\",\"label\":\"Apogee trigger velocity\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s\",\"editable\":true,\"locked_after_ready\":true},"
         "{\"key\":\"apogee_confirmation_windows\",\"label\":\"Apogee confirmation\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"fits\",\"editable\":true,\"locked_after_ready\":true,\"min\":1,\"max\":10,\"description\":\"Consecutive descending OLS fits required to confirm apogee.\"},"
+        "{\"key\":\"apogee_source\",\"label\":\"Apogee source\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"editable\":true,\"locked_after_ready\":true,\"description\":\"barometer or accelerometer (LIS3DHTR). Accelerometer falls back to the barometer if its integral becomes invalid.\"},"
+        "{\"key\":\"accel_apogee_trigger_velocity_mps\",\"label\":\"Accel apogee trigger velocity\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s\",\"editable\":true,\"locked_after_ready\":true,\"min\":-20,\"max\":20},"
+        "{\"key\":\"accel_apogee_confirmation_samples\",\"label\":\"Accel apogee confirmation\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"samples\",\"editable\":true,\"locked_after_ready\":true,\"min\":1,\"max\":10,\"description\":\"Consecutive integrated-velocity samples at or below the trigger.\"},"
         "{\"key\":\"selected_barometer\",\"label\":\"Selected barometer\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"editable\":true,\"locked_after_ready\":true},"
         "{\"key\":\"calibration_timeout_ms\",\"label\":\"Calibration timeout\",\"group\":\"Calibration\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":false},"
         "{\"key\":\"barometer_calibration_samples\",\"label\":\"Barometer samples\",\"group\":\"Calibration\",\"source\":\"RuntimeConfig / NVS\",\"editable\":false},"
