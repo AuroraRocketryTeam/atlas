@@ -80,10 +80,8 @@ static std::shared_ptr<TestRoutine> testRoutine = nullptr;
 // Utility functions
 void printSystemInfo();
 
-// HIL lifecycle helpers
+// HIL lifecycle helper
 static void createAndStartFSM();
-static void resetHilSimulationIfRequested();
-static void resetHilSimulation();
 
 /**
  * @brief Confirm the running image after an OTA update.
@@ -249,67 +247,8 @@ static void createAndStartFSM()
     statusManager.setSystemCode(FSM_STARTED);
 }
 
-static void resetHilSimulationIfRequested()
-{
-    if (!rocketModel)
-    {
-        return;
-    }
-
-    if (!rocketModel->getResetSimulationFlag())
-    {
-        return;
-    }
-
-    resetHilSimulation();
-}
-
-static void resetHilSimulation()
-{
-    LOG_WARNING("Main", "HIL reset requested. Reinitializing FSM runtime...");
-
-    statusManager.setSystemCode(PRE_FLIGHT_MODE);
-
-    // Destroy the current FSM.
-    //
-    // Important:
-    // RocketFSM / TaskManager destructors must stop all running FreeRTOS tasks
-    // before task objects are destroyed.
-    if (rocketFSM)
-    {
-        LOG_INFO("Main", "Destroying current RocketFSM instance");
-        rocketFSM.reset();
-        vTaskDelay(250 / portTICK_PERIOD_MS);
-    }
-
-    // Reset simulation time before starting the next run.
-    Utils::setSimMillis(0);
-
-    // Reset logical model state.
-    //
-    // RocketModel::reset() must clear the reset flag, otherwise this function
-    // will be called again on every loop iteration.
-    if (rocketModel)
-    {
-        LOG_INFO("Main", "Resetting RocketModel");
-        rocketModel->reset();
-    }
-
-    // Recreate a fresh FSM/TaskManager/task object graph.
-    createAndStartFSM();
-
-    statusManager.setSystemCode(FLIGHT_MODE);
-
-    gpio_set_level(board.get_rgb_red_pin(), 0);
-    gpio_set_level(board.get_rgb_green_pin(), 1);
-
-    LOG_INFO("Main", "HIL simulation reset complete");
-}
-
 void loopHil()
 {
-    resetHilSimulationIfRequested();
-
     static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
     static unsigned long lastStateLog = 0;

@@ -194,23 +194,6 @@ public:
                               size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs = 200);
     bool storageDeleteFile(const char* filename, uint32_t timeoutMs = 200);
 
-#if AURORA_HIL_ENABLED
-    // Simulation
-     /**
-     * @brief Setter of simulation reset flag.
-     *
-     * @param bool the reset flag value.
-     */
-    void setResetSimulationFlag(bool value);
-
-     /**
-     * @brief Getter of simulation reset flag.
-     *
-     * @return bool the reset flag value.
-     */
-    bool getResetSimulationFlag();
-#endif
-
     /**
      * @brief Set the simulated BNO055 sensor data
      *
@@ -332,12 +315,6 @@ public:
     void resetCommand();
 
     /**
-     * @brief Reset the rocket model state.
-     *
-     */
-    void reset();
-
-    /**
      * @brief Get the BNO055 sensor instance.
      */
     std::shared_ptr<BNO055Sensor> getBNO055Sensor();
@@ -435,10 +412,6 @@ private:
     bool _ms561101ba03Data_1_Valid = false;
     bool _ms561101ba03Data_2_Valid = false;
     bool _gpsDataValid = false;
-
-#if AURORA_HIL_ENABLED
-    bool _reset_simulation;
-#endif
 
     SemaphoreHandle_t _storageMutex;
     std::shared_ptr<IStorage> _storage;

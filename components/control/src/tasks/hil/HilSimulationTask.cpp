@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_task_wdt.h"
 
 static const char *TAG = "HilSimulationTask";
@@ -269,22 +270,6 @@ void HilSimulationTask::onTaskStop() {
 
 }
 
-void HilSimulationTask::reset() {
-    if (_rocketModel) {
-        _rocketModel->setResetSimulationFlag(true);
-    }
-
-    // Force the current client out of lockstep. main_hil.cpp owns the actual
-    // runtime reset and will stop/destroy/recreate this task cleanly.
-    if (_client_sock >= 0) {
-        shutdown(_client_sock, SHUT_RDWR);
-        close(_client_sock);
-        _client_sock = -1;
-    }
-
-}
-
-
 /* ===================== MAIN TASK ===================== */
 
 void HilSimulationTask::taskFunction() {
@@ -405,9 +390,8 @@ void HilSimulationTask::taskFunction() {
                     continue;
                 }
 
-                LOG_INFO(TAG, "received RESET_SIM");
-                this->reset();
-                break;
+                LOG_WARNING(TAG, "HIL reset requested; rebooting board");
+                esp_restart();
             }
 
             if (in_msg.len != sizeof(sim_packet_t)) {

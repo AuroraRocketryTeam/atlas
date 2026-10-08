@@ -29,11 +29,8 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _flash(flash),
     _isRising(false),
     _heightGainSpeed(0.0f),
-    _currentHeight(0.0f)
-#if AURORA_HIL_ENABLED
-    , _reset_simulation(false)
-#endif
-    , _storageMutex(xSemaphoreCreateMutex())
+    _currentHeight(0.0f),
+    _storageMutex(xSemaphoreCreateMutex())
 {
     // Configure and Initialize ADC unit
     adc_oneshot_unit_init_cfg_t adc1_config = {};
@@ -81,31 +78,6 @@ RocketModel::~RocketModel() {
         _storageMutex = nullptr;
     }
 }
-
-void RocketModel::reset() {
-    _cmd.reset();
-
-    _isRising.store(false, std::memory_order_relaxed);
-    _heightGainSpeed.store(0.0f, std::memory_order_relaxed);
-    _currentHeight.store(0.0f, std::memory_order_relaxed);
-
-#if AURORA_HIL_ENABLED
-    _reset_simulation = false;
-
-    IMUData bnoData;
-    AccelerometerSensorData lis3dhData;
-    PressureSensorData ms561101ba03Data_1;
-    PressureSensorData ms561101ba03Data_2;
-    GPSData gpsData;
-    setSimulatedBNO055Data(bnoData);
-    setSimulatedLIS3DHTRData(lis3dhData);
-    setSimulatedMS561101BA03Data_1(ms561101ba03Data_1);
-    setSimulatedMS561101BA03Data_2(ms561101ba03Data_2);
-    setSimulatedGPSData(gpsData);
-
-    LOG_INFO("Main", "Set simulated data to nullptr");
-#endif
-}   
 
 void RocketModel::readBattery() {
     esp_err_t res = adc_oneshot_read(_adc1_handle, ADC_PIN, &_batteryAdc);
@@ -160,18 +132,6 @@ void RocketModel::resetCommand()
 {
     _cmd.reset();
 }
-
-#if AURORA_HIL_ENABLED
-void RocketModel::setResetSimulationFlag(bool value)
-{
-    _reset_simulation = value;
-}
-
-bool RocketModel::getResetSimulationFlag()
-{
-    return _reset_simulation;
-}
-#endif
 
 bool RocketModel::updateBNO055() {
     if (!_bno) return false;

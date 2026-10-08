@@ -363,7 +363,10 @@ def tcp_client(
                 if payload == RESET_SIMULATION:
                     frame = encode_msg(MSG_TYPE_SIM_RESET, b"")
                     sock.sendall(frame)
-                    print("[RESET] startup reset sent")
+                    print(
+                        "[RESET] Board is rebooting. Reconnect this computer to "
+                        "the Aurora SoftAP if it does not reconnect automatically."
+                    )
 
                     # Do not stop the TCP client. The FC may close/recreate its
                     # HIL task while resetting the FSM. Close our current socket
