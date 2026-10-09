@@ -426,6 +426,7 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ground", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Ground", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Ground", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         ;
     // READY_FOR_LAUNCH state
     _stateActions[RocketState::READY_FOR_LAUNCH] = std::make_unique<StateAction>(RocketState::READY_FOR_LAUNCH);
@@ -992,6 +993,8 @@ void RocketFSM::checkTransitions()
                      _acceleratedPeakVelocityMps,
                      _rocketModel->getHeightGainSpeed(),
                      velocityDropConfirmed ? "velocity" : "timeout");
+            _logger->logInfo("RocketFSM", velocityDropConfirmed ? "Burnout detected: velocity"
+                                                                : "Burnout detected: timeout");
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);
         }
         break;
@@ -1009,6 +1012,7 @@ void RocketFSM::checkTransitions()
             if (!isRising || maxTimeReached)
             {
                 LOG_INFO("RocketFSM", "Apogee detected! Elapsed: %lu ms", elapsed);
+                _logger->logInfo("RocketFSM", "Apogee detected by algorithm");
                 sendEvent(FSMEvent::APOGEE_REACHED);
             }
         } 
@@ -1016,6 +1020,7 @@ void RocketFSM::checkTransitions()
         else if (maxTimeReached)
         {
             LOG_WARNING("RocketFSM", "Apogee Lockout bypassed due to absolute max time limit!");
+            _logger->logInfo("RocketFSM", "Apogee detected by max timeout");
             sendEvent(FSMEvent::APOGEE_REACHED);
         }
 
