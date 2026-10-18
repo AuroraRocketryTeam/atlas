@@ -80,6 +80,7 @@ private:
     esp_netif_t* sta_netif;
     esp_netif_t* ap_netif;
     char wifi_ip_address[16];
+    char wifi_ssid[33];
     char wifi_mac_address[18];
     I2CBus _i2c_bus;
     SPIBus _spi_bus;
@@ -174,6 +175,11 @@ public:
      * @brief Return the current board-managed WiFi IP address.
      */
     const char* getWifiIpAddress() const override;
+
+    /**
+     * @brief Return the current board-managed WiFi SSID.
+     */
+    const char* getWifiSsid() const override;
 
     /**
      * @brief Return the current board-managed WiFi MAC address.

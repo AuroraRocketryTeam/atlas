@@ -1033,7 +1033,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
         boot ? boot->label : "none",
         boot ? static_cast<unsigned long>(boot->address) : 0UL,
         boot ? static_cast<unsigned long>(boot->size) : 0UL,
-        CONFIG_ROCKET_AP_SSID,
+        self->_board ? self->_board->getWifiSsid() : "",
         self->_board ? self->_board->getWifiIpAddress() : "",
         self->_board ? self->_board->getWifiMacAddress() : "",
 #ifdef CONFIG_SECURE_BOOT

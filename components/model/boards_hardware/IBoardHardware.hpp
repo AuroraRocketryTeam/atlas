@@ -114,6 +114,11 @@ public:
     virtual const char* getWifiIpAddress() const = 0;
 
     /**
+     * @brief Return the effective board-managed WiFi SSID, or an empty string.
+     */
+    virtual const char* getWifiSsid() const = 0;
+
+    /**
      * @brief Return the last board-managed WiFi MAC address, or an empty string.
      */
     virtual const char* getWifiMacAddress() const = 0;
