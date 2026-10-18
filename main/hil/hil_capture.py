@@ -256,6 +256,38 @@ def _nearest_sample_index(sim_time_s: np.ndarray, target_sim_time_s: float) -> i
     return int(np.argmin(np.abs(sim_time_s - target_sim_time_s)))
 
 
+def rocketpy_apogee_event(flight: Any, capture_time_offset_s: float) -> dict[str, float]:
+    """Build the authoritative capture event from RocketPy's solved Flight."""
+    event = {
+        "time_s": float(capture_time_offset_s) + float(flight.apogee_time),
+        "rocketpy_time_s": float(flight.apogee_time),
+        "x": float(flight.apogee_x),
+        "y": float(flight.apogee_y),
+        "z": float(flight.apogee),
+    }
+    if not all(np.isfinite(value) for value in event.values()):
+        raise ValueError("RocketPy returned invalid apogee data")
+    return event
+
+
+def _sanitize_rocketpy_apogee(raw_events: Any) -> dict[str, float] | None:
+    """Return the first complete authoritative RocketPy apogee event."""
+    if raw_events is None:
+        return None
+    if isinstance(raw_events, dict):
+        raw_events = [raw_events]
+    for item in raw_events:
+        if not isinstance(item, dict):
+            continue
+        try:
+            event = {key: float(item[key]) for key in ("time_s", "rocketpy_time_s", "x", "y", "z")}
+        except (KeyError, TypeError, ValueError):
+            continue
+        if all(np.isfinite(value) for value in event.values()):
+            return event
+    return None
+
+
 def _sanitize_event_times(raw_events: Any) -> list[float]:
     if raw_events is None:
         return []
@@ -817,6 +849,7 @@ def replay_hil_3d(
     main_times = _sanitize_event_times(hil_events.get("open_main", []))
     fsm_events = _sanitize_fsm_events(hil_events.get("fsm_state", []))
     time_eclipses = _sanitize_time_eclipses(hil_events.get("time_eclipses", []))
+    rocketpy_apogee = _sanitize_rocketpy_apogee(hil_events.get("rocketpy_apogee"))
 
     # Keep the trajectory large while leaving two synchronized telemetry plots
     # visible throughout the replay.
@@ -875,16 +908,16 @@ def replay_hil_3d(
         "s",
     )
 
-    apogee_idx = int(np.argmax(z))
-    ax.scatter(
-        x[apogee_idx],
-        y[apogee_idx],
-        z[apogee_idx],
-        s=70,
-        marker="^",
-        color="tab:purple",
-        label="APOGEE",
-    )
+    if rocketpy_apogee is not None:
+        ax.scatter(
+            rocketpy_apogee["x"],
+            rocketpy_apogee["y"],
+            rocketpy_apogee["z"],
+            s=70,
+            marker="^",
+            color="tab:purple",
+            label="RocketPy apogee",
+        )
 
     plot_span = _set_3d_axes_equal(ax, x, y, z)
     body_axis_length = max(0.065 * plot_span, 1.0)
@@ -1555,8 +1588,10 @@ def plot_hil_log(
     airbrake_events = _sanitize_airbrake_events(hil_events.get("airbrakes", []))
     fsm_events = _sanitize_fsm_events(hil_events.get("fsm_state", []))
     time_eclipses = _sanitize_time_eclipses(hil_events.get("time_eclipses", []))
+    rocketpy_apogee = _sanitize_rocketpy_apogee(hil_events.get("rocketpy_apogee"))
 
-    apogee_idx = int(np.argmax(altitude_m))
+    apogee_idx = (_nearest_sample_index(sim_time_s, rocketpy_apogee["time_s"])
+                  if rocketpy_apogee is not None else None)
     sample_periods_s = np.diff(sim_time_s)
 
     print("\n========== HIL DATA SUMMARY ==========")
@@ -1571,8 +1606,11 @@ def plot_hil_log(
         print(f"Mean sample period:  {np.mean(sample_periods_s):.6f} s")
         print(f"Effective rate:      {1.0 / np.mean(sample_periods_s):.3f} Hz")
 
-    print(f"Max altitude:        {np.max(altitude_m):.3f} m")
-    print(f"Apogee sim time:     {sim_time_s[apogee_idx]:.3f} s")
+    print(f"Max payload altitude:{np.max(altitude_m):9.3f} m")
+    if rocketpy_apogee is not None:
+        print(f"RocketPy apogee:     {rocketpy_apogee['z']:.3f} m at capture t={rocketpy_apogee['time_s']:.3f} s")
+    else:
+        print("RocketPy apogee:     unavailable in this capture")
     print(f"Max |accel|:         {np.max(accel_norm_g):.3f} g")
     print(f"Drogue events:       {drogue_times}")
     print(f"Main events:         {main_times}")
@@ -1595,20 +1633,21 @@ def plot_hil_log(
     ax_3d.scatter(gps_x[-1], gps_y[-1], altitude_m[-1], s=90, marker="X", label="END")
     ax_3d.text(gps_x[-1], gps_y[-1], altitude_m[-1], f" END\nsim_time={sim_time_s[-1]:.2f}s")
 
-    ax_3d.scatter(
-        gps_x[apogee_idx],
-        gps_y[apogee_idx],
-        altitude_m[apogee_idx],
-        s=90,
-        marker="^",
-        label="APOGEE",
-    )
-    ax_3d.text(
-        gps_x[apogee_idx],
-        gps_y[apogee_idx],
-        altitude_m[apogee_idx],
-        f" APOGEE\nsim_time={sim_time_s[apogee_idx]:.2f}s\nalt={altitude_m[apogee_idx]:.1f}m",
-    )
+    if apogee_idx is not None:
+        ax_3d.scatter(
+            gps_x[apogee_idx],
+            gps_y[apogee_idx],
+            altitude_m[apogee_idx],
+            s=90,
+            marker="^",
+            label="RocketPy apogee time",
+        )
+        ax_3d.text(
+            gps_x[apogee_idx],
+            gps_y[apogee_idx],
+            altitude_m[apogee_idx],
+            f" RocketPy APOGEE\nt={rocketpy_apogee['time_s']:.2f}s\ntruth alt={rocketpy_apogee['z']:.1f}m",
+        )
 
     _mark_event_points_3d(ax_3d, sim_time_s, gps_x, gps_y, altitude_m, drogue_times, "OPEN_DROGUE", "v")
     _mark_event_points_3d(ax_3d, sim_time_s, gps_x, gps_y, altitude_m, main_times, "OPEN_MAIN", "s")
@@ -1632,7 +1671,8 @@ def plot_hil_log(
 
     ax_alt.scatter(sim_time_s[0], altitude_m[0], s=50, marker="o", label="START")
     ax_alt.scatter(sim_time_s[-1], altitude_m[-1], s=50, marker="X", label="END")
-    ax_alt.scatter(sim_time_s[apogee_idx], altitude_m[apogee_idx], s=60, marker="^", label="APOGEE")
+    if apogee_idx is not None:
+        ax_alt.scatter(rocketpy_apogee["time_s"], altitude_m[apogee_idx], s=60, marker="^", label="RocketPy apogee time")
 
     _mark_event_lines(ax_alt, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_alt, main_times, "OPEN_MAIN")
@@ -1663,7 +1703,8 @@ def plot_hil_log(
     ax_track.plot(gps_x, gps_y, label="GPS ground track")
     ax_track.scatter(gps_x[0], gps_y[0], s=50, marker="o", label="START")
     ax_track.scatter(gps_x[-1], gps_y[-1], s=50, marker="X", label="END")
-    ax_track.scatter(gps_x[apogee_idx], gps_y[apogee_idx], s=60, marker="^", label="APOGEE")
+    if apogee_idx is not None:
+        ax_track.scatter(gps_x[apogee_idx], gps_y[apogee_idx], s=60, marker="^", label="RocketPy apogee time")
     _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, drogue_times, "OPEN_DROGUE", "v")
     _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, main_times, "OPEN_MAIN", "s")
     _mark_fsm_points_2d(ax_track, sim_time_s, gps_x, gps_y, fsm_events, annotate=True)

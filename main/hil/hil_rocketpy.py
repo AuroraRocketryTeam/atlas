@@ -39,7 +39,7 @@ from hil_utils import (
     rocketpy_euler313_matrix as _rocketpy_euler313_matrix,
     rotation_matrix_to_rocketpy_quaternion as _rotation_matrix_to_rocketpy_quaternion,
 )
-from hil_capture import create_capture_file, save_hil_capture, plot_hil_log
+from hil_capture import create_capture_file, save_hil_capture, plot_hil_log, rocketpy_apogee_event
 
 
 class CommandState:
@@ -111,6 +111,7 @@ hil_events = {
     "airbrakes": [],
     "fsm_state": [],
     "time_eclipses": [],
+    "rocketpy_apogee": [],
 }
 
 hil_log = {
@@ -1403,6 +1404,17 @@ try:
         rocket=rocket,
         environment=env,
         **flight_args,
+    )
+
+    hil_events["rocketpy_apogee"] = [
+        rocketpy_apogee_event(test_flight, PREFLIGHT_DURATION_S)
+    ]
+    apogee_event = hil_events["rocketpy_apogee"][0]
+    print(
+        "[RocketPy] Authoritative apogee at "
+        f"rocketpy_time={apogee_event['rocketpy_time_s']:.3f}s, "
+        f"capture_time={apogee_event['time_s']:.3f}s, "
+        f"altitude={apogee_event['z']:.2f}m"
     )
 
     print("Flight... COMPLETED")
