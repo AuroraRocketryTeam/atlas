@@ -361,11 +361,21 @@ bool RocketModel::setSimulatedGPSData(GPSData data) {
 }
 
 bool RocketModel::getIsRising() {
-    return _isRising.load(std::memory_order_relaxed);
+    return _isRising.load(std::memory_order_acquire);
 }
 
 void RocketModel::setIsRising(bool isRising) {
-    _isRising.store(isRising, std::memory_order_relaxed);
+    // Release orders an earlier setApogeeVotes() before this flag, so a reader
+    // that sees isRising == false also sees the vote that caused it.
+    _isRising.store(isRising, std::memory_order_release);
+}
+
+uint8_t RocketModel::getApogeeVotes() {
+    return _apogeeVotes.load(std::memory_order_relaxed);
+}
+
+void RocketModel::setApogeeVotes(uint8_t votes) {
+    _apogeeVotes.store(votes, std::memory_order_relaxed);
 }
 
 float RocketModel::getHeightGainSpeed() {

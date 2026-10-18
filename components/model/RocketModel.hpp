@@ -248,6 +248,23 @@ public:
      */
     void setIsRising(bool isRising);
 
+    // Bits of getApogeeVotes(): detectors currently reporting apogee.
+    static constexpr uint8_t APOGEE_VOTE_BAROMETER = 1u << 0;
+    static constexpr uint8_t APOGEE_VOTE_ACCELEROMETER = 1u << 1;
+
+    /**
+     * @brief Get which apogee detectors currently report apogee
+     *
+     * isRising() is false whenever any vote is set; the votes only record
+     * which detector caused it.
+     */
+    uint8_t getApogeeVotes();
+
+    /**
+     * @brief Set the apogee detector votes (APOGEE_VOTE_* bits)
+     */
+    void setApogeeVotes(uint8_t votes);
+
     /**
      * @brief Get the estimated Height Gain Speed
      *
@@ -414,6 +431,7 @@ private:
 
     // Flight state variables (atomic to avoid caching issues)
     std::atomic<bool> _isRising;
+    std::atomic<uint8_t> _apogeeVotes{0};
     std::atomic<float> _heightGainSpeed;
     std::atomic<uint32_t> _heightGainSpeedTimestamp;
     std::atomic<float> _currentHeight;

@@ -29,21 +29,7 @@ void AltitudeTask::taskFunction()
     apogeeDetector.configure(runtimeConfig.altitude.apogee_window_size,
                              runtimeConfig.altitude.apogee_trigger_velocity_mps,
                              runtimeConfig.altitude.apogee_confirmation_windows);
-
-    // Liftoff uses the FSM's thresholds so both latch on the same event.
-    accelApogeeDetector.configure(runtimeConfig.flight.liftoff_accel_threshold_mps2,
-                                  runtimeConfig.flight.liftoff_timeout_ms,
-                                  runtimeConfig.apogee_detection.accel_trigger_velocity_mps,
-                                  runtimeConfig.apogee_detection.accel_confirmation_samples,
-                                  ACCEL_SATURATION_FRACTION * LIS3DHTRSensor::FULL_SCALE_MPS2);
-    float padX = 0.0f, padY = 0.0f, padZ = 0.0f;
-    if (_rocketModel->getLaunchpadSpecificForce(padX, padY, padZ)) {
-        accelApogeeDetector.seedPadReference(padX, padY, padZ);
-    }
-    _apogeeSource = runtimeConfig.apogee_detection.source;
-    LOG_INFO("AltitudeTask", "Apogee source: %s | accelerometer pad reference: %s",
-             _apogeeSource == ApogeeSource::Accelerometer ? "accelerometer" : "barometer",
-             accelApogeeDetector.hasPadReference() ? "seeded from calibration" : "collecting on pad");
+    LOG_INFO("AltitudeTask", "Apogee detection: first of barometer and accelerometer; accelerometer arms with the flight config lock");
     
     // Baseline for the slew rate limiter
     float lastValidPressure = -1.0f;
@@ -155,6 +141,7 @@ void AltitudeTask::onTaskStart()
     pressureFilter.reset();
     apogeeDetector.reset();
     accelApogeeDetector.reset();
+    _accelArmed = false;
     _accelWasLaunched = false;
     _accelWasRising = true;
     _accelLastFault = AccelerometerApogeeDetector::Fault::None;
@@ -180,8 +167,39 @@ void AltitudeTask::updateRisingTrend(float currentAltitude, uint32_t timestamp)
     publishRisingState();
 }
 
+void AltitudeTask::armAccelerometerApogee()
+{
+    // Configure from the locked snapshot, which the FSM also uses in flight.
+    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+
+    // Liftoff uses the FSM's thresholds so both latch on the same event.
+    accelApogeeDetector.configure(runtimeConfig.flight.liftoff_accel_threshold_mps2,
+                                  runtimeConfig.flight.liftoff_timeout_ms,
+                                  runtimeConfig.apogee_detection.accel_trigger_velocity_mps,
+                                  runtimeConfig.apogee_detection.accel_confirmation_samples,
+                                  ACCEL_SATURATION_FRACTION * LIS3DHTRSensor::FULL_SCALE_MPS2);
+    float padX = 0.0f, padY = 0.0f, padZ = 0.0f;
+    if (_rocketModel->getLaunchpadSpecificForce(padX, padY, padZ)) {
+        accelApogeeDetector.seedPadReference(padX, padY, padZ);
+    }
+    _accelArmed = true;
+
+    char message[96];
+    snprintf(message, sizeof(message), "Accelerometer apogee armed; pad reference %s",
+             accelApogeeDetector.hasPadReference() ? "seeded from calibration" : "collecting on pad");
+    LOG_INFO("AltitudeTask", "%s", message);
+    if (_logger) _logger->logInfo("AltitudeTask", message);
+}
+
 void AltitudeTask::updateAccelerometerApogee()
 {
+    // Ground handling must not latch liftoff: stay idle until the FSM can
+    // detect liftoff too, which needs the flight config lock.
+    if (!_accelArmed) {
+        if (!runtime_config_is_locked()) return;
+        armAccelerometerApogee();
+    }
+
     AccelerometerSensorData accelData;
     if (_rocketModel->getLIS3DHTRData(accelData) != SensorReadStatus::OK) return;
 
@@ -201,15 +219,19 @@ void AltitudeTask::reportAccelerometerApogeeTransitions()
 
     if (!_accelWasLaunched && accelApogeeDetector.isLaunched()) {
         _accelWasLaunched = true;
-        LOG_INFO("AltitudeTask", "Accelerometer detector latched liftoff");
+        // Repeats the arming state: pre-launch log entries can be overwritten
+        // before the flight recorder starts.
+        snprintf(message, sizeof(message), "Accelerometer detector latched liftoff; pad reference %s",
+                 accelApogeeDetector.hasPadReference() ? "ok" : "missing");
+        LOG_INFO("AltitudeTask", "%s", message);
+        if (_logger) _logger->logInfo("AltitudeTask", message);
     }
 
     const AccelerometerApogeeDetector::Fault fault = accelApogeeDetector.getFault();
     if (fault != _accelLastFault) {
         _accelLastFault = fault;
-        snprintf(message, sizeof(message), "Accelerometer apogee invalid: %s%s",
-                 AccelerometerApogeeDetector::faultName(fault),
-                 _apogeeSource == ApogeeSource::Accelerometer ? "; barometer takes over" : "");
+        snprintf(message, sizeof(message), "Accelerometer apogee invalid: %s; barometer only",
+                 AccelerometerApogeeDetector::faultName(fault));
         LOG_WARNING("AltitudeTask", "%s", message);
         if (_logger) _logger->logWarning("AltitudeTask", message);
     }
@@ -226,10 +248,14 @@ void AltitudeTask::reportAccelerometerApogeeTransitions()
 
 void AltitudeTask::publishRisingState()
 {
-    // The accelerometer decides only while its integral covers the whole
-    // ascent; otherwise the barometer detector stays the authority.
-    const bool useAccelerometer = _apogeeSource == ApogeeSource::Accelerometer &&
-                                  accelApogeeDetector.isValid();
-    _rocketModel->setIsRising(useAccelerometer ? accelApogeeDetector.isRising()
-                                               : apogeeDetector.isRising());
+    // Either detector may end the ascent. The accelerometer votes only while
+    // its integral covers the whole ascent from rest.
+    const bool barometerApogee = !apogeeDetector.isRising();
+    const bool accelerometerApogee = accelApogeeDetector.isValid() && !accelApogeeDetector.isRising();
+    uint8_t votes = 0;
+    if (barometerApogee) votes |= RocketModel::APOGEE_VOTE_BAROMETER;
+    if (accelerometerApogee) votes |= RocketModel::APOGEE_VOTE_ACCELEROMETER;
+    // Votes first: the FSM reads them after seeing isRising drop.
+    _rocketModel->setApogeeVotes(votes);
+    _rocketModel->setIsRising(votes == 0);
 }

@@ -80,7 +80,8 @@ static constexpr size_t AUTH_HEADER_MAX_LEN = 96;
 static constexpr size_t AUTH_SHA256_HEX_LEN = 64;
 static constexpr size_t AUTH_SIGNATURE_HEX_LEN = 64;
 static constexpr size_t BODY_MAX_LEN = 4096;
-static constexpr size_t RESPONSE_BUFFER_SIZE = 12288;
+// Sized for the largest response, runtime_config_schema_json() (~12.4 KB).
+static constexpr size_t RESPONSE_BUFFER_SIZE = 16384;
 static constexpr size_t STREAM_CHUNK_SIZE = 4096;
 static constexpr size_t LOG_RESPONSE_BUFFER_SIZE = 4096;
 static constexpr size_t MAX_HTTP_CLIENTS = 4;
@@ -1582,18 +1583,6 @@ static const char *recoveryModeToChecklistMessage(RecoveryMode mode)
     }
 }
 
-static const char *apogeeSourceToChecklistMessage(ApogeeSource source)
-{
-    switch (source) {
-        case ApogeeSource::Barometer:
-            return "Runtime apogee source: barometer";
-        case ApogeeSource::Accelerometer:
-            return "Runtime apogee source: accelerometer (LIS3DHTR), barometer fallback if invalid";
-        default:
-            return "Runtime apogee source: unknown";
-    }
-}
-
 esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *self, char *body, size_t body_size, bool *ok_out)
 {
     if (self == nullptr || body == nullptr || ok_out == nullptr) return ESP_ERR_INVALID_ARG;
@@ -1622,7 +1611,7 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "recovery_mode", "Recovery mode", "info",
                              recoveryModeToChecklistMessage(static_cast<RecoveryMode>(cfg.recovery.mode)))) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "apogee_source", "Apogee source", "info",
-                             apogeeSourceToChecklistMessage(cfg.apogee_detection.source))) return ESP_ERR_NO_MEM;
+                             "First of barometer and accelerometer (LIS3DHTR); accelerometer ignored if invalid")) return ESP_ERR_NO_MEM;
 
     written = snprintf(body + offset, body_size - offset, "],\"ok\":%s}", all_ok ? "true" : "false");
     if (written < 0 || static_cast<size_t>(written) >= body_size - offset) return ESP_ERR_NO_MEM;

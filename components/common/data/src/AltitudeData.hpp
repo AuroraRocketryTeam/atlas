@@ -13,8 +13,8 @@ struct AltitudeData {
     bool rising = true;
     uint32_t timestamp = 0;
     // Accelerometer apogee detector at the same instant. `rising` above stays
-    // the barometer OLS verdict; the FSM sees accel_rising instead only when
-    // the accelerometer source is selected and accel_valid is true.
+    // the barometer OLS verdict; the FSM sees apogee when `rising` is false or
+    // when accel_valid is true and accel_rising is false.
     float accel_velocity_mps = 0.0f;
     bool accel_valid = false;
     bool accel_rising = true;

@@ -33,16 +33,9 @@ struct AltitudeConfig {
     uint8_t selected_barometer;
 };
 
-// Detector that drives RocketModel::isRising() during ascent.
-enum class ApogeeSource : uint8_t {
-    Barometer = 0,
-    // Falls back to the barometer while the accelerometer integral is invalid.
-    Accelerometer = 1,
-};
-
-// Appended to RuntimeConfig in schema 9; barometer tuning stays in AltitudeConfig.
+// Accelerometer apogee tuning, appended to RuntimeConfig in schema 10 (current
+// layout since 11); barometer tuning stays in AltitudeConfig.
 struct ApogeeDetectionConfig {
-    ApogeeSource source;
     uint8_t accel_confirmation_samples;
     float accel_trigger_velocity_mps;
 };
@@ -247,11 +240,10 @@ private:
     // as there is a strong drag force (which should be covered by the RuntimeConfig apogee lockout)
     OLSApogeeDetector<APOGEE_DETECTOR_MAX_WINDOW> apogeeDetector;
 
-    // Integrates the LIS3DHTR along the pad "up" axis. It always runs so flight
-    // logs can compare it with the barometer; RuntimeConfig selects which one
-    // the FSM acts on.
+    // Integrates the LIS3DHTR along the pad "up" axis. Both detectors vote on
+    // apogee and the FSM acts on whichever votes first.
     AccelerometerApogeeDetector accelApogeeDetector;
-    ApogeeSource _apogeeSource = ApogeeSource::Barometer;
+    bool _accelArmed = false;
     bool _accelWasLaunched = false;
     bool _accelWasRising = true;
     AccelerometerApogeeDetector::Fault _accelLastFault = AccelerometerApogeeDetector::Fault::None;
@@ -275,6 +267,11 @@ private:
     void updateRisingTrend(float currentAltitude, uint32_t timestamp);
 
     /**
+     * @brief Configures the inertial detector from the locked flight config.
+     */
+    void armAccelerometerApogee();
+
+    /**
      * @brief Feeds the latest accelerometer sample to the inertial detector.
      */
     void updateAccelerometerApogee();
@@ -285,7 +282,7 @@ private:
     void reportAccelerometerApogeeTransitions();
 
     /**
-     * @brief Publishes the rising flag from the configured apogee source.
+     * @brief Publishes each detector's apogee vote and the combined rising flag.
      */
     void publishRisingState();
 };

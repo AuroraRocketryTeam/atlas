@@ -373,6 +373,66 @@ void RocketFSM::deployStabilizationExitRecovery()
     }
 }
 
+void RocketFSM::resetApogeeVotes()
+{
+    _barometerApogeeVote = {};
+    _accelerometerApogeeVote = {};
+    _apogeeTriggered = false;
+    _apogeeTriggerSinceLaunchMs = 0;
+}
+
+void RocketFSM::trackApogeeVotes(uint32_t sinceLaunchMs, uint32_t lockoutMs)
+{
+    // Same rule as BALLISTIC_FLIGHT: a detector would have triggered apogee the
+    // first time it votes once the lockout has expired.
+    if (sinceLaunchMs <= lockoutMs) return;
+    const uint8_t votes = _rocketModel->getApogeeVotes();
+    noteApogeeVote(votes & RocketModel::APOGEE_VOTE_BAROMETER, "Barometer",
+                   _barometerApogeeVote, sinceLaunchMs);
+    noteApogeeVote(votes & RocketModel::APOGEE_VOTE_ACCELEROMETER, "Accelerometer",
+                   _accelerometerApogeeVote, sinceLaunchMs);
+}
+
+void RocketFSM::noteApogeeVote(bool voting, const char *detector, ApogeeVoteRecord &record, uint32_t sinceLaunchMs)
+{
+    if (!voting || record.seen) return;
+    record.seen = true;
+    record.sinceLaunchMs = sinceLaunchMs;
+
+    // Votes up to the trigger are reported by logApogeeTrigger().
+    if (!_apogeeTriggered) return;
+    char message[96];
+    snprintf(message, sizeof(message), "%s would have triggered apogee at T+%lu ms (%lu ms after trigger)",
+             detector, static_cast<unsigned long>(sinceLaunchMs),
+             static_cast<unsigned long>(sinceLaunchMs - _apogeeTriggerSinceLaunchMs));
+    LOG_INFO("RocketFSM", "%s", message);
+    if (_logger) _logger->logInfo("RocketFSM", message);
+}
+
+void RocketFSM::logApogeeTrigger(uint32_t sinceLaunchMs, uint32_t lockoutMs, bool maxTimeReached)
+{
+    // BALLISTIC_FLIGHT can run again before the queued event is processed.
+    if (_apogeeTriggered) return;
+
+    // Read after isRising, so the vote behind a dropped flag is visible.
+    trackApogeeVotes(sinceLaunchMs, lockoutMs);
+    _apogeeTriggered = true;
+    _apogeeTriggerSinceLaunchMs = sinceLaunchMs;
+
+    const bool barometer = _barometerApogeeVote.seen;
+    const bool accelerometer = _accelerometerApogeeVote.seen;
+    const char *cause = barometer && accelerometer ? "barometer+accelerometer"
+                      : barometer                  ? "barometer"
+                      : accelerometer              ? "accelerometer"
+                      : maxTimeReached             ? "max timeout"
+                                                   : "rising flag without detector vote";
+    char message[96];
+    snprintf(message, sizeof(message), "Apogee triggered by %s at T+%lu ms",
+             cause, static_cast<unsigned long>(sinceLaunchMs));
+    LOG_INFO("RocketFSM", "%s", message);
+    if (_logger) _logger->logInfo("RocketFSM", message);
+}
+
 void RocketFSM::setupStateActions()
 {
     LOG_INFO("RocketFSM", "Setting up state actions...");
@@ -485,7 +545,10 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::BALLISTIC_FLIGHT] = std::make_unique<StateAction>(RocketState::BALLISTIC_FLIGHT);
     _stateActions[RocketState::BALLISTIC_FLIGHT]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering BALLISTIC_FLIGHT"); })
+                         {
+                             resetApogeeVotes();
+                             LOG_INFO("RocketFSM", "Entering BALLISTIC_FLIGHT");
+                         })
         #if AURORA_HIL_ENABLED
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ballistic", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
@@ -846,6 +909,12 @@ void RocketFSM::checkTransitions()
     const auto accMag = sqrt(accX * accX + accY * accY + accZ * accZ);
     LOG_EVERY_MS(ACCELERATION_LOG_PERIOD_MS, INFO, "RocketFSM", "ax: %.5f ay: %.5f az: %.5f mag: %.5f", accX, accY, accZ, accMag);
 
+    // After apogee, keep watching the detector(s) that did not trigger it.
+    if (_apogeeTriggered)
+    {
+        trackApogeeVotes(Utils::millis() - _launchDetectionTime, runtimeCfg.flight.apogee_lockout_ms);
+    }
+
     // Fast state-based checks
     switch (_currentState)
     {
@@ -1031,7 +1100,7 @@ void RocketFSM::checkTransitions()
             if (!isRising || maxTimeReached)
             {
                 LOG_INFO("RocketFSM", "Apogee detected! Elapsed: %lu ms", elapsed);
-                _logger->logInfo("RocketFSM", "Apogee detected by algorithm");
+                logApogeeTrigger(elapsed, runtimeCfg.flight.apogee_lockout_ms, maxTimeReached);
                 sendEvent(FSMEvent::APOGEE_REACHED);
             }
         } 
@@ -1039,7 +1108,7 @@ void RocketFSM::checkTransitions()
         else if (maxTimeReached)
         {
             LOG_WARNING("RocketFSM", "Apogee Lockout bypassed due to absolute max time limit!");
-            _logger->logInfo("RocketFSM", "Apogee detected by max timeout");
+            logApogeeTrigger(elapsed, runtimeCfg.flight.apogee_lockout_ms, maxTimeReached);
             sendEvent(FSMEvent::APOGEE_REACHED);
         }
 
