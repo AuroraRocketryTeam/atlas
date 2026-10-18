@@ -433,6 +433,26 @@ void RocketFSM::logApogeeTrigger(uint32_t sinceLaunchMs, uint32_t lockoutMs, boo
     if (_logger) _logger->logInfo("RocketFSM", message);
 }
 
+void RocketFSM::logForcedApogee()
+{
+    // Detector triggers are already logged by logApogeeTrigger().
+    if (_apogeeTriggered) return;
+
+    const uint32_t sinceLaunchMs = _launchDetectionTime ? Utils::millis() - _launchDetectionTime : 0;
+    _apogeeTriggered = true;
+    _apogeeTriggerSinceLaunchMs = sinceLaunchMs;
+
+    char message[96];
+    if (_launchDetectionTime) {
+        snprintf(message, sizeof(message), "Apogee forced by ground command at T+%lu ms",
+                 static_cast<unsigned long>(sinceLaunchMs));
+    } else {
+        snprintf(message, sizeof(message), "Apogee forced by ground command (no launch detected)");
+    }
+    LOG_WARNING("RocketFSM", "%s", message);
+    if (_logger) _logger->logWarning("RocketFSM", message);
+}
+
 void RocketFSM::setupStateActions()
 {
     LOG_INFO("RocketFSM", "Setting up state actions...");
@@ -565,6 +585,7 @@ void RocketFSM::setupStateActions()
         ->setEntryAction([this]()
                         {
                             LOG_INFO("RocketFSM", "Entering APOGEE");
+                            logForcedApogee();
                             deployApogeeRecovery();
                             // tone(BUZZER_PIN, 1000, 500);             // Sound buzzer at 1kHz for 500ms
                         })

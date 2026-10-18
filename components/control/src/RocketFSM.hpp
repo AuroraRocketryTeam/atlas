@@ -150,6 +150,7 @@ private:
     void trackApogeeVotes(uint32_t sinceLaunchMs, uint32_t lockoutMs);
     void noteApogeeVote(bool voting, const char *detector, ApogeeVoteRecord &record, uint32_t sinceLaunchMs);
     void logApogeeTrigger(uint32_t sinceLaunchMs, uint32_t lockoutMs, bool maxTimeReached);
+    void logForcedApogee();
 
     // Important timers and tresholds
     unsigned long _launchDetectionTime = 0;
