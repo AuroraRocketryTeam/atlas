@@ -41,7 +41,7 @@ struct TelemetryPacket
     struct
     {
         float accel_x, accel_y, accel_z; ///< Accelerometer (m/s²)
-        float gyro_x, gyro_y, gyro_z;    ///< Gyroscope / angular velocity (rad/s)
+        float gyro_x, gyro_y, gyro_z;    ///< Gyroscope / angular velocity (deg/s)
     } imu;
 
     struct
@@ -78,7 +78,8 @@ struct TelemetryPacket
  * This task reads from SharedSensorData, serializes it to binary format,
  * and transmits it using E220LoRaTransmitter.
  *
- * Transmission rate is read from the locked RuntimeConfig snapshot.
+ * Transmission rate follows the active RuntimeConfig revision and becomes
+ * immutable with the locked flight snapshot.
  */
 class TelemetryTask : public BaseTask
 {
@@ -102,8 +103,8 @@ public:
      * @param rocketModel Shared rocket model to read sensor data from.
      * @param fsm State machine used to report the flight phase and dispatch ground commands.
      *
-     * @note The transmission period is read from the locked RuntimeConfig
-     *       snapshot when the task starts, not from a constructor argument.
+     * @note The transmission period is read from RuntimeConfig and refreshed
+     *       when its revision changes, not from a constructor argument.
      */
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
                   IStateMachine* fsm = nullptr);

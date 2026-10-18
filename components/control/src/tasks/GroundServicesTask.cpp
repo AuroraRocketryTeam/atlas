@@ -1034,7 +1034,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
         boot ? boot->label : "none",
         boot ? static_cast<unsigned long>(boot->address) : 0UL,
         boot ? static_cast<unsigned long>(boot->size) : 0UL,
-        CONFIG_ROCKET_AP_SSID,
+        self->_board ? self->_board->getWifiSsid() : "",
         self->_board ? self->_board->getWifiIpAddress() : "",
         self->_board ? self->_board->getWifiMacAddress() : "",
 #ifdef CONFIG_SECURE_BOOT
@@ -1255,7 +1255,7 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
         "\"calibration\":{\"system\":%u,\"gyro\":%u,\"accelerometer\":%u,\"magnetometer\":%u},"
         "\"orientation_deg\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"quaternion\":{\"w\":%.7f,\"x\":%.7f,\"y\":%.7f,\"z\":%.7f},"
-        "\"angular_velocity_rad_s\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
+        "\"angular_velocity_deg_s\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"linear_acceleration_m_s2\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"acceleration_m_s2\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"gravity_m_s2\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"

@@ -64,12 +64,12 @@ void TelemetryTask::onTaskStop()
 
 void TelemetryTask::taskFunction()
 {
-    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
-    const uint32_t transmitIntervalMs = runtimeConfig.telemetry.period_ms;
-    const uint32_t pollingIntervalMs = transmitIntervalMs / 10 < 10
+    RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+    uint32_t transmitIntervalMs = runtimeConfig.telemetry.period_ms;
+    uint32_t pollingIntervalMs = transmitIntervalMs / 10 < 10
         ? 10
         : transmitIntervalMs / 10;
-    const TickType_t pollingPeriod = pdMS_TO_TICKS(pollingIntervalMs);
+    TickType_t pollingPeriod = pdMS_TO_TICKS(pollingIntervalMs);
     TickType_t lastWakeTime = xTaskGetTickCount();
     LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", static_cast<unsigned long>(transmitIntervalMs));
 
@@ -80,6 +80,21 @@ void TelemetryTask::taskFunction()
         // Check early for fast exit
         if (!running)
             break;
+
+        if (runtime_config_get_flight_revision() != runtimeConfig.config_revision) {
+            const RuntimeConfig updatedConfig = runtime_config_get_flight_snapshot();
+            if (updatedConfig.telemetry.period_ms != transmitIntervalMs) {
+                transmitIntervalMs = updatedConfig.telemetry.period_ms;
+                pollingIntervalMs = transmitIntervalMs / 10 < 10
+                    ? 10
+                    : transmitIntervalMs / 10;
+                pollingPeriod = pdMS_TO_TICKS(pollingIntervalMs);
+                lastWakeTime = xTaskGetTickCount();
+                LOG_INFO("Telemetry", "Applied RuntimeConfig telemetry period: %lu ms",
+                         static_cast<unsigned long>(transmitIntervalMs));
+            }
+            runtimeConfig = updatedConfig;
+        }
 
         uint32_t now = Utils::millis();
 
@@ -165,9 +180,9 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.imu.accel_x = outBnoData.acceleration_x;
             packet.imu.accel_y = outBnoData.acceleration_y;
             packet.imu.accel_z = outBnoData.acceleration_z;
-            packet.imu.gyro_x = outBnoData.orientation_x;
-            packet.imu.gyro_y = outBnoData.orientation_y;
-            packet.imu.gyro_z = outBnoData.orientation_z;
+            packet.imu.gyro_x = outBnoData.angular_velocity_x;
+            packet.imu.gyro_y = outBnoData.angular_velocity_y;
+            packet.imu.gyro_z = outBnoData.angular_velocity_z;
         }
 
         PressureSensorData outMs56Data1;
@@ -227,7 +242,7 @@ void TelemetryTask::logSensorValues(const TelemetryPacket &packet,
     char gpsText[64] = "n/a";
 
     if (imuOk) {
-        snprintf(imuText, sizeof(imuText), "a=%.2f/%.2f/%.2f g=%.2f/%.2f/%.2f",
+        snprintf(imuText, sizeof(imuText), "a=%.2f/%.2f/%.2f gyro=%.2f/%.2f/%.2f deg/s",
                  packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z,
                  packet.imu.gyro_x, packet.imu.gyro_y, packet.imu.gyro_z);
     }

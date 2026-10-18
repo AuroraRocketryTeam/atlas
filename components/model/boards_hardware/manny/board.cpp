@@ -14,6 +14,8 @@
 
 static const char *TAG = "MannyBoard";
 static uint32_t s_softap_station_count = 0;
+static constexpr size_t WIFI_SSID_MAX_LENGTH = 32;
+static constexpr size_t WIFI_SSID_MAC_SUFFIX_LENGTH = 7; // '-' plus three MAC bytes.
 
 static void wifiEventHandler(void *, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
@@ -47,7 +49,7 @@ static void wifiEventHandler(void *, esp_event_base_t event_base, int32_t event_
  * @brief SoftAP values read from sdkconfig.
  */
 struct MannyWifiApConfig {
-    const char* ssid;
+    const char* ssid_prefix;
     const char* password;
     const char* ip;
     const char* netmask;
@@ -90,6 +92,7 @@ MannyBoard::MannyBoard()
       sta_netif(nullptr),
       ap_netif(nullptr),
       wifi_ip_address{},
+      wifi_ssid{},
       wifi_mac_address{},
       spi_handler(nullptr) {}
 
@@ -480,10 +483,23 @@ bool MannyBoard::startWifiSoftAp() {
         }
     }
 
+    uint8_t softap_mac[6] = {};
+    const esp_err_t mac_ret = esp_read_mac(softap_mac, ESP_MAC_WIFI_SOFTAP);
+    if (mac_ret == ESP_OK) {
+        const int max_prefix_length = static_cast<int>(WIFI_SSID_MAX_LENGTH - WIFI_SSID_MAC_SUFFIX_LENGTH);
+        snprintf(wifi_ssid, sizeof(wifi_ssid), "%.*s-%02X%02X%02X",
+                 max_prefix_length, cfg.ssid_prefix, softap_mac[3], softap_mac[4], softap_mac[5]);
+    } else {
+        snprintf(wifi_ssid, sizeof(wifi_ssid), "%.*s",
+                 static_cast<int>(WIFI_SSID_MAX_LENGTH), cfg.ssid_prefix);
+        LOG_WARNING(TAG, "Could not read SoftAP MAC for unique SSID: %s", esp_err_to_name(mac_ret));
+    }
+
     wifi_config_t wifi_config = {};
-    snprintf(reinterpret_cast<char *>(wifi_config.ap.ssid), sizeof(wifi_config.ap.ssid), "%s", cfg.ssid);
+    const size_t ssid_length = strnlen(wifi_ssid, WIFI_SSID_MAX_LENGTH);
+    memcpy(wifi_config.ap.ssid, wifi_ssid, ssid_length);
     snprintf(reinterpret_cast<char *>(wifi_config.ap.password), sizeof(wifi_config.ap.password), "%s", cfg.password);
-    wifi_config.ap.ssid_len = strlen(cfg.ssid);
+    wifi_config.ap.ssid_len = ssid_length;
     wifi_config.ap.channel = cfg.channel;
     wifi_config.ap.max_connection = cfg.max_connections;
     wifi_config.ap.authmode = strlen(cfg.password) == 0 ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
@@ -546,7 +562,7 @@ bool MannyBoard::startWifiSoftAp() {
                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     }
     LOG_INFO(TAG, "SoftAP started: ssid=%s ip=%s channel=%u max_sta=%u auth=%s users=%lu",
-             cfg.ssid, cfg.ip, cfg.channel, cfg.max_connections,
+             wifi_ssid, cfg.ip, cfg.channel, cfg.max_connections,
              wifi_config.ap.authmode == WIFI_AUTH_OPEN ? "open" : "wpa2-psk",
              static_cast<unsigned long>(wifi_softap_users));
     return true;
@@ -584,6 +600,10 @@ bool MannyBoard::isWifiConnected() const {
 
 const char* MannyBoard::getWifiIpAddress() const {
     return wifi_ip_address;
+}
+
+const char* MannyBoard::getWifiSsid() const {
+    return wifi_ssid;
 }
 
 const char* MannyBoard::getWifiMacAddress() const {

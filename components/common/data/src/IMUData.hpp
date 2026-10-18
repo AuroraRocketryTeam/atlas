@@ -21,7 +21,7 @@ public:
     float orientation_y = 0.0f;
     float orientation_z = 0.0f;
     
-    // Angular velocity (rad/s)
+    // Angular velocity (deg/s), matching the BNO055 native gyro output.
     float angular_velocity_x = 0.0f;
     float angular_velocity_y = 0.0f;
     float angular_velocity_z = 0.0f;

@@ -75,8 +75,8 @@ const nextReconnectDelay = delay => Math.min(delay * 2, WS_RECONNECT_MAX_MS);
 console.assert([1500, 3000, 6000, 10000].map(nextReconnectDelay).join() === '3000,6000,10000,10000',
   'WebSocket reconnect backoff check failed');
 const DEFAULT_ATTITUDE_MOUNTING = { x: '-x', y: '-y', z: '+z' };
-let attitudeMounting = loadAttitudeMounting();
-let attitudeMountingDraft = { ...attitudeMounting };
+let attitudeMounting;
+let attitudeMountingDraft;
 
 token.value = localStorage.getItem('atlas_ground_token') || '';
 
@@ -910,14 +910,40 @@ function validAttitudeMounting(mapping) {
   return attitudeMountingDeterminant(mapping) === 1;
 }
 
+function attitudeMountingKey(mapping) {
+  return ['x', 'y', 'z'].map(axis => mapping[axis]).join(',');
+}
+
+function buildSupportedAttitudeMountings() {
+  const axes = ['x', 'y', 'z'];
+  const permutations = axes.flatMap(x => axes.filter(y => y !== x).flatMap(y =>
+    axes.filter(z => z !== x && z !== y).map(z => [x, y, z])));
+  const mappings = [];
+  permutations.forEach(permutation => {
+    for (let signs = 0; signs < 8; signs++) {
+      const mapping = Object.fromEntries(axes.map((bodyAxis, index) =>
+        [bodyAxis, `${signs & (1 << index) ? '-' : '+'}${permutation[index]}`]));
+      if (validAttitudeMounting(mapping)) mappings.push(mapping);
+    }
+  });
+  return mappings.sort((a, b) => attitudeMountingKey(a).localeCompare(attitudeMountingKey(b)));
+}
+
+const SUPPORTED_ATTITUDE_MOUNTINGS = buildSupportedAttitudeMountings();
+
 function loadAttitudeMounting() {
   try {
     const stored = JSON.parse(localStorage.getItem('atlas_attitude_mounting'));
-    return validAttitudeMounting(stored) ? stored : { ...DEFAULT_ATTITUDE_MOUNTING };
+    const selected = SUPPORTED_ATTITUDE_MOUNTINGS.find(mapping =>
+      attitudeMountingKey(mapping) === attitudeMountingKey(stored));
+    return { ...(selected || DEFAULT_ATTITUDE_MOUNTING) };
   } catch (_) {
     return { ...DEFAULT_ATTITUDE_MOUNTING };
   }
 }
+
+attitudeMounting = loadAttitudeMounting();
+attitudeMountingDraft = { ...attitudeMounting };
 
 function bodyToSensor(vector, mapping = attitudeMounting) {
   const sensor = [0, 0, 0];
@@ -941,6 +967,7 @@ function attitudeGeometry(quaternion) {
   const projectXZ = ([x, , z]) => [382 + 31 * x, 76 - 31 * z];
   const projectYZ = ([, y, z]) => [382 + 31 * y, 202 - 31 * z];
   const point = value => value.map(n => n.toFixed(1)).join(',');
+  // Compose the selected body-to-sensor mounting with the sensor-to-world quaternion.
   const rotated = value => rotateByQuaternion(bodyToSensor(value), quaternion);
   const bodyAxes = [
     ['X', '#ef4444', rotated([1, 0, 0])],
@@ -993,11 +1020,13 @@ function rocketFacesSvg(faces) {
 }
 
 function attitudeAlignmentControls() {
-  const options = ['+x', '-x', '+y', '-y', '+z', '-z'];
-  return `<div class="attitude-alignment"><strong>Board mounting</strong><small>Map rocket body axes to sensor axes</small><div>${['x', 'y', 'z'].map(axis =>
-    `<label>Body ${axis.toUpperCase()}<select class="attitude-axis-map" data-body-axis="${axis}">${options.map(value =>
-      `<option value="${value}"${attitudeMountingDraft[axis] === value ? ' selected' : ''}>Sensor ${value.toUpperCase()}</option>`).join('')}</select></label>`
-  ).join('')}</div><button type="button" id="applyAttitudeAlignment">Apply alignment</button><span id="attitudeAlignmentStatus">Changes are staged until applied.</span></div>`;
+  const selectedKey = attitudeMountingKey(attitudeMountingDraft);
+  const options = SUPPORTED_ATTITUDE_MOUNTINGS.map(mapping => {
+    const key = attitudeMountingKey(mapping);
+    const label = ['x', 'y', 'z'].map(axis => `Body ${axis.toUpperCase()} → Sensor ${mapping[axis].toUpperCase()}`).join(' · ');
+    return `<option value="${key}"${key === selectedKey ? ' selected' : ''}>${label}</option>`;
+  }).join('');
+  return `<div class="attitude-alignment"><strong>Board mounting</strong><small>Select one complete right-handed body-to-sensor rotation</small><div><label>Reference-frame transformation<select class="attitude-frame-map">${options}</select></label></div><button type="button" id="applyAttitudeAlignment">Apply alignment</button><span id="attitudeAlignmentStatus">Changes are staged until applied.</span></div>`;
 }
 
 function attitudeSvg() {
@@ -1120,6 +1149,9 @@ console.assert(cameraHandednessCheck.every((value, index) => Math.abs(value - AT
 console.assert(validAttitudeMounting(DEFAULT_ATTITUDE_MOUNTING), 'Default PCB attitude mapping check failed');
 console.assert(!validAttitudeMounting({ x: '+x', y: '+y', z: '-z' }), 'Left-handed attitude mapping check failed');
 console.assert(bodyToSensor([1, 2, 3], DEFAULT_ATTITUDE_MOUNTING).join(',') === '-1,-2,3', 'Body-to-sensor axis mapping check failed');
+console.assert(SUPPORTED_ATTITUDE_MOUNTINGS.length === 24, 'Expected 24 right-handed axis-aligned frame transformations');
+console.assert(new Set(SUPPORTED_ATTITUDE_MOUNTINGS.map(attitudeMountingKey)).size === 24 &&
+  SUPPORTED_ATTITUDE_MOUNTINGS.every(validAttitudeMounting), 'Supported frame transformations must be unique proper rotations');
 requestAnimationFrame(animateAttitude);
 
 function renderLive(s) {
@@ -1137,7 +1169,7 @@ function renderLive(s) {
   const gps = sensors.gps || {};
   const imuCalibration = imu.calibration || {};
   const orientation = imu.orientation_deg || {};
-  const angularVelocity = imu.angular_velocity_rad_s || {};
+  const angularVelocity = imu.angular_velocity_deg_s || {};
   const acceleration = imu.acceleration_m_s2 || {};
   const linearAcceleration = imu.linear_acceleration_m_s2 || {};
   const gravity = imu.gravity_m_s2 || {};
@@ -1164,7 +1196,7 @@ function renderLive(s) {
       ${trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1)}
       ${trendChart('BNO055 acceleration', 'm/s2', [{ key: 'imuAx', label: 'X', color: '#ef4444' }, { key: 'imuAy', label: 'Y', color: '#22c55e' }, { key: 'imuAz', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('LIS3DHTR acceleration', 'm/s2', [{ key: 'lisAx', label: 'X', color: '#ef4444' }, { key: 'lisAy', label: 'Y', color: '#22c55e' }, { key: 'lisAz', label: 'Z', color: '#3b82f6' }], 2)}
-      ${trendChart('Angular velocity', 'rad/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}
+      ${trendChart('Angular velocity', 'deg/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('Barometer pressure', 'Pa', [{ key: 'pressure', label: 'P', color: '#a855f7' }], 1)}
       ${trendChart('GPS altitude', 'm ASL', [{ key: 'gpsAltitude', label: 'Altitude', color: '#f59e0b' }], 1)}
     </div>
@@ -1175,7 +1207,7 @@ function renderLive(s) {
         row('Euler Y / roll', `${Number(orientation.y || 0).toFixed(2)} deg`),
         row('Euler Z / pitch', `${Number(orientation.z || 0).toFixed(2)} deg`),
         row('Calibration SYS / GYR / ACC / MAG', `${imuCalibration.system || 0} / ${imuCalibration.gyro || 0} / ${imuCalibration.accelerometer || 0} / ${imuCalibration.magnetometer || 0}`),
-        row('Angular velocity', `${Number(angularVelocity.x || 0).toFixed(3)}, ${Number(angularVelocity.y || 0).toFixed(3)}, ${Number(angularVelocity.z || 0).toFixed(3)} rad/s`),
+        row('Angular velocity', `${Number(angularVelocity.x || 0).toFixed(3)}, ${Number(angularVelocity.y || 0).toFixed(3)}, ${Number(angularVelocity.z || 0).toFixed(3)} deg/s`),
         attitudeAlignmentControls()
       ].join(''))}
     </div>
@@ -1705,10 +1737,13 @@ document.addEventListener('input', event => {
 });
 document.addEventListener('change', event => {
   if (event.target.matches('[data-config]')) updateConfigDirtyState();
-  if (!event.target.classList.contains('attitude-axis-map')) return;
-  attitudeMountingDraft[event.target.dataset.bodyAxis] = event.target.value;
+  if (!event.target.classList.contains('attitude-frame-map')) return;
+  const selected = SUPPORTED_ATTITUDE_MOUNTINGS.find(mapping =>
+    attitudeMountingKey(mapping) === event.target.value);
+  if (!selected) return;
+  attitudeMountingDraft = { ...selected };
   const status = document.getElementById('attitudeAlignmentStatus');
-  if (status) status.textContent = validAttitudeMounting(attitudeMountingDraft) ? 'Right-handed mapping ready to apply.' : 'Choose a unique, right-handed axis mapping.';
+  if (status) status.textContent = 'Right-handed transformation ready to apply.';
 });
 document.addEventListener('click', event => {
   if (event.target.id !== 'applyAttitudeAlignment') return;

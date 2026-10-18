@@ -339,7 +339,7 @@ def build_flight_replay(
         if imu_temperature_time_s.size
         else None
     )
-    angular_rate = imu_vector(("avx", "avy", "avz"), "IMU angular rate", "rad/s")
+    angular_rate = imu_vector(("avx", "avy", "avz"), "IMU angular rate", "deg/s")
     magnetic_field = imu_vector(("mx", "my", "mz"), "Magnetic field", "µT")
     gravity = imu_vector(("gx", "gy", "gz"), "BNO055 gravity estimate", "m/s²")
 
@@ -689,7 +689,7 @@ def create_plots(
                 axes[3].plot(time_s, np.sqrt(sum(values**2 for values in arrays)), "--", label=f"{source}: |q|")
         plot_fields(axes[4], grouped, imu_sources, ("csys", "cgyro", "caccel", "cmag"), origin_ms)
         finish_axis(axes[0], "Euler attitude", "Angle [deg]", transitions, 0.0, end_s)
-        finish_axis(axes[1], "Angular velocity", "Angular velocity [rad/s]", transitions, 0.0, end_s)
+        finish_axis(axes[1], "Angular velocity", "Angular velocity [deg/s]", transitions, 0.0, end_s)
         finish_axis(axes[2], "Magnetometer", "Magnetic field [µT]", transitions, 0.0, end_s)
         finish_axis(axes[3], "Orientation quaternion and norm", "Quaternion", transitions, 0.0, end_s)
         finish_axis(axes[4], "IMU calibration status", "Status [0..3]", transitions, 0.0, end_s)
@@ -940,8 +940,8 @@ def create_flight_replay(data: FlightReplayData, playback_speed: float = 1.0) ->
     if data.angular_rate is not None:
         angular_rate_magnitude = np.linalg.norm(data.angular_rate.values, axis=1)
         angular_motion_axis = axis_motion.twinx()
-        angular_motion_axis.plot(data.angular_rate.time_s, angular_rate_magnitude, color="tab:orange", label="|angular rate| [rad/s]")
-        angular_motion_axis.set_ylabel("Angular rate [rad/s]")
+        angular_motion_axis.plot(data.angular_rate.time_s, angular_rate_magnitude, color="tab:orange", label="|angular rate| [deg/s]")
+        angular_motion_axis.set_ylabel("Angular rate [deg/s]")
         angular_motion_cursor = angular_motion_axis.axvline(start_s, color="0.15", linestyle=":")
     else:
         angular_rate_magnitude = None

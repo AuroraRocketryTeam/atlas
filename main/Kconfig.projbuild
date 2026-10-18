@@ -44,10 +44,11 @@ endmenu
 menu "Rocket Access Point Configuration"
 
     config ROCKET_AP_SSID
-        string "Rocket SoftAP SSID"
-        default "Aurora AP"
+        string "Rocket SoftAP SSID prefix"
+        default "AuroraAP"
         help
-            SoftAP network name advertised by the board.
+            Prefix of the SoftAP network name advertised by the board. Firmware
+            appends the last three SoftAP MAC bytes to identify each board.
             Change local values with idf.py menuconfig; ESP-IDF writes them to
             sdkconfig, which is ignored.
 

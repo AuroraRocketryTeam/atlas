@@ -162,6 +162,14 @@ bool runtime_config_is_locked();
 RuntimeConfig runtime_config_get_flight_snapshot();
 
 /**
+ * @brief Return the revision of the task-facing active/locked snapshot.
+ *
+ * Tasks can check this inexpensive scalar before copying RuntimeConfig, so a
+ * persisted Ground Services edit is applied without restarting the task.
+ */
+uint32_t runtime_config_get_flight_revision();
+
+/**
  * @brief Validate, checksum, persist, and activate a RuntimeConfig.
  *
  * The config is stored as a single NVS blob in the RuntimeConfig namespace.
