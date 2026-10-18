@@ -1007,20 +1007,33 @@ void RocketFSM::checkTransitions()
         const bool isRising       = _rocketModel->getIsRising();
         const bool maxTimeReached = elapsed >= runtimeCfg.flight.launch_to_apogee_threshold_ms;
         // Ignore all sensor apogee logic until the initial chaotic burn phase ends
+        // Persisted to the flight file (Flash + SD) so every apogee trigger and
+        // its cause can be recovered after the flight.
+        auto logApogeeTrigger = [&](const char* reason)
+        {
+            char message[96];
+            snprintf(message, sizeof(message), "Apogee triggered by %s at T+%lu ms h=%.2f m v=%.2f m/s",
+                     reason, static_cast<unsigned long>(elapsed),
+                     _rocketModel->getCurrentHeight(), _rocketModel->getHeightGainSpeed());
+            if (_logger) {
+                _logger->logInfo("RocketFSM", message);
+            }
+        };
+
         if (lockoutExpired)
         {
             if (!isRising || maxTimeReached)
             {
                 LOG_INFO("RocketFSM", "Apogee detected! Elapsed: %lu ms", elapsed);
-                _logger->logInfo("RocketFSM", "Apogee detected by algorithm");
+                logApogeeTrigger(isRising ? "max timeout" : "algorithm");
                 sendEvent(FSMEvent::APOGEE_REACHED);
             }
-        } 
+        }
         // If we somehow haven't hit the lockout but the max time elapsed, trigger anyway
         else if (maxTimeReached)
         {
             LOG_WARNING("RocketFSM", "Apogee Lockout bypassed due to absolute max time limit!");
-            _logger->logInfo("RocketFSM", "Apogee detected by max timeout");
+            logApogeeTrigger("max timeout (lockout bypassed)");
             sendEvent(FSMEvent::APOGEE_REACHED);
         }
 

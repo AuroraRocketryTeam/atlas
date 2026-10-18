@@ -5,11 +5,17 @@
 
 // Every queue slot stores a full LogPayload variant in internal RAM.
 static constexpr size_t MAX_QUEUE_LENGTH = 200;
+// A whole flight emits a few dozen events, at most a handful in one FSM tick.
+static constexpr size_t MAX_EVENT_QUEUE_LENGTH = 32;
 
 RocketLogger::RocketLogger() {
     _logQueue = xQueueCreate(MAX_QUEUE_LENGTH, sizeof(LogPayload));
     if (_logQueue == nullptr) {
         LOG_ERROR("RocketLogger", "Failed to create log queue! Insufficient heap.");
+    }
+    _eventQueue = xQueueCreate(MAX_EVENT_QUEUE_LENGTH, sizeof(SystemLog));
+    if (_eventQueue == nullptr) {
+        LOG_ERROR("RocketLogger", "Failed to create event queue! Insufficient heap.");
     }
 }
 
@@ -18,6 +24,10 @@ RocketLogger::~RocketLogger() {
         vQueueDelete(_logQueue);
         _logQueue = nullptr;
     }
+    if (_eventQueue != nullptr) {
+        vQueueDelete(_eventQueue);
+        _eventQueue = nullptr;
+    }
 }
 
 void RocketLogger::setSerializer(SerializeFunction serializeFn) {
@@ -25,8 +35,16 @@ void RocketLogger::setSerializer(SerializeFunction serializeFn) {
 }
 
 int RocketLogger::getLogCount() const {
-    if (_logQueue == nullptr) return 0;
-    return uxQueueMessagesWaiting(_logQueue); 
+    int count = getEventCount();
+    if (_logQueue != nullptr) {
+        count += uxQueueMessagesWaiting(_logQueue);
+    }
+    return count;
+}
+
+int RocketLogger::getEventCount() const {
+    if (_eventQueue == nullptr) return 0;
+    return uxQueueMessagesWaiting(_eventQueue);
 }
 
 uint32_t RocketLogger::getDroppedCount() const {
@@ -34,6 +52,11 @@ uint32_t RocketLogger::getDroppedCount() const {
 }
 
 void RocketLogger::pushToQueue(const LogPayload& payload) {
+    if (const SystemLog* event = std::get_if<SystemLog>(&payload)) {
+        pushEvent(*event);
+        return;
+    }
+
     if (_logQueue == nullptr) return;
 
     // Timeout is 0 (pdMS_TO_TICKS(0)) to ensure the caller NEVER blocks.
@@ -46,6 +69,22 @@ void RocketLogger::pushToQueue(const LogPayload& payload) {
             _dropped.fetch_add(1, std::memory_order_relaxed);
         }
         if (xQueueSend(_logQueue, &payload, 0) != pdTRUE) { // Insert newest
+            _dropped.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+}
+
+void RocketLogger::pushEvent(const SystemLog& event) {
+    if (_eventQueue == nullptr) return;
+
+    // Same never-block, drop-oldest policy as sensor data, but on a queue that
+    // only events share, so it fills only if storage stalls for a long time.
+    if (xQueueSend(_eventQueue, &event, 0) == errQUEUE_FULL) {
+        SystemLog dummy;
+        if (xQueueReceive(_eventQueue, &dummy, 0) == pdTRUE) {
+            _dropped.fetch_add(1, std::memory_order_relaxed);
+        }
+        if (xQueueSend(_eventQueue, &event, 0) != pdTRUE) {
             _dropped.fetch_add(1, std::memory_order_relaxed);
         }
     }
@@ -83,10 +122,13 @@ void RocketLogger::clearData() {
     if (_logQueue != nullptr) {
         xQueueReset(_logQueue); 
     }
+    if (_eventQueue != nullptr) {
+        xQueueReset(_eventQueue);
+    }
 }
 
 size_t RocketLogger::consumeBatch(uint8_t* outBuffer, size_t bufferCapacity) {
-    if (_logQueue == nullptr) {
+    if (_logQueue == nullptr || _eventQueue == nullptr) {
         LOG_ERROR("RocketLogger", "consumeBatch failed: Log queue is not initialized!\n");
         return 0;
     }
@@ -100,28 +142,37 @@ size_t RocketLogger::consumeBatch(uint8_t* outBuffer, size_t bufferCapacity) {
     }
 
     size_t currentOffset = 0;
-    LogPayload payload;
 
-    while (uxQueueMessagesWaiting(_logQueue) > 0) {
-        if (xQueueReceive(_logQueue, &payload, 0) == pdTRUE) {
-            // serializeFn dynamically evaluates size and writes if it fits
-            bool success = _serializeFn(payload, outBuffer, bufferCapacity, currentOffset);
-
-            if (!success) {
-                // It didn't fit in the remaining space
-                if (currentOffset == 0) {
-                    // Deadlock prevention: It's larger than the entire 4096-byte buffer!
-                    LOG_ERROR("RocketLogger", "CRITICAL: LogPayload exceeds total buffer capacity! Discarding.\n");
-                    continue; 
-                } else {
-                    // Normal behavior: Batch is full. Put payload back for the next cycle.
-                    if (xQueueSendToFront(_logQueue, &payload, 0) != pdTRUE) {
-                        LOG_ERROR("RocketLogger", "CRITICAL: Failed to return payload to front of queue!\n");
-                    }
-                    break;
-                }
+    // Serializes queued items into outBuffer. Returns false once the batch is full.
+    auto drainQueue = [&](QueueHandle_t queue, auto& item) -> bool {
+        while (uxQueueMessagesWaiting(queue) > 0) {
+            if (xQueueReceive(queue, &item, 0) != pdTRUE) {
+                continue;
             }
+            // serializeFn dynamically evaluates size and writes if it fits
+            if (_serializeFn(LogPayload{item}, outBuffer, bufferCapacity, currentOffset)) {
+                continue;
+            }
+            if (currentOffset == 0) {
+                // Deadlock prevention: It's larger than the entire 4096-byte buffer!
+                LOG_ERROR("RocketLogger", "CRITICAL: LogPayload exceeds total buffer capacity! Discarding.\n");
+                continue;
+            }
+            // Normal behavior: Batch is full. Put payload back for the next cycle.
+            if (xQueueSendToFront(queue, &item, 0) != pdTRUE) {
+                LOG_ERROR("RocketLogger", "CRITICAL: Failed to return payload to front of queue!\n");
+            }
+            return false;
         }
+        return true;
+    };
+
+    // Events first: they are rare and must reach storage even when sensor data
+    // is backed up.
+    SystemLog event;
+    LogPayload payload;
+    if (drainQueue(_eventQueue, event)) {
+        drainQueue(_logQueue, payload);
     }
 
     return currentOffset;

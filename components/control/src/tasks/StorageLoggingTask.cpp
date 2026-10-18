@@ -132,10 +132,13 @@ void StorageLoggingTask::taskFunction() {
             lastStatsTicks = currentTicks;
         }
 
-        // We write if we have leftover data, OR if data is getting stale, OR if we have "enough" logs waiting
+        // We write if we have leftover data, OR if data is getting stale, OR if we have "enough" logs waiting,
+        // OR if a system event (apogee, deployment, transition) is waiting: those are persisted right away.
+        const bool eventPending = logger && logger->getEventCount() > 0;
         bool shouldWrite = (pendingBytesToWrite > 0) || 
                         (timeoutReached && currentLogCount > 0) ||
-                        (currentLogCount >= BATCH_ENTRY_THRESHOLD);
+                        (currentLogCount >= BATCH_ENTRY_THRESHOLD) ||
+                        eventPending;
 
         // Execute Write
         if (shouldWrite && running && telemetryFilename[0] != '\0') {
