@@ -41,7 +41,7 @@ struct TelemetryPacket
     struct
     {
         float accel_x, accel_y, accel_z; ///< Accelerometer (m/s²)
-        float gyro_x, gyro_y, gyro_z;    ///< Gyroscope / angular velocity (rad/s)
+        float gyro_x, gyro_y, gyro_z;    ///< Gyroscope / angular velocity (deg/s)
     } imu;
 
     struct

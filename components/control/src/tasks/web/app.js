@@ -1169,7 +1169,7 @@ function renderLive(s) {
   const gps = sensors.gps || {};
   const imuCalibration = imu.calibration || {};
   const orientation = imu.orientation_deg || {};
-  const angularVelocity = imu.angular_velocity_rad_s || {};
+  const angularVelocity = imu.angular_velocity_deg_s || {};
   const acceleration = imu.acceleration_m_s2 || {};
   const linearAcceleration = imu.linear_acceleration_m_s2 || {};
   const gravity = imu.gravity_m_s2 || {};
@@ -1196,7 +1196,7 @@ function renderLive(s) {
       ${trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1)}
       ${trendChart('BNO055 acceleration', 'm/s2', [{ key: 'imuAx', label: 'X', color: '#ef4444' }, { key: 'imuAy', label: 'Y', color: '#22c55e' }, { key: 'imuAz', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('LIS3DHTR acceleration', 'm/s2', [{ key: 'lisAx', label: 'X', color: '#ef4444' }, { key: 'lisAy', label: 'Y', color: '#22c55e' }, { key: 'lisAz', label: 'Z', color: '#3b82f6' }], 2)}
-      ${trendChart('Angular velocity', 'rad/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}
+      ${trendChart('Angular velocity', 'deg/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('Barometer pressure', 'Pa', [{ key: 'pressure', label: 'P', color: '#a855f7' }], 1)}
       ${trendChart('GPS altitude', 'm ASL', [{ key: 'gpsAltitude', label: 'Altitude', color: '#f59e0b' }], 1)}
     </div>
@@ -1207,7 +1207,7 @@ function renderLive(s) {
         row('Euler Y / roll', `${Number(orientation.y || 0).toFixed(2)} deg`),
         row('Euler Z / pitch', `${Number(orientation.z || 0).toFixed(2)} deg`),
         row('Calibration SYS / GYR / ACC / MAG', `${imuCalibration.system || 0} / ${imuCalibration.gyro || 0} / ${imuCalibration.accelerometer || 0} / ${imuCalibration.magnetometer || 0}`),
-        row('Angular velocity', `${Number(angularVelocity.x || 0).toFixed(3)}, ${Number(angularVelocity.y || 0).toFixed(3)}, ${Number(angularVelocity.z || 0).toFixed(3)} rad/s`),
+        row('Angular velocity', `${Number(angularVelocity.x || 0).toFixed(3)}, ${Number(angularVelocity.y || 0).toFixed(3)}, ${Number(angularVelocity.z || 0).toFixed(3)} deg/s`),
         attitudeAlignmentControls()
       ].join(''))}
     </div>

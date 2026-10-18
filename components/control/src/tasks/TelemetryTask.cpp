@@ -180,9 +180,9 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.imu.accel_x = outBnoData.acceleration_x;
             packet.imu.accel_y = outBnoData.acceleration_y;
             packet.imu.accel_z = outBnoData.acceleration_z;
-            packet.imu.gyro_x = outBnoData.orientation_x;
-            packet.imu.gyro_y = outBnoData.orientation_y;
-            packet.imu.gyro_z = outBnoData.orientation_z;
+            packet.imu.gyro_x = outBnoData.angular_velocity_x;
+            packet.imu.gyro_y = outBnoData.angular_velocity_y;
+            packet.imu.gyro_z = outBnoData.angular_velocity_z;
         }
 
         PressureSensorData outMs56Data1;
@@ -242,7 +242,7 @@ void TelemetryTask::logSensorValues(const TelemetryPacket &packet,
     char gpsText[64] = "n/a";
 
     if (imuOk) {
-        snprintf(imuText, sizeof(imuText), "a=%.2f/%.2f/%.2f g=%.2f/%.2f/%.2f",
+        snprintf(imuText, sizeof(imuText), "a=%.2f/%.2f/%.2f gyro=%.2f/%.2f/%.2f deg/s",
                  packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z,
                  packet.imu.gyro_x, packet.imu.gyro_y, packet.imu.gyro_z);
     }

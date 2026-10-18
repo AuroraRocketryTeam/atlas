@@ -1254,7 +1254,7 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
         "\"calibration\":{\"system\":%u,\"gyro\":%u,\"accelerometer\":%u,\"magnetometer\":%u},"
         "\"orientation_deg\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"quaternion\":{\"w\":%.7f,\"x\":%.7f,\"y\":%.7f,\"z\":%.7f},"
-        "\"angular_velocity_rad_s\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
+        "\"angular_velocity_deg_s\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"linear_acceleration_m_s2\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"acceleration_m_s2\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"gravity_m_s2\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
