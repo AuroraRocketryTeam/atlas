@@ -20,8 +20,8 @@ void AltitudeTask::taskFunction()
 
     uint32_t lastTimestamp = 0;
     uint32_t altitudeLogSampleCounter = 0;
-    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
-    const TickType_t taskPeriod = pdMS_TO_TICKS(static_cast<uint32_t>(1000.0f / runtimeConfig.altitude.apogee_sample_rate_hz));
+    RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+    TickType_t taskPeriod = pdMS_TO_TICKS(static_cast<uint32_t>(1000.0f / runtimeConfig.altitude.apogee_sample_rate_hz));
     TickType_t lastWakeTime = xTaskGetTickCount();
     apogeeDetector.configure(runtimeConfig.altitude.apogee_window_size,
                              runtimeConfig.altitude.apogee_trigger_velocity_mps,
@@ -34,6 +34,41 @@ void AltitudeTask::taskFunction()
     {
         esp_task_wdt_reset();
         if(!running) break;
+
+        if (runtime_config_get_flight_revision() != runtimeConfig.config_revision) {
+            const RuntimeConfig updatedConfig = runtime_config_get_flight_snapshot();
+            const bool filterChanged =
+                updatedConfig.altitude.filter_window != runtimeConfig.altitude.filter_window;
+            const bool barometerChanged =
+                updatedConfig.altitude.selected_barometer != runtimeConfig.altitude.selected_barometer;
+            const bool detectorChanged = filterChanged || barometerChanged ||
+                updatedConfig.altitude.apogee_window_size != runtimeConfig.altitude.apogee_window_size ||
+                updatedConfig.altitude.apogee_trigger_velocity_mps != runtimeConfig.altitude.apogee_trigger_velocity_mps ||
+                updatedConfig.altitude.apogee_confirmation_windows != runtimeConfig.altitude.apogee_confirmation_windows ||
+                updatedConfig.mission.sea_level_pressure_hpa != runtimeConfig.mission.sea_level_pressure_hpa ||
+                updatedConfig.mission.launch_site_altitude_m != runtimeConfig.mission.launch_site_altitude_m;
+            const bool periodChanged =
+                updatedConfig.altitude.apogee_sample_rate_hz != runtimeConfig.altitude.apogee_sample_rate_hz;
+
+            runtimeConfig = updatedConfig;
+            if (filterChanged || barometerChanged) pressureFilter.reset();
+            if (barometerChanged) {
+                lastTimestamp = 0;
+                lastValidPressure = -1.0f;
+            }
+            if (detectorChanged) {
+                apogeeDetector.configure(runtimeConfig.altitude.apogee_window_size,
+                                         runtimeConfig.altitude.apogee_trigger_velocity_mps,
+                                         runtimeConfig.altitude.apogee_confirmation_windows);
+                _max_altitude_read = -1000.0f;
+            }
+            if (periodChanged) {
+                taskPeriod = pdMS_TO_TICKS(static_cast<uint32_t>(1000.0f / runtimeConfig.altitude.apogee_sample_rate_hz));
+                lastWakeTime = xTaskGetTickCount();
+            }
+            LOG_INFO("AltitudeTask", "Applied RuntimeConfig revision %lu",
+                     static_cast<unsigned long>(runtimeConfig.config_revision));
+        }
 
         PressureSensorData baroData;
         SensorReadStatus baro_status = runtimeConfig.altitude.selected_barometer == 1

@@ -508,6 +508,16 @@ RuntimeConfig runtime_config_get_flight_snapshot()
     return snapshot;
 }
 
+uint32_t runtime_config_get_flight_revision()
+{
+    portENTER_CRITICAL(&s_config_mux);
+    const uint32_t revision = s_flight_snapshot_valid
+        ? s_flight_snapshot.config_revision
+        : (s_loaded ? s_active_config.config_revision : 0);
+    portEXIT_CRITICAL(&s_config_mux);
+    return revision;
+}
+
 /**
  * @brief Restore config.h-backed defaults unless the config is locked.
  */
