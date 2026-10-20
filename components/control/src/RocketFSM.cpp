@@ -440,7 +440,9 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ready", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        //.addTask(TaskConfig(TaskType::STORAGE, "Storage_Ready", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
+        // Recording starts with the arming because if we turn it on
+        // only at LAUNCH it will need to consume the logQueue and fall behind.
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Ready", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Ready", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask((TaskConfig(TaskType::TELEMETRY, "Telemetry_Ready", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true)))

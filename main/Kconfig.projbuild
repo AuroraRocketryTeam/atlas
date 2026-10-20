@@ -28,6 +28,33 @@ menu "Atlas Configuration"
 
 endmenu
 
+menu "Telemetry link"
+
+    choice TELEMETRY_LINK
+        prompt "Which device to use for telemetry"
+        default TELEMETRY_LINK_E220
+        help
+            If no devices are connected leave as-is.
+            At startup, if the telemetry doesn't respond the task will be skipped.
+
+        config TELEMETRY_LINK_E220
+            bool "LoRa module E220 on J7"
+
+        config TELEMETRY_LINK_ANTENNA_BOARD
+            bool "Antenna board over SPI on J4"
+    endchoice
+
+    config ANTENNA_LINK_COMMAND_POLL_MS
+        int "Ask the antenna board for commands between packets, every so many ms. 0 to never ask"
+        default 0
+        range 0 2000
+        depends on TELEMETRY_LINK_ANTENNA_BOARD
+        help
+            A command already travels back with the answer to the telemetry, so
+            at zero it waits at most one telemetry period.
+
+endmenu
+
 menu "Ground Services Configuration"
 
     config GROUND_SERVICES_AUTH_TOKEN

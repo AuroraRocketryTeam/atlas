@@ -1,7 +1,14 @@
 #include "BuzzerController.hpp"
+#include "SerialLogger.hpp"
+#include <driver/ledc.h>
 
-BuzzerController::BuzzerController(gpio_num_t buzzerPin)
-    : buzzerPin(buzzerPin), buzzerTaskHandle(nullptr)
+static constexpr ledc_mode_t      LEDC_MODE            = LEDC_LOW_SPEED_MODE;
+static constexpr ledc_timer_bit_t TONE_DUTY_RESOLUTION = LEDC_TIMER_10_BIT;
+// maximum volume is half of the range (10 bit), which is 512.
+static constexpr uint32_t         TONE_DUTY_HALF       = 512;
+
+BuzzerController::BuzzerController(gpio_num_t buzzerPin, ledc_timer_t timer, ledc_channel_t channel)
+    : buzzerPin(buzzerPin), timer(timer), channel(channel), buzzerTaskHandle(nullptr)
 {
 }
 
@@ -12,12 +19,36 @@ BuzzerController::~BuzzerController()
 
 void BuzzerController::init()
 {
-    // Configure buzzer pin if valid
-    if (buzzerPin > 0)
+    if (buzzerPin <= 0) return;
+
+    ledc_timer_config_t timerConfig = {};
+    timerConfig.speed_mode      = LEDC_MODE;
+    timerConfig.duty_resolution = TONE_DUTY_RESOLUTION;
+    timerConfig.timer_num       = timer;
+    timerConfig.freq_hz         = TONE_MID;
+    timerConfig.clk_cfg         = LEDC_AUTO_CLK;
+    if (ledc_timer_config(&timerConfig) != ESP_OK)
     {
-        // pinMode(buzzerPin, OUTPUT);
-        stopTone();
+        LOG_ERROR("Buzzer", "LEDC timer config failed");
+        return;
     }
+
+    ledc_channel_config_t channelConfig = {};
+    channelConfig.gpio_num   = buzzerPin;
+    channelConfig.speed_mode = LEDC_MODE;
+    channelConfig.channel    = channel;
+    channelConfig.intr_type  = LEDC_INTR_DISABLE;
+    channelConfig.timer_sel  = timer;
+    channelConfig.duty       = 0;
+    channelConfig.hpoint     = 0;
+    if (ledc_channel_config(&channelConfig) != ESP_OK)
+    {
+        LOG_ERROR("Buzzer", "LEDC channel config failed");
+        return;
+    }
+
+    initialized = true;
+    stopTone();
 }
 
 void BuzzerController::startPattern(BuzzerPattern pattern, BuzzerTone baseTone)
@@ -70,18 +101,20 @@ void BuzzerController::stopPattern()
 
 void BuzzerController::playToneFreq(uint16_t frequency)
 {
-    if (buzzerPin == 0 || frequency == 0)
-        return;
+    if (!initialized || frequency == 0) return;
 
-    //::tone(buzzerPin, frequency);
+    // The note is the frequency of the timer
+    ledc_set_freq(LEDC_MODE, timer, frequency);
+    ledc_set_duty(LEDC_MODE, channel, TONE_DUTY_HALF);
+    ledc_update_duty(LEDC_MODE, channel);
 }
 
 void BuzzerController::stopTone()
 {
-    if (buzzerPin > 0)
-    {
-        //::noTone(buzzerPin);
-    }
+    if (!initialized) return;
+
+    ledc_set_duty(LEDC_MODE, channel, 0);
+    ledc_update_duty(LEDC_MODE, channel);
 }
 
 void BuzzerController::playTone(BuzzerTone frequency, uint16_t duration)

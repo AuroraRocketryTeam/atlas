@@ -1,6 +1,3 @@
-// TODO: LoRa E220 init uses Arduino Serial in this library.
-// Will be replaced with ESP-IDF UART (uart_driver_install / uart_write_bytes).
-
 #include "TaskManager.hpp"
 #include "esp_system.h"
 #include <config.h>
@@ -22,20 +19,8 @@ TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
 {
     LOG_INFO("TaskMgr", "Initialized with model");
 
-    // Initialize and configure LoRa transmitter
-    // Serial1 is used by GPS, so LoRa uses Serial2
-    _loraTransmitter = std::make_shared<E220LoRaTransmitter>(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN, MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
-
-    auto loraInit = _loraTransmitter->init(E220LoRaTransmitter::defaultConfiguration());
-    if (loraInit.getCode() == E220_SUCCESS)
-    {
-        LOG_INFO("TaskMgr", "LoRa E220 initialized and configured successfully");
-    }
-    else
-    {
-        LOG_ERROR("TaskMgr", "LoRa E220 init failed: %s", loraInit.getDescription().c_str());
-        _loraTransmitter = nullptr; // disable LoRa if init failed
-    }
+    // Handles both choosing the link and checking its availability.
+    _loraTransmitter = createTelemetryLink();
 }
 
 TaskManager::~TaskManager()
@@ -80,14 +65,15 @@ void TaskManager::initializeTasks()
 
     // Create TelemetryTask with the LoRa transmitter
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
-    auto telemetryTask = std::make_unique<TelemetryTask>(
-        _rocketModel,
-        _fsm);
     if (_loraTransmitter)
     {
+        auto telemetryTask = std::make_unique<TelemetryTask>(
+            _rocketModel,
+            _fsm);
         telemetryTask->setLoRaTransmitter(_loraTransmitter);
+        _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
     }
-    _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
+    else LOG_INFO("TaskManager", "Telemetry link unavailable. Skipping telemetry task");
 
     _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
         _rocketModel,
@@ -106,14 +92,16 @@ void TaskManager::initializeTasks()
 bool TaskManager::startTask(TaskType type, const TaskConfig &config)
 {
     LOG_INFO("TaskManager", "Starting task type %d with config: %s",
-             static_cast<int>(type), config.name);
+            static_cast<int>(type), config.name);
 
-    // Check if task exists
+    // If we don't find a task of the requested type
+    // the hardware is not available on this board,
+    // so return true.
     auto it = _tasks.find(type);
     if (it == _tasks.end())
     {
-        LOG_ERROR("TaskManager", "ERROR: Task type %d not found", static_cast<int>(type));
-        return false;
+        LOG_WARNING("TaskManager", "Task %s not available on this board, skipped", config.name);
+        return true;
     }
 
     // Check if already running
@@ -150,7 +138,7 @@ void TaskManager::stopTask(TaskType type)
 {
     if (_tasks.find(type) == _tasks.end())
     {
-        LOG_WARNING("TaskManager", "Task type %d not found", static_cast<int>(type));
+        LOG_WARNING("TaskManager", "Not stopping task type %d: not found", static_cast<int>(type));
         return;
     }
 

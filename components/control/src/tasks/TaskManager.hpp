@@ -24,7 +24,7 @@
 #include "TelemetryTask.hpp"
 #include "AltitudeTask.hpp"
 #include "GroundServicesTask.hpp"
-#include <E220LoRaTransmitter.hpp>
+#include <TelemetryLink.hpp>
 #include <IBoardHardware.hpp>
 
 class IGroundTestRunner;
@@ -135,7 +135,7 @@ private:
 
     std::shared_ptr<SD> _sd;
     // Telemetry
-    std::shared_ptr<E220LoRaTransmitter> _loraTransmitter = nullptr;
+    std::shared_ptr<TelemetryLink> _loraTransmitter = nullptr;
 
     IStateMachine* _fsm;
     IBoardHardware* _board;

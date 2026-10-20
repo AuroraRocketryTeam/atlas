@@ -60,8 +60,12 @@
 static Board board;
 
 // Create controller instances
-static LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
-static BuzzerController buzzerController(board.get_buzzer_pin());
+static LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(),
+                                   board.get_rgb_blue_pin(),
+                                   {MANNY_RGB_LEDC_TIMER, MANNY_RGB_LEDC_RED,
+                                    MANNY_RGB_LEDC_GREEN, MANNY_RGB_LEDC_BLUE});
+static BuzzerController buzzerController(board.get_buzzer_pin(),
+                                         MANNY_BUZZER_LEDC_TIMER, MANNY_BUZZER_LEDC_CH);
 static StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
@@ -126,8 +130,6 @@ void setupHil()
 
     // Signal initialization start
     board.init();
-    gpio_set_level(board.get_rgb_blue_pin(), LOW);
-    gpio_set_level(board.get_rgb_red_pin(), HIGH);
 
     // Initialize controllers
     ledController.init();
@@ -212,7 +214,7 @@ void setupHil()
     LOG_INFO("Main", "=== System initialization complete ===");
 
     // Wait for arming pin to be enabled before starting FSM
-    statusManager.setSystemCode(PRE_FLIGHT_MODE);
+    statusManager.setFlightPhase(RocketState::INACTIVE);
     while (!board.is_armed())
     {
         LOG_WARNING("Main", "System not armed! Waiting for arming signal...");
@@ -222,11 +224,6 @@ void setupHil()
     createAndStartFSM();
 
     statusManager.setSystemCode(FLIGHT_MODE);
-
-    // Signal successful initialization
-    gpio_set_level(board.get_rgb_red_pin(), 0);
-    gpio_set_level(board.get_rgb_green_pin(), 1);
-
     confirmOtaImageIfPending();
 
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
@@ -252,7 +249,6 @@ void loopHil()
     static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
     static unsigned long lastStateLog = 0;
-    static bool ledState = false;
     if (!rocketFSM)
     {
         vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -266,8 +262,6 @@ void loopHil()
     {
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
         lastHeartbeat = Utils::realMillis();
-        ledState = !ledState;
-        gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
         LOG_INFO("Main", "Free heap: %u bytes", esp_get_free_heap_size());
         const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;

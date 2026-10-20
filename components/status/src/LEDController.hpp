@@ -1,5 +1,6 @@
 #pragma once
 #include "soc/gpio_num.h"
+#include <driver/ledc.h>
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -16,6 +17,17 @@ enum LEDColor
     ART_LED_MAGENTA,
     ART_LED_WHITE,
     ART_LED_ORANGE // Simulated with PWM values
+};
+
+/**
+ * @brief The LEDC timer and channels, assigned in BoardHardware
+ */
+struct RgbLedcSlots
+{
+    ledc_timer_t timer;
+    ledc_channel_t red;
+    ledc_channel_t green;
+    ledc_channel_t blue;
 };
 
 // LED pattern definition
@@ -37,6 +49,7 @@ class LEDController
 {
 private:
     // LED pins
+    RgbLedcSlots slots;
     gpio_num_t redPin;
     gpio_num_t greenPin;
     gpio_num_t bluePin;
@@ -48,6 +61,9 @@ private:
     // Current active pattern
     TaskHandle_t ledTaskHandle;
 
+    // If we don't have the PWM we refuse to control the LED
+    bool initialized = false;
+
     // Internal task context structure
     struct TaskContext
     {
@@ -57,6 +73,9 @@ private:
 
     // RGB LED control
     void setRGB(uint8_t r, uint8_t g, uint8_t b);
+
+    // Write one channel and apply it.
+    void setChannelDuty(ledc_channel_t channel, uint8_t duty);
 
     // Status LEDs control
     void setStatusLeds(uint8_t mask);
@@ -69,7 +88,7 @@ private:
 
 public:
     // Constructor & Destructor
-    LEDController(gpio_num_t redPin, gpio_num_t greenPin, gpio_num_t bluePin);
+    LEDController(gpio_num_t redPin, gpio_num_t greenPin, gpio_num_t bluePin, RgbLedcSlots slots);
     ~LEDController();
 
     // Add additional status LEDs

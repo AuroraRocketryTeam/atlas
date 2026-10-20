@@ -214,8 +214,6 @@ void TestRoutine::webTestTaskEntry(void* arg)
 
 bool TestRoutine::runSingleTestById(int id)
 {
-    showTestPattern(id);
-
     switch (id)
     {
     case 1:  return testPowerAndLEDs();
@@ -331,28 +329,6 @@ bool TestRoutine::waitForUserInput(const char* message)
     }
 }
 
-void TestRoutine::showTestPattern(int testNumber)
-{
-    switch (testNumber)
-    {
-    case 1:  _statusManager.playBlockingPattern(TEST_POWER,     1000); break;
-    case 2:  _statusManager.playBlockingPattern(TEST_SENSORS,   1000); break;
-    case 3:  _statusManager.playBlockingPattern(TEST_ACTUATORS, 1000); break;
-    case 4:  _statusManager.playBlockingPattern(TEST_SD,        1000); break;
-    case 5:  _statusManager.playBlockingPattern(TEST_SENSORS,   1000); break;
-    case 6:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    case 7:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    case 8:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    case 9:  _statusManager.playBlockingPattern(TEST_SD,        1000); break;
-    case 10: _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    // Flash utilities and IMU calibration have no pattern. Ids 1-10 above are
-    // shared by the serial menu and the Ground Services test ids; the higher
-    // numbers differ between the two, so no pattern is mapped for them.
-    // "Run all" plays TEST_ALL from run() itself.
-    default: break;
-    }
-}
-
 bool TestRoutine::testPowerAndLEDs()
 {
     LOG_INFO("Test", "\n[STEP 1] Verifica alimentazione e LED di stato");
@@ -440,14 +416,12 @@ bool TestRoutine::testActuators()
 {
     LOG_INFO("Test", "[STEP 3] Test attuatori");
     LOG_INFO("Test", "Attivazione attuatori per 5 secondi...");
-    _statusManager.playBlockingPattern(TEST_ACTUATORS, 500);
     gpio_set_level(_board.get_drogue_actuator_pin(), HIGH);
     gpio_set_level(_board.get_main_actuator_pin(),   HIGH);
     _buzzerController.playTone(TONE_MID, 1000);
     vTaskDelay(pdMS_TO_TICKS(5000));
 
     LOG_INFO("Test", "Spegnimento attuatori...");
-    _statusManager.playBlockingPattern(TEST_ACTUATORS, 500);
     gpio_set_level(_board.get_drogue_actuator_pin(), LOW);
     gpio_set_level(_board.get_main_actuator_pin(),   LOW);
     _buzzerController.playTone(TONE_MID, 1000);
@@ -756,13 +730,12 @@ bool TestRoutine::dumpFlashJsonFiles()
 bool TestRoutine::testTelemetry()
 {
     LOG_INFO("Test", "[STEP 6] Test telemetria");
-    _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
 
     E220LoRaTransmitter lora(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN,
                              MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
 
     auto initResult = lora.init();
-    if (initResult.getCode() != E220_SUCCESS) {
+    if (!initResult.isOk()) {
         LOG_ERROR("Test", "LoRa init fallita: %s", initResult.getDescription().c_str());
         return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
     }
@@ -771,7 +744,7 @@ bool TestRoutine::testTelemetry()
     for (int i = 1; i <= 3; i++) {
         std::string payload = "LORA_TEST_" + std::to_string(i);
         auto result = lora.transmit(payload);
-        if (result.getCode() == E220_SUCCESS)
+        if (result.isOk())
             LOG_INFO("Test", "Pacchetto %d inviato.", i);
         else
             LOG_ERROR("Test", "Invio pacchetto %d fallito: %s", i, result.getDescription().c_str());
@@ -784,13 +757,12 @@ bool TestRoutine::testTelemetry()
 bool TestRoutine::testTelemetryCommand()
 {
     LOG_INFO("Test", "[STEP 11] Test ricezione comando LoRa (timeout 30s)");
-    _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
 
     E220LoRaTransmitter lora(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN,
                              MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
 
     auto initResult = lora.init();
-    if (initResult.getCode() != E220_SUCCESS) {
+    if (!initResult.isOk()) {
         LOG_ERROR("Test", "LoRa init fallita: %s", initResult.getDescription().c_str());
         return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
     }
@@ -1043,8 +1015,6 @@ void TestRoutine::run()
         }
         int choice = std::atoi(input.c_str());
 
-        showTestPattern(choice);
-
         if (choice >= 0 && choice <= numTests + 1) {
             // ── Exit ──────────────────────────
             if (choice == 0) {
@@ -1066,8 +1036,6 @@ void TestRoutine::run()
             // excluding I2C scan, E220 configuration/connector and flash utilities
             else
             {
-                _statusManager.playBlockingPattern(TEST_ALL, 2000);
-
                 for (const auto& test : tests) {
                     // check if the test should run
                     if (test.run_all_flag)

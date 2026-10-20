@@ -1,8 +1,9 @@
 #pragma once
 #include "soc/gpio_num.h"
-#include <Arduino.h>
+#include <driver/ledc.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <cstdint>
 
 // Buzzer tones (frequencies in Hz)
 enum BuzzerTone
@@ -49,6 +50,12 @@ private:
     // Buzzer pin
     gpio_num_t buzzerPin;
 
+    // The LEDC timer and channel this board reserved for the buzzer. A timer of
+    // its own is not a luxury: setting a note means setting the frequency.
+    ledc_timer_t timer;
+    ledc_channel_t channel;
+    bool initialized = false;
+
     // Current active pattern
     TaskHandle_t buzzerTaskHandle;
 
@@ -68,7 +75,7 @@ private:
 
 public:
     // Constructor & Destructor
-    BuzzerController(gpio_num_t buzzerPin);
+    BuzzerController(gpio_num_t buzzerPin, ledc_timer_t timer, ledc_channel_t channel);
     ~BuzzerController();
 
     // Initialize pins

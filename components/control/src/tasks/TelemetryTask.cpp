@@ -50,7 +50,7 @@ void TelemetryTask::onTaskStart()
     s_loraLastSuccessMs.store(0, std::memory_order_relaxed);
 }
 
-void TelemetryTask::setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter)
+void TelemetryTask::setLoRaTransmitter(std::shared_ptr<TelemetryLink> transmitter)
 {
     _loraTransmitter = std::move(transmitter);
     s_loraAvailable.store(_loraTransmitter != nullptr, std::memory_order_release);
@@ -103,8 +103,8 @@ void TelemetryTask::taskFunction()
         {
             _lastTransmitTime = now;
 
-            // Poll LoRa RX before building the packet so any received command
-            // is reflected in last_ack_command_id within the same TX cycle.
+            // Read what the last transmission brought back before building the
+            // packet, so a command is acknowledged within the same cycle.
             if (_loraTransmitter && running)
                 pollLoRaRx();
 
@@ -123,7 +123,7 @@ void TelemetryTask::taskFunction()
                 if (_loraTransmitter && running)
                 {
                     auto result = _loraTransmitter->transmit(message);
-                    if (result.getCode() == E220_SUCCESS)
+                    if (result.isOk())
                     {
                         s_loraSuccessfulMessages.fetch_add(1, std::memory_order_relaxed);
                         s_loraLastSuccessMs.store(now, std::memory_order_release);
@@ -180,9 +180,19 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.imu.accel_x = outBnoData.acceleration_x;
             packet.imu.accel_y = outBnoData.acceleration_y;
             packet.imu.accel_z = outBnoData.acceleration_z;
+            packet.imu.orientation_x = outBnoData.orientation_x;
+            packet.imu.orientation_y = outBnoData.orientation_y;
+            packet.imu.orientation_z = outBnoData.orientation_z;
+            packet.imu.linear_accel_x = outBnoData.linear_acceleration_x;
+            packet.imu.linear_accel_y = outBnoData.linear_acceleration_y;
+            packet.imu.linear_accel_z = outBnoData.linear_acceleration_z;
             packet.imu.gyro_x = outBnoData.angular_velocity_x;
             packet.imu.gyro_y = outBnoData.angular_velocity_y;
             packet.imu.gyro_z = outBnoData.angular_velocity_z;
+            packet.imu.calib_sys = outBnoData.calibration_sys;
+            packet.imu.calib_gyro = outBnoData.calibration_gyro;
+            packet.imu.calib_accel = outBnoData.calibration_accel;
+            packet.imu.calib_mag = outBnoData.calibration_mag;
         }
 
         PressureSensorData outMs56Data1;
@@ -236,15 +246,19 @@ void TelemetryTask::logSensorValues(const TelemetryPacket &packet,
     const bool baro2Ok = baro2Status == SensorReadStatus::OK;
     const bool gpsOk = gpsStatus == SensorReadStatus::OK;
 
-    char imuText[80] = "n/a";
+    char imuText[160] = "n/a";
     char baro1Text[64] = "n/a";
     char baro2Text[64] = "n/a";
     char gpsText[64] = "n/a";
 
     if (imuOk) {
-        snprintf(imuText, sizeof(imuText), "a=%.2f/%.2f/%.2f gyro=%.2f/%.2f/%.2f deg/s",
+        snprintf(imuText, sizeof(imuText),
+                 "a=%.2f/%.2f/%.2f att=%.1f/%.1f/%.1f lin=%.2f/%.2f/%.2f gyro=%.1f/%.1f/%.1f deg/s calib=%u%u%u%u",
                  packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z,
-                 packet.imu.gyro_x, packet.imu.gyro_y, packet.imu.gyro_z);
+                 packet.imu.orientation_x, packet.imu.orientation_y, packet.imu.orientation_z,
+                 packet.imu.linear_accel_x, packet.imu.linear_accel_y, packet.imu.linear_accel_z,
+                 packet.imu.gyro_x, packet.imu.gyro_y, packet.imu.gyro_z,
+                 packet.imu.calib_sys, packet.imu.calib_gyro, packet.imu.calib_accel, packet.imu.calib_mag);
     }
     if (baro1Ok) {
         snprintf(baro1Text, sizeof(baro1Text), "%.1fPa %.2fC alt=%.2fm",
