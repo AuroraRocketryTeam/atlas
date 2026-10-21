@@ -954,6 +954,15 @@ function bodyToSensor(vector, mapping = attitudeMounting) {
   return sensor;
 }
 
+function sensorToBody(vector, mapping = attitudeMounting) {
+  // A valid mounting is an orthogonal rotation: its inverse is its transpose.
+  return ['x', 'y', 'z'].map((_, axis) => {
+    const unit = [0, 0, 0];
+    unit[axis] = 1;
+    return bodyToSensor(unit, mapping).reduce((sum, value, i) => sum + value * vector[i], 0);
+  });
+}
+
 function attitudeGeometry(quaternion) {
   const cameraForward = ATTITUDE_CAMERA_FORWARD;
   const cameraRight = ATTITUDE_CAMERA_RIGHT;
@@ -1019,14 +1028,41 @@ function rocketFacesSvg(faces) {
   return faces.map(face => `<polygon points="${face.points}" class="${face.kind}"/>`).join('');
 }
 
+function mountingPreview(mapping) {
+  const projectBody = body => [140 + 48 * (body[0] - body[1]), 95 + 25 * (body[0] + body[1]) - 48 * body[2]];
+  const project = sensorVector => projectBody(sensorToBody(sensorVector, mapping));
+  const corners = [[-1, -.55, 0], [1, -.55, 0], [1, .55, 0], [-1, .55, 0]];
+  const polygon = corners.map(point => project(point).join(',')).join(' ');
+  const axis = (vector, label, color) => {
+    const end = project(vector);
+    const center = project([0, 0, 0]);
+    return `<line x1="${center[0]}" y1="${center[1]}" x2="${end[0]}" y2="${end[1]}" stroke="${color}" stroke-width="3"/><text x="${end[0] + 4}" y="${end[1] - 4}" fill="${color}">${label}</text>`;
+  };
+  return `<svg viewBox="0 0 290 195" role="img" aria-label="Board mounting preview, rocket nose is body plus Z">
+    <line x1="140" y1="172" x2="140" y2="18" stroke="#718b99" stroke-width="2" stroke-dasharray="5 4"/>
+    <text x="148" y="25" fill="#718b99">NOSE +Z</text>
+    <polygon points="${polygon}" fill="#294857" stroke="#a9c0ca" stroke-width="2"/>
+    ${axis([1.3, 0, 0], '+X IMU', '#ef4444')}
+    ${axis([0, 1.1, 0], '+Y IMU', '#22c55e')}
+    ${axis([0, 0, 1.0], '+Z IMU', '#38bdf8')}
+  </svg><small>Rocket: +Z nose · +Y rail · +X completes right-handed frame</small>`;
+}
+
+function selectAttitudeMounting(index) {
+  const count = SUPPORTED_ATTITUDE_MOUNTINGS.length;
+  attitudeMountingDraft = { ...SUPPORTED_ATTITUDE_MOUNTINGS[(index + count) % count] };
+  document.querySelector('.attitude-frame-map').value = attitudeMountingKey(attitudeMountingDraft);
+  document.getElementById('mountingPreview').innerHTML = mountingPreview(attitudeMountingDraft);
+}
+
 function attitudeAlignmentControls() {
   const selectedKey = attitudeMountingKey(attitudeMountingDraft);
-  const options = SUPPORTED_ATTITUDE_MOUNTINGS.map(mapping => {
+  const options = SUPPORTED_ATTITUDE_MOUNTINGS.map((mapping, index) => {
     const key = attitudeMountingKey(mapping);
     const label = ['x', 'y', 'z'].map(axis => `Body ${axis.toUpperCase()} → Sensor ${mapping[axis].toUpperCase()}`).join(' · ');
-    return `<option value="${key}"${key === selectedKey ? ' selected' : ''}>${label}</option>`;
+    return `<option value="${key}"${key === selectedKey ? ' selected' : ''}>${index + 1}/24 · ${label}</option>`;
   }).join('');
-  return `<div class="attitude-alignment"><strong>Board mounting</strong><small>Select one complete right-handed body-to-sensor rotation</small><div><label>Reference-frame transformation<select class="attitude-frame-map">${options}</select></label></div><button type="button" id="applyAttitudeAlignment">Apply alignment</button><span id="attitudeAlignmentStatus">Changes are staged until applied.</span></div>`;
+  return `<div class="attitude-alignment"><strong>Board mounting</strong><small>Visualization only; raw IMU records are unchanged.</small><div id="mountingPreview">${mountingPreview(attitudeMountingDraft)}</div><div><label>Reference-frame transformation<select class="attitude-frame-map">${options}</select></label></div><div class="mounting-navigation"><button type="button" data-mounting-step="-1">← Previous</button><button type="button" data-mounting-step="1">Next →</button></div><button type="button" id="applyAttitudeAlignment">Apply alignment</button><span id="attitudeAlignmentStatus">Changes are staged until applied.</span></div>`;
 }
 
 function attitudeSvg() {
@@ -1175,6 +1211,8 @@ function renderLive(s) {
   const linearAcceleration = imu.linear_acceleration_m_s2 || {};
   const gravity = imu.gravity_m_s2 || {};
   const magnetometer = imu.magnetometer_ut || {};
+  const bodyVector = vector => sensorToBody(['x', 'y', 'z'].map(axis => Number(vector[axis]) || 0));
+  const fmtVector = (vector, digits) => vector.map(value => value.toFixed(digits)).join(', ');
   const lora = ((s.telemetry || {}).lora || {});
   const loraTxPulse = performance.now() < loRaTxPulseUntil;
   addLiveHistorySample({
@@ -1219,6 +1257,9 @@ function renderLive(s) {
     <div class="sensor-grid">
       ${sensorCard('IMU', imu, [
         ['Acceleration', `${Number(acceleration.x || 0).toFixed(3)}, ${Number(acceleration.y || 0).toFixed(3)}, ${Number(acceleration.z || 0).toFixed(3)} m/s2`],
+        ['Rocket-frame acceleration', `${fmtVector(bodyVector(acceleration), 3)} m/s2`],
+        ['Rocket-frame angular rate', `${fmtVector(bodyVector(angularVelocity), 3)} deg/s`],
+        ['Rocket-frame magnetic field', `${fmtVector(bodyVector(magnetometer), 2)} uT`],
         ...(fusionAvailable ? [
           ['Linear acceleration', `${Number(linearAcceleration.x || 0).toFixed(3)}, ${Number(linearAcceleration.y || 0).toFixed(3)}, ${Number(linearAcceleration.z || 0).toFixed(3)} m/s2`],
           ['Gravity', `${Number(gravity.x || 0).toFixed(3)}, ${Number(gravity.y || 0).toFixed(3)}, ${Number(gravity.z || 0).toFixed(3)} m/s2`]
@@ -1746,14 +1787,22 @@ document.addEventListener('input', event => {
 document.addEventListener('change', event => {
   if (event.target.matches('[data-config]')) updateConfigDirtyState();
   if (!event.target.classList.contains('attitude-frame-map')) return;
-  const selected = SUPPORTED_ATTITUDE_MOUNTINGS.find(mapping =>
+  const index = SUPPORTED_ATTITUDE_MOUNTINGS.findIndex(mapping =>
     attitudeMountingKey(mapping) === event.target.value);
-  if (!selected) return;
-  attitudeMountingDraft = { ...selected };
+  if (index < 0) return;
+  selectAttitudeMounting(index);
   const status = document.getElementById('attitudeAlignmentStatus');
   if (status) status.textContent = 'Right-handed transformation ready to apply.';
 });
 document.addEventListener('click', event => {
+  const step = event.target.closest('[data-mounting-step]');
+  if (step) {
+    const index = SUPPORTED_ATTITUDE_MOUNTINGS.findIndex(mapping =>
+      attitudeMountingKey(mapping) === attitudeMountingKey(attitudeMountingDraft));
+    selectAttitudeMounting(index + Number(step.dataset.mountingStep));
+    step.blur(); // Let Live Data resume updating after the button click.
+    return;
+  }
   if (event.target.id !== 'applyAttitudeAlignment') return;
   const status = document.getElementById('attitudeAlignmentStatus');
   if (!validAttitudeMounting(attitudeMountingDraft)) {
@@ -1763,6 +1812,7 @@ document.addEventListener('click', event => {
   attitudeMounting = { ...attitudeMountingDraft };
   localStorage.setItem('atlas_attitude_mounting', JSON.stringify(attitudeMounting));
   if (status) status.textContent = 'Saved in this browser.';
+  event.target.blur();
 });
 
 setInterval(() => runPoll('live', !otaUploadActive && !document.getElementById('live').classList.contains('hidden') && (!liveSocket || liveSocket.readyState !== WebSocket.OPEN), loadLive), 1000);

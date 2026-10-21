@@ -492,6 +492,9 @@ main {
 .attitude-alignment label { color: var(--muted); font-size: 11px; }
 .attitude-alignment select { width: 100%; margin-top: 3px; padding: 6px; }
 .attitude-alignment button { width: 100%; margin-top: 9px; padding: 7px; }
+#mountingPreview svg { display: block; width: min(100%, 290px); }
+.attitude-alignment .mounting-navigation { display: flex; gap: 8px; }
+.mounting-navigation button { flex: 1; }
 .metrics div {
   padding: 14px;
   background: var(--panel);
