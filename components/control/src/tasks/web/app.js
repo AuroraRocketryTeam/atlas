@@ -1462,9 +1462,10 @@ async function saveConfig() {
 }
 
 async function resetConfig() {
+  if (!window.confirm('Replace the current RuntimeConfig with firmware defaults and save them to NVS? Unsaved edits and current configuration values will be replaced.')) return;
   const s = await api('/api/config/reset-defaults', { method: 'POST' });
   document.getElementById('configStatus').textContent = JSON.stringify(s, null, 2);
-  loadConfig();
+  if (s.ok) loadConfig();
 }
 
 async function unlockConfig() {
