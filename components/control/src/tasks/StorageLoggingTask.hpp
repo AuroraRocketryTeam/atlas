@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstring>
+#include <atomic>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include "BaseTask.hpp"
@@ -34,6 +35,9 @@ public:
     /** Prepare and persist the next free filename before RuntimeConfig is locked. */
     bool prepareTelemetryFilename();
 
+    static bool tryBeginFileOperation();
+    static void endFileOperation();
+
 protected:
     void taskFunction() override;
 
@@ -41,6 +45,7 @@ private:
     std::shared_ptr<RocketModel> rocketModel;
     std::shared_ptr<RocketLogger> logger;
     bool storageInitialized = false;
+    static std::atomic_bool fileOperationBusy;
 
     static constexpr size_t TELEMETRY_FILENAME_SIZE = 40;
     char telemetryFilename[TELEMETRY_FILENAME_SIZE] = {};

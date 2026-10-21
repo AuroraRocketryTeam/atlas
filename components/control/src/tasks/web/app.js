@@ -33,6 +33,7 @@ let runtimeValidation = { items: [] };
 let persistedConfigSignature = '';
 let configDirty = false;
 let selectedFile = null;
+let deletingAllFiles = false;
 let latestStatus = null;
 let sdkconfigText = null;
 let sdkconfigLoading = false;
@@ -310,6 +311,7 @@ function fmtMs(ms) {
 }
 
 async function loadFiles() {
+  if (deletingAllFiles) return;
   const content = document.getElementById('filesContent');
   const status = document.getElementById('filesStatus');
   content.innerHTML = '<p>Loading files…</p>';
@@ -322,7 +324,7 @@ async function loadFiles() {
   const files = result.files || [];
   content.innerHTML = files.length ? `<div class="config-table-wrap"><table class="config-table file-table">
     <thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>
-    <tbody>${files.map(file => `<tr><td><strong>${esc(file.name)}</strong>${file.latest ? ' <em class="badge latest">Latest</em>' : ''}</td><td>${esc(fmtBytes(file.size))}</td><td>
+    <tbody>${files.map(file => `<tr><td><strong>${esc(file.name)}</strong>${file.latest ? ' <em class="badge latest">LATEST</em>' : ''}</td><td>${esc(fmtBytes(file.size))}</td><td>
       <button type="button" data-file-download="${esc(file.name)}">Download</button>
       <button type="button" class="danger-action" data-file-delete="${esc(file.name)}">Delete</button>
     </td></tr>`).join('')}</tbody></table></div>` : '<p>No stored files.</p>';
@@ -351,6 +353,7 @@ async function downloadStoredFile(name) {
 }
 
 async function deleteStoredFile(name) {
+  if (deletingAllFiles) return;
   if (window.prompt(`Type DELETE to permanently remove ${name}`) !== 'DELETE') return;
   const path = `/api/files?name=${encodeURIComponent(name)}`;
   const result = await api(path, { method: 'DELETE', headers: { 'X-Confirm': 'DELETE_FILE' } });
@@ -358,6 +361,51 @@ async function deleteStoredFile(name) {
   status.classList.remove('hidden');
   status.textContent = result.ok ? `Deleted ${name}` : `Delete failed: ${result.error || 'unknown error'}`;
   if (result.ok) loadFiles();
+}
+
+async function deleteAllStoredFiles() {
+  if (deletingAllFiles || window.prompt('Permanently delete ALL flight telemetry files? This cannot be undone.\n\nType DELETE ALL to continue.') !== 'DELETE ALL') return;
+  deletingAllFiles = true;
+  const button = document.getElementById('deleteAllFiles');
+  const status = document.getElementById('filesStatus');
+  button.disabled = true;
+  status.classList.remove('hidden');
+  const attempted = new Set();
+  const failures = [];
+  let deleted = 0;
+  try {
+    // The backend lists a bounded page; deletions expose later entries.
+    while (true) {
+      const listing = await api('/api/files');
+      if (!listing.ok) throw new Error(listing.error || 'Unable to list remaining files');
+      const pending = (listing.files || []).filter(file =>
+        /^flight_telemetry_\d+\.jsonl$/.test(file.name) && !attempted.has(file.name));
+      if (!pending.length) {
+        if ((listing.files || []).length >= 128) {
+          failures.push('The file list reached its 128-entry limit; some flight files may remain.');
+        }
+        break;
+      }
+      for (const file of pending) {
+        attempted.add(file.name);
+        status.textContent = `Deleting ${file.name}… (${deleted} deleted)`;
+        const result = await api(`/api/files?name=${encodeURIComponent(file.name)}`, {
+          method: 'DELETE', headers: { 'X-Confirm': 'DELETE_FILE' }
+        });
+        if (result.ok) deleted++;
+        else failures.push(`${file.name}: ${result.error || 'delete failed'}`);
+      }
+    }
+  } catch (error) {
+    failures.push(error.message || String(error));
+  } finally {
+    deletingAllFiles = false;
+    button.disabled = false;
+    await loadFiles();
+    status.classList.remove('hidden');
+    status.textContent = `${deleted} flight file(s) deleted.` +
+      (failures.length ? ` Some files remain.\nFailures:\n${failures.join('\n')}` : '');
+  }
 }
 
 function showActionStatus(value) {
@@ -1742,6 +1790,7 @@ drop.addEventListener('drop', event => {
 });
 document.getElementById('upload').addEventListener('click', uploadFirmware);
 document.getElementById('refreshFiles').addEventListener('click', loadFiles);
+document.getElementById('deleteAllFiles').addEventListener('click', deleteAllStoredFiles);
 document.getElementById('filesContent').addEventListener('click', event => {
   const download = event.target.closest('[data-file-download]');
   if (download) downloadStoredFile(download.dataset.fileDownload);

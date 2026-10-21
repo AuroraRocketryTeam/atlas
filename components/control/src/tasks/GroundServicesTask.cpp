@@ -1971,7 +1971,8 @@ esp_err_t GroundServicesTask::filesListGetHandler(httpd_req_t *req)
     }
 
     auto *files = reinterpret_cast<StorageFileInfo *>(s_responseBuffer);
-    constexpr size_t MAX_LISTED_FILES = 32;
+    constexpr size_t MAX_LISTED_FILES = 128;
+    static_assert(sizeof(StorageFileInfo) * MAX_LISTED_FILES <= RESPONSE_BUFFER_SIZE);
     for (size_t i = 0; i < MAX_LISTED_FILES; ++i) new (&files[i]) StorageFileInfo{};
     const ssize_t listedCount = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
     if (listedCount < 0) {
@@ -2081,9 +2082,43 @@ esp_err_t GroundServicesTask::fileDeleteHandler(httpd_req_t *req)
     if (!getSafeFileName(req, name, sizeof(name))) {
         return sendErrorJson(req, "400 Bad Request", "invalid file name");
     }
-    if (!self || !self->_rocketModel || !self->_rocketModel->storageDeleteFile(name)) {
+    const size_t nameLength = strlen(name);
+    constexpr char PREFIX[] = "flight_telemetry_";
+    constexpr char SUFFIX[] = ".jsonl";
+    if (nameLength <= sizeof(PREFIX) + sizeof(SUFFIX) - 2 ||
+        strncmp(name, PREFIX, sizeof(PREFIX) - 1) != 0 ||
+        strcmp(name + nameLength - (sizeof(SUFFIX) - 1), SUFFIX) != 0) {
+        return sendErrorJson(req, "400 Bad Request", "only flight telemetry files may be deleted");
+    }
+    for (size_t i = sizeof(PREFIX) - 1; i < nameLength - (sizeof(SUFFIX) - 1); ++i) {
+        if (!std::isdigit(static_cast<unsigned char>(name[i]))) {
+            return sendErrorJson(req, "400 Bad Request", "invalid flight telemetry filename");
+        }
+    }
+    if (!self || !self->_fsm || self->_fsm->getCurrentState() != RocketState::GROUND_SERVICES) {
+        return sendErrorJson(req, "409 Conflict", "file deletion is available only in Ground Services");
+    }
+    // This excludes the narrow race between an HTTP delete and FSM arming.
+    if (!StorageLoggingTask::tryBeginFileOperation()) {
+        return sendErrorJson(req, "409 Conflict", "flight file operation in progress");
+    }
+    if (self->_fsm->getCurrentState() != RocketState::GROUND_SERVICES) {
+        StorageLoggingTask::endFileOperation();
+        return sendErrorJson(req, "409 Conflict", "flight file is no longer available for deletion");
+    }
+    const bool deleted = self->_rocketModel && self->_rocketModel->storageDeleteFile(name);
+    if (!deleted) {
+        StorageLoggingTask::endFileOperation();
         return sendErrorJson(req, "404 Not Found", "file not found");
     }
+    RuntimeConfig config;
+    if (runtime_config_get(&config) == ESP_OK &&
+        strcmp(name, config.storage_logging.last_flight_filename) == 0 &&
+        runtime_config_record_flight_files(config.storage_logging.flight_filename, "") != ESP_OK) {
+        StorageLoggingTask::endFileOperation();
+        return sendErrorJson(req, "500 Internal Server Error", "file deleted but latest marker could not be cleared");
+    }
+    StorageLoggingTask::endFileOperation();
     return sendJson(req, "200 OK", "{\"ok\":true}");
 }
 

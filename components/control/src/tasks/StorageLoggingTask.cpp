@@ -3,6 +3,8 @@
 #include "esp_task_wdt.h"
 #include <cstdio>
 
+std::atomic_bool StorageLoggingTask::fileOperationBusy{false};
+
 StorageLoggingTask::StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
                        std::shared_ptr<RocketLogger> logger)
     : BaseTask("StorageLoggingTask"),
@@ -21,6 +23,15 @@ StorageLoggingTask::StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
 
 StorageLoggingTask::~StorageLoggingTask() {
     stop();
+}
+
+bool StorageLoggingTask::tryBeginFileOperation() {
+    bool expected = false;
+    return fileOperationBusy.compare_exchange_strong(expected, true);
+}
+
+void StorageLoggingTask::endFileOperation() {
+    fileOperationBusy.store(false);
 }
 
 bool StorageLoggingTask::prepareTelemetryFilename() {

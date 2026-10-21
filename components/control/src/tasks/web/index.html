@@ -152,7 +152,10 @@
               <h2>Files</h2>
               <p>Stored flight logs. Downloads are streamed by the device.</p>
             </div>
-            <button id="refreshFiles" type="button">Refresh</button>
+            <div class="actions">
+              <button id="refreshFiles" type="button">Refresh</button>
+              <button id="deleteAllFiles" type="button" class="danger-action">Delete All Files</button>
+            </div>
           </div>
           <div id="filesContent"></div>
           <pre id="filesStatus" class="status-box hidden"></pre>

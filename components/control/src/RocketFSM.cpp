@@ -801,22 +801,31 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
         return;
     }
 
-    if (_currentState == RocketState::GROUND_SERVICES && eventData.event == FSMEvent::START_READY_FOR_LAUNCH)
+    const bool preparingReady = _currentState == RocketState::GROUND_SERVICES &&
+                                eventData.event == FSMEvent::START_READY_FOR_LAUNCH;
+    if (preparingReady)
     {
         char reason[128] = {};
+        if (!StorageLoggingTask::tryBeginFileOperation()) {
+            LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: file operation in progress");
+            return;
+        }
         if (!_taskManager || !_taskManager->prepareStorageLogging())
         {
             LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: flight recorder filename is not prepared");
+            StorageLoggingTask::endFileOperation();
             return;
         }
         if (runtime_config_lock_for_flight(reason, sizeof(reason)) != ESP_OK)
         {
             LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: config lock failed: %s", reason);
+            StorageLoggingTask::endFileOperation();
             return;
         }
     }
 
     transitionTo(newState.value());
+    if (preparingReady) StorageLoggingTask::endFileOperation();
 }
 
 void RocketFSM::checkTransitions()
