@@ -1973,7 +1973,11 @@ esp_err_t GroundServicesTask::filesListGetHandler(httpd_req_t *req)
     auto *files = reinterpret_cast<StorageFileInfo *>(s_responseBuffer);
     constexpr size_t MAX_LISTED_FILES = 32;
     for (size_t i = 0; i < MAX_LISTED_FILES; ++i) new (&files[i]) StorageFileInfo{};
-    size_t count = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
+    const ssize_t listedCount = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
+    if (listedCount < 0) {
+        return sendErrorJson(req, "503 Service Unavailable", "unable to list files");
+    }
+    size_t count = static_cast<size_t>(listedCount);
     RuntimeConfig config;
     char latestFile[40] = {};
     if (runtime_config_get(&config) == ESP_OK) {

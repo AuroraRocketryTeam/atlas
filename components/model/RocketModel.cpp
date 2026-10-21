@@ -487,15 +487,15 @@ bool RocketModel::storageAppendFile(const char* filename, const uint8_t* data, s
     return false;
 }
 
-size_t RocketModel::storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs) {
-    if (files == nullptr || capacity == 0) return 0;
-    if (!_storageMutex) { reportMissingMutex("storageListFiles"); return 0; }
+ssize_t RocketModel::storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs) {
+    if (files == nullptr || capacity == 0) return -1;
+    if (!_storageMutex) { reportMissingMutex("storageListFiles"); return -1; }
     if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
-        const size_t count = (_storage && _storage->isInitialized()) ? _storage->listFiles(files, capacity) : 0;
+        const ssize_t count = (_storage && _storage->isInitialized()) ? _storage->listFiles(files, capacity) : -1;
         xSemaphoreGive(_storageMutex);
         return count;
     }
-    return 0;
+    return -1;
 }
 
 bool RocketModel::storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
