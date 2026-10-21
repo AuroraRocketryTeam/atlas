@@ -1101,10 +1101,10 @@ void RocketFSM::checkTransitions()
             const float verticalVelocity = _rocketModel->getHeightGainSpeed();
             const bool velocityStable = velocityFresh && std::isfinite(verticalVelocity) &&
                                         std::fabs(verticalVelocity) <=
-                                            runtimeCfg.flight_transitions.touchdown_velocity_threshold_mps;
+                                            runtimeCfg.flight_transitions.landing_vertical_velocity_threshold;
             const bool accelerationStable = imuFresh && std::isfinite(accMag) &&
                                             std::fabs(accMag - GRAVITY) <=
-                                                runtimeCfg.flight_transitions.touchdown_accel_tolerance_mps2;
+                                                runtimeCfg.flight_transitions.landing_acceleration_threshold;
 
             if (velocityStable && accelerationStable)
             {

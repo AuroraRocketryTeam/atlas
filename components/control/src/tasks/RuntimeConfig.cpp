@@ -91,8 +91,8 @@ static RuntimeConfig make_default_config()
     cfg.actuators.pulse_count = 3;
     cfg.actuators.pulse_duration_ms = 3;
     cfg.flight_transitions.burnout_velocity_drop_mps = 5.0f;
-    cfg.flight_transitions.touchdown_velocity_threshold_mps = 2.0f;
-    cfg.flight_transitions.touchdown_accel_tolerance_mps2 = 2.0f;
+    cfg.flight_transitions.landing_vertical_velocity_threshold = 2.0f;
+    cfg.flight_transitions.landing_acceleration_threshold = 2.0f;
     cfg.flight_transitions.landing_stability_ms = 2000;
     cfg.config_locked = false;
     return cfg;
@@ -277,15 +277,15 @@ esp_err_t runtime_config_validate_each(const RuntimeConfig *cfg, RuntimeConfigVa
         cfg->flight_transitions.burnout_velocity_drop_mps > 100.0f) {
         error("flight.burnout_velocity_drop_mps", "Burnout velocity drop must be between 0.5 and 100 m/s");
     }
-    if (!std::isfinite(cfg->flight_transitions.touchdown_velocity_threshold_mps) ||
-        cfg->flight_transitions.touchdown_velocity_threshold_mps < 0.1f ||
-        cfg->flight_transitions.touchdown_velocity_threshold_mps > 20.0f) {
-        error("flight.touchdown_velocity_threshold_mps", "Touchdown velocity threshold must be between 0.1 and 20 m/s");
+    if (!std::isfinite(cfg->flight_transitions.landing_vertical_velocity_threshold) ||
+        cfg->flight_transitions.landing_vertical_velocity_threshold < 0.1f ||
+        cfg->flight_transitions.landing_vertical_velocity_threshold > 20.0f) {
+        error("flight.landing_vertical_velocity_threshold", "Landing barometric vertical-speed limit must be between 0.1 and 20 m/s");
     }
-    if (!std::isfinite(cfg->flight_transitions.touchdown_accel_tolerance_mps2) ||
-        cfg->flight_transitions.touchdown_accel_tolerance_mps2 < 0.1f ||
-        cfg->flight_transitions.touchdown_accel_tolerance_mps2 > 20.0f) {
-        error("flight.touchdown_accel_tolerance_mps2", "Touchdown acceleration tolerance must be between 0.1 and 20 m/s^2");
+    if (!std::isfinite(cfg->flight_transitions.landing_acceleration_threshold) ||
+        cfg->flight_transitions.landing_acceleration_threshold < 0.1f ||
+        cfg->flight_transitions.landing_acceleration_threshold > 20.0f) {
+        error("flight.landing_acceleration_threshold", "Landing IMU acceleration tolerance must be between 0.1 and 20 m/s^2");
     }
     if (cfg->flight_transitions.landing_stability_ms < 500 ||
         cfg->flight_transitions.landing_stability_ms > 30000) {
@@ -659,8 +659,11 @@ esp_err_t runtime_config_update_from_json(const char *json, RuntimeConfig *updat
     if (json_update_uint_if_present(json, "launch_to_apogee_threshold_ms", &cfg.flight.launch_to_apogee_threshold_ms) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "touchdown_altitude_threshold_m", &cfg.flight.touchdown_altitude_threshold_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "burnout_velocity_drop_mps", &cfg.flight_transitions.burnout_velocity_drop_mps) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    if (json_update_float_if_present(json, "touchdown_velocity_threshold_mps", &cfg.flight_transitions.touchdown_velocity_threshold_mps) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    if (json_update_float_if_present(json, "touchdown_accel_tolerance_mps2", &cfg.flight_transitions.touchdown_accel_tolerance_mps2) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    // Accept old dashboard/API payloads; the new names take precedence if both are present.
+    if (json_update_float_if_present(json, "touchdown_velocity_threshold_mps", &cfg.flight_transitions.landing_vertical_velocity_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "touchdown_accel_tolerance_mps2", &cfg.flight_transitions.landing_acceleration_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "landing_vertical_velocity_threshold", &cfg.flight_transitions.landing_vertical_velocity_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "landing_acceleration_threshold", &cfg.flight_transitions.landing_acceleration_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_uint_if_present(json, "landing_stability_ms", &cfg.flight_transitions.landing_stability_ms) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "airbrakes_open_altitude_m", &cfg.airbrakes.open_altitude_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "airbrakes_close_altitude_m", &cfg.airbrakes.close_altitude_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
@@ -729,8 +732,8 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         "\"main_altitude_threshold_m\":%.3f,"
         "\"launch_to_ballistic_threshold_ms\":%lu,\"launch_to_apogee_threshold_ms\":%lu,"
         "\"touchdown_altitude_threshold_m\":%.3f,"
-        "\"burnout_velocity_drop_mps\":%.3f,\"touchdown_velocity_threshold_mps\":%.3f,"
-        "\"touchdown_accel_tolerance_mps2\":%.3f,\"landing_stability_ms\":%lu,"
+        "\"burnout_velocity_drop_mps\":%.3f,\"landing_vertical_velocity_threshold\":%.3f,"
+        "\"landing_acceleration_threshold\":%.3f,\"landing_stability_ms\":%lu,"
         "\"telemetry_period_ms\":%lu,"
         "\"airbrakes_open_altitude_m\":%.3f,\"airbrakes_close_altitude_m\":%.3f,"
         "\"airbrakes_open_rate_per_s\":%.3f,\"airbrakes_close_rate_per_s\":%.3f,"
@@ -763,8 +766,8 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         static_cast<unsigned long>(cfg->flight.launch_to_apogee_threshold_ms),
         static_cast<double>(cfg->flight.touchdown_altitude_threshold_m),
         static_cast<double>(cfg->flight_transitions.burnout_velocity_drop_mps),
-        static_cast<double>(cfg->flight_transitions.touchdown_velocity_threshold_mps),
-        static_cast<double>(cfg->flight_transitions.touchdown_accel_tolerance_mps2),
+        static_cast<double>(cfg->flight_transitions.landing_vertical_velocity_threshold),
+        static_cast<double>(cfg->flight_transitions.landing_acceleration_threshold),
         static_cast<unsigned long>(cfg->flight_transitions.landing_stability_ms),
         static_cast<unsigned long>(cfg->telemetry.period_ms),
         static_cast<double>(cfg->airbrakes.open_altitude_m),
@@ -823,8 +826,8 @@ esp_err_t runtime_config_schema_json(char *out, size_t out_size)
         "{\"key\":\"launch_to_apogee_threshold_ms\",\"label\":\"Launch-to-apogee timeout\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":true,\"locked_after_ready\":true,\"min\":1,\"max\":300000,\"description\":\"Maximum time to apogee detection.\"},"
         "{\"key\":\"main_altitude_threshold_m\",\"label\":\"Main deployment altitude\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true,\"min\":50,\"max\":1000,\"description\":\"Altitude below which the main parachute may deploy.\"},"
         "{\"key\":\"touchdown_altitude_threshold_m\",\"label\":\"Touchdown altitude threshold\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true,\"min\":0,\"max\":200,\"description\":\"Altitude threshold used by touchdown logic.\"},"
-        "{\"key\":\"touchdown_velocity_threshold_mps\",\"label\":\"Touchdown velocity threshold\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.1,\"max\":20,\"description\":\"Maximum absolute vertical velocity considered stationary.\"},"
-        "{\"key\":\"touchdown_accel_tolerance_mps2\",\"label\":\"Touchdown acceleration tolerance\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s^2\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.1,\"max\":20,\"description\":\"Allowed acceleration-magnitude difference from gravity while stationary.\"},"
+        "{\"key\":\"landing_vertical_velocity_threshold\",\"label\":\"Landing vertical-speed limit (barometer)\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.1,\"max\":20,\"description\":\"Maximum absolute barometric vertical speed; must remain below this limit with IMU stability for the configured duration.\"},"
+        "{\"key\":\"landing_acceleration_threshold\",\"label\":\"Landing acceleration tolerance (IMU)\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s^2\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.1,\"max\":20,\"description\":\"Maximum deviation of IMU acceleration magnitude from 9.81 m/s^2; must remain below this limit with barometric stability for the configured duration.\"},"
         "{\"key\":\"landing_stability_ms\",\"label\":\"Landing stability time\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":true,\"locked_after_ready\":true,\"min\":500,\"max\":30000,\"description\":\"Continuous stable time required before recovery.\"},"
         "{\"key\":\"telemetry_period_ms\",\"label\":\"Telemetry period\",\"group\":\"Telemetry\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":false,\"min\":100,\"max\":10000,\"description\":\"Telemetry transmit interval.\"},"
         "{\"key\":\"flight_log_filename\",\"label\":\"Incumbent flight file\",\"group\":\"Flight Recorder\",\"source\":\"RuntimeConfig / NVS\",\"editable\":false,\"description\":\"Filename prepared at boot for the next recording.\"},"
