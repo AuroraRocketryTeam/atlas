@@ -1250,7 +1250,7 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
     int written = snprintf(body, body_size,
         "{\"ok\":true,\"fsm_state\":\"%s\",\"calibration\":{\"imu\":%s,\"barometer\":%s,\"barometer_samples\":%d},"
         "\"flight\":{\"height_m\":%.3f,\"vertical_speed_mps\":%.3f,\"is_rising\":%s},"
-        "\"sensors\":{\"imu\":{\"status\":\"%s\","
+        "\"sensors\":{\"imu\":{\"status\":\"%s\",\"fusion_available\":%s,"
         "\"calibration\":{\"system\":%u,\"gyro\":%u,\"accelerometer\":%u,\"magnetometer\":%u},"
         "\"orientation_deg\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"quaternion\":{\"w\":%.7f,\"x\":%.7f,\"y\":%.7f,\"z\":%.7f},"
@@ -1272,6 +1272,11 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
         static_cast<double>(_rocketModel ? _rocketModel->getHeightGainSpeed() : 0.0f),
         _rocketModel && _rocketModel->getIsRising() ? "true" : "false",
         sensorStatusToString(imuStatus),
+#if AURORA_HIL_ENABLED
+        imuStatus == SensorReadStatus::OK ? "true" : "false",
+#else
+        "false", // Physical BNO055 runs in AMG mode, which has no fusion outputs.
+#endif
         imu.calibration_sys, imu.calibration_gyro, imu.calibration_accel, imu.calibration_mag,
         static_cast<double>(imu.orientation_x), static_cast<double>(imu.orientation_y), static_cast<double>(imu.orientation_z),
         imu.quaternion_w, imu.quaternion_x, imu.quaternion_y, imu.quaternion_z,

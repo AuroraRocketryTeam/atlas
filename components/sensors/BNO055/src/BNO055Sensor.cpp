@@ -21,7 +21,7 @@ bool BNO055Sensor::init()
             // Auto-load calibration from NVS
             loadCalibrationFromNVS();
 
-            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_NDOF /* BNO055_OPERATION_MODE_NDOF BNO055_OPERATION_MODE_ACCONLY */ )) {
+            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_AMG)) {
                 initialized = true;
                 break;
             } else {
@@ -66,20 +66,16 @@ bool BNO055Sensor::updateData()
     _data.calibration_accel = _burst_data.calib_accel;
     _data.calibration_mag = _burst_data.calib_mag;
 
-    // Map orientation (Euler angles)
-    _data.orientation_x = _burst_data.euler[0];
-    _data.orientation_y = _burst_data.euler[1];
-    _data.orientation_z = _burst_data.euler[2];
+    // AMG has no fusion output. Keep legacy fields neutral until IMUData can
+    // represent unavailable values explicitly.
+    _data.orientation_x = _data.orientation_y = _data.orientation_z = 0.0f;
 
     // Map angular velocity (gyroscope)
     _data.angular_velocity_x = _burst_data.gyro[0];
     _data.angular_velocity_y = _burst_data.gyro[1];
     _data.angular_velocity_z = _burst_data.gyro[2];
 
-    // Map linear acceleration
-    _data.linear_acceleration_x = _burst_data.lin_accel[0];
-    _data.linear_acceleration_y = _burst_data.lin_accel[1];
-    _data.linear_acceleration_z = _burst_data.lin_accel[2];
+    _data.linear_acceleration_x = _data.linear_acceleration_y = _data.linear_acceleration_z = 0.0f;
 
     // Map magnetometer data
     _data.magnetometer_x = _burst_data.mag[0];
@@ -91,19 +87,13 @@ bool BNO055Sensor::updateData()
     _data.acceleration_y = _burst_data.accel[1];
     _data.acceleration_z = _burst_data.accel[2];
 
-    // Map gravity vector
-    _data.gravity_x = _burst_data.gravity[0];
-    _data.gravity_y = _burst_data.gravity[1];
-    _data.gravity_z = _burst_data.gravity[2];
+    _data.gravity_x = _data.gravity_y = _data.gravity_z = 0.0f;
 
     // Map temperature
     _data.temperature = _burst_data.temp;
 
-    // Map quaternion data (order from get_burst_data parsing is W, X, Y, Z)
-    _data.quaternion_w = _burst_data.quaternion[0];
-    _data.quaternion_x = _burst_data.quaternion[1];
-    _data.quaternion_y = _burst_data.quaternion[2];
-    _data.quaternion_z = _burst_data.quaternion[3];
+    _data.quaternion_w = 1.0;
+    _data.quaternion_x = _data.quaternion_y = _data.quaternion_z = 0.0;
 
     // Update timestamp and validation flag
     _data.timestamp = Utils::millis();
@@ -141,7 +131,10 @@ bool BNO055Sensor::isFullyCalibrated() {
         return true; 
     }
     
-    return _bno_interface.check_calibration() == 3;
+    // System calibration describes fusion and cannot reach 3 in AMG mode.
+    return _bno_interface.check_calibration_accel() == 3 &&
+           _bno_interface.check_calibration_gyro() == 3 &&
+           _bno_interface.check_calibration_mag() == 3;
 }
 
 bool BNO055Sensor::saveCalibrationToNVS() {

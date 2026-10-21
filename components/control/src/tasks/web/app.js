@@ -1164,6 +1164,7 @@ function renderLive(s) {
   const calibration = s.calibration || {};
   const sensors = s.sensors || {};
   const imu = sensors.imu || {};
+  const fusionAvailable = imu.fusion_available !== false;
   const accelerometer = sensors.accelerometer || {};
   const barometer = sensors.barometer || {};
   const gps = sensors.gps || {};
@@ -1177,7 +1178,9 @@ function renderLive(s) {
   const lora = ((s.telemetry || {}).lora || {});
   const loraTxPulse = performance.now() < loRaTxPulseUntil;
   addLiveHistorySample({
-    attitudeX: Number(orientation.x), attitudeY: Number(orientation.y), attitudeZ: Number(orientation.z),
+    attitudeX: fusionAvailable ? Number(orientation.x) : NaN,
+    attitudeY: fusionAvailable ? Number(orientation.y) : NaN,
+    attitudeZ: fusionAvailable ? Number(orientation.z) : NaN,
     imuAx: Number(acceleration.x), imuAy: Number(acceleration.y), imuAz: Number(acceleration.z),
     lisAx: Number(accelerometer.x), lisAy: Number(accelerometer.y), lisAz: Number(accelerometer.z),
     gyroX: Number(angularVelocity.x), gyroY: Number(angularVelocity.y), gyroZ: Number(angularVelocity.z),
@@ -1193,7 +1196,7 @@ function renderLive(s) {
       <div class="${loraTxPulse ? 'tx-pulse' : ''}"><span>LoRa</span><strong>${lora.available ? (loraTxPulse ? 'TX pulse' : 'ready') : 'unavailable'}</strong></div>
     </div>
     <div class="trend-grid-layout">
-      ${trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1)}
+      ${fusionAvailable ? trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1) : ''}
       ${trendChart('BNO055 acceleration', 'm/s2', [{ key: 'imuAx', label: 'X', color: '#ef4444' }, { key: 'imuAy', label: 'Y', color: '#22c55e' }, { key: 'imuAz', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('LIS3DHTR acceleration', 'm/s2', [{ key: 'lisAx', label: 'X', color: '#ef4444' }, { key: 'lisAy', label: 'Y', color: '#22c55e' }, { key: 'lisAz', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('Angular velocity', 'deg/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}
@@ -1201,11 +1204,13 @@ function renderLive(s) {
       ${trendChart('GPS altitude', 'm ASL', [{ key: 'gpsAltitude', label: 'Altitude', color: '#f59e0b' }], 1)}
     </div>
     <div class="attitude-grid">
-      ${panel('Rocket Attitude', attitudeSvg())}
+      ${panel('Rocket Attitude', fusionAvailable ? attitudeSvg() : '<p>Unavailable: BNO055 AMG mode does not provide attitude fusion.</p>')}
       ${panel('Attitude & Calibration', [
-        row('Euler X / heading', `${Number(orientation.x || 0).toFixed(2)} deg`),
-        row('Euler Y / roll', `${Number(orientation.y || 0).toFixed(2)} deg`),
-        row('Euler Z / pitch', `${Number(orientation.z || 0).toFixed(2)} deg`),
+        ...(fusionAvailable ? [
+          row('Euler X / heading', `${Number(orientation.x || 0).toFixed(2)} deg`),
+          row('Euler Y / roll', `${Number(orientation.y || 0).toFixed(2)} deg`),
+          row('Euler Z / pitch', `${Number(orientation.z || 0).toFixed(2)} deg`)
+        ] : []),
         row('Calibration SYS / GYR / ACC / MAG', `${imuCalibration.system || 0} / ${imuCalibration.gyro || 0} / ${imuCalibration.accelerometer || 0} / ${imuCalibration.magnetometer || 0}`),
         row('Angular velocity', `${Number(angularVelocity.x || 0).toFixed(3)}, ${Number(angularVelocity.y || 0).toFixed(3)}, ${Number(angularVelocity.z || 0).toFixed(3)} deg/s`),
         attitudeAlignmentControls()
@@ -1214,8 +1219,10 @@ function renderLive(s) {
     <div class="sensor-grid">
       ${sensorCard('IMU', imu, [
         ['Acceleration', `${Number(acceleration.x || 0).toFixed(3)}, ${Number(acceleration.y || 0).toFixed(3)}, ${Number(acceleration.z || 0).toFixed(3)} m/s2`],
-        ['Linear acceleration', `${Number(linearAcceleration.x || 0).toFixed(3)}, ${Number(linearAcceleration.y || 0).toFixed(3)}, ${Number(linearAcceleration.z || 0).toFixed(3)} m/s2`],
-        ['Gravity', `${Number(gravity.x || 0).toFixed(3)}, ${Number(gravity.y || 0).toFixed(3)}, ${Number(gravity.z || 0).toFixed(3)} m/s2`],
+        ...(fusionAvailable ? [
+          ['Linear acceleration', `${Number(linearAcceleration.x || 0).toFixed(3)}, ${Number(linearAcceleration.y || 0).toFixed(3)}, ${Number(linearAcceleration.z || 0).toFixed(3)} m/s2`],
+          ['Gravity', `${Number(gravity.x || 0).toFixed(3)}, ${Number(gravity.y || 0).toFixed(3)}, ${Number(gravity.z || 0).toFixed(3)} m/s2`]
+        ] : []),
         ['Magnetometer', `${Number(magnetometer.x || 0).toFixed(2)}, ${Number(magnetometer.y || 0).toFixed(2)}, ${Number(magnetometer.z || 0).toFixed(2)} uT`],
         ['Temperature', `${Number(imu.temperature_c || 0).toFixed(1)} C`]
       ])}
@@ -1246,7 +1253,7 @@ function ingestLive(s) {
   if (s && s.ok) {
     const imu = ((s.sensors || {}).imu || {});
     const acceleration = imu.acceleration_m_s2 || {};
-    targetAttitudeQuaternion = imu.quaternion || targetAttitudeQuaternion;
+    if (imu.fusion_available !== false) targetAttitudeQuaternion = imu.quaternion || targetAttitudeQuaternion;
     targetAttitudeAcceleration = [Number(acceleration.x) || 0, Number(acceleration.y) || 0, Number(acceleration.z) || 0];
     const loraSuccess = Number((((s.telemetry || {}).lora || {}).tx_success) || 0);
     if (loraSuccess > lastLoRaTxSuccess) loRaTxPulseUntil = performance.now() + 400;
