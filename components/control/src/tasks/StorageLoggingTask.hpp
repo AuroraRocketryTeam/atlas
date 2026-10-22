@@ -10,6 +10,8 @@
 #include <config.h>
 #include <SerialLogger.hpp>
 
+class IStateMachine;
+
 // Persistent recorder state composed into RuntimeConfig.
 struct StorageLoggingConfig {
     char flight_filename[40];
@@ -28,24 +30,37 @@ public:
      * @param logger The shared pointer to the RocketLogger instance
      */
     StorageLoggingTask(std::shared_ptr<RocketModel> rocketModel,
-                       std::shared_ptr<RocketLogger> logger);
+                       std::shared_ptr<RocketLogger> logger,
+                       IStateMachine* fsm);
 
     ~StorageLoggingTask() override;
 
     /** Prepare and persist the next free filename before RuntimeConfig is locked. */
     bool prepareTelemetryFilename();
 
+    /** Called by the FSM after locking config, before entering READY. */
+    bool prepareFlightLog();
+    /** Activate a prepared log only after the FSM can commit READY. */
+    bool activateFlightLog();
+    void markFlightComplete() {
+        if (logger) logger->stopSensorLogging();
+    }
     static bool tryBeginFileOperation();
     static void endFileOperation();
+    static bool isRecordingActive();
 
 protected:
     void taskFunction() override;
+    void onTaskStop() override;
 
 private:
     std::shared_ptr<RocketModel> rocketModel;
     std::shared_ptr<RocketLogger> logger;
+    IStateMachine* fsm;
     bool storageInitialized = false;
+    bool flightLogPrepared = false;
     static std::atomic_bool fileOperationBusy;
+    static std::atomic_bool recordingActive;
 
     static constexpr size_t TELEMETRY_FILENAME_SIZE = 40;
     char telemetryFilename[TELEMETRY_FILENAME_SIZE] = {};

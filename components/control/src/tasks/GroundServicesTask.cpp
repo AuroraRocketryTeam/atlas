@@ -999,7 +999,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
 
     char *body = s_responseBuffer;
     snprintf(body, RESPONSE_BUFFER_SIZE,
-        "{\"ok\":true,\"fsm_state\":\"%s\",\"uptime_ms\":%lld,"
+        "{\"ok\":true,\"fsm_state\":\"%s\",\"ready_attempt\":\"%s\",\"uptime_ms\":%lld,"
         "\"app\":{\"project_name\":\"%s\",\"version\":\"%s\",\"date\":\"%s\",\"time\":\"%s\",\"idf_version\":\"%s\"},"
         "\"chip\":{\"model\":\"%s\",\"model_code\":%d,\"cores\":%d,\"revision\":%d,\"features\":%s},"
         "\"flash\":{\"size_bytes\":%lu,\"id\":\"0x%06lx\"},"
@@ -1012,6 +1012,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
         "\"hil\":{\"enabled\":%s,\"mode\":\"%s\"},"
         "\"runtime_config\":{\"schema_version\":%lu,\"config_revision\":%lu,\"config_locked\":%s}}",
         self->_fsm ? rocketStateToString(self->_fsm->getCurrentState()) : "unknown",
+        self->_fsm ? self->_fsm->getReadyAttemptStatus() : "unknown",
         static_cast<long long>(esp_timer_get_time() / 1000),
         app ? app->project_name : "unknown",
         app ? app->version : "unknown",
@@ -1982,10 +1983,8 @@ esp_err_t GroundServicesTask::filesListGetHandler(httpd_req_t *req)
     RuntimeConfig config;
     char latestFile[40] = {};
     if (runtime_config_get(&config) == ESP_OK) {
-        const char *latest = self->_rocketModel->storageFileExists(config.storage_logging.flight_filename)
-            ? config.storage_logging.flight_filename
-            : config.storage_logging.last_flight_filename;
-        snprintf(latestFile, sizeof(latestFile), "%s", latest);
+        // LATEST is the most recently prepared flight, even if later aborted.
+        snprintf(latestFile, sizeof(latestFile), "%s", config.storage_logging.last_flight_filename);
     }
     bool latestListed = latestFile[0] == '\0';
     for (size_t i = 0; i < count && !latestListed; ++i) {
@@ -2102,7 +2101,8 @@ esp_err_t GroundServicesTask::fileDeleteHandler(httpd_req_t *req)
     if (!StorageLoggingTask::tryBeginFileOperation()) {
         return sendErrorJson(req, "409 Conflict", "flight file operation in progress");
     }
-    if (self->_fsm->getCurrentState() != RocketState::GROUND_SERVICES) {
+    if (self->_fsm->getCurrentState() != RocketState::GROUND_SERVICES ||
+        StorageLoggingTask::isRecordingActive()) {
         StorageLoggingTask::endFileOperation();
         return sendErrorJson(req, "409 Conflict", "flight file is no longer available for deletion");
     }

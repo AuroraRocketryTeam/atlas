@@ -124,6 +124,9 @@ public:
      * @return true if successful, false otherwise
      */
     bool prepareStorageLogging();
+    bool prepareFlightLog();
+    bool activateFlightLog();
+    void markFlightLogComplete();
 
 private:
     // Map of task type to task instance

@@ -115,6 +115,7 @@ void RocketLogger::logError(const char* source, const char* message) {
 }
 
 void RocketLogger::logSensorData(const LogPayload& payload) {
+    if (!_sensorLoggingEnabled.load()) return;
     pushToQueue(payload);
 }
 
@@ -176,4 +177,18 @@ size_t RocketLogger::consumeBatch(uint8_t* outBuffer, size_t bufferCapacity) {
     }
 
     return currentOffset;
+}
+
+size_t RocketLogger::peekNextEvent(uint8_t* outBuffer, size_t bufferCapacity) const {
+    if (!_eventQueue || !_serializeFn || !outBuffer) return 0;
+    SystemLog event;
+    if (xQueuePeek(_eventQueue, &event, 0) != pdTRUE) return 0;
+    size_t length = 0;
+    return _serializeFn(LogPayload{event}, outBuffer, bufferCapacity, length) ? length : 0;
+}
+
+bool RocketLogger::discardNextEvent() {
+    if (!_eventQueue) return false;
+    SystemLog event;
+    return xQueueReceive(_eventQueue, &event, 0) == pdTRUE;
 }

@@ -10,6 +10,7 @@
 #include <SD-master.hpp>
 #include <memory>
 #include <map>
+#include <atomic>
 #include <RocketModel.hpp>
 #include <IBoardHardware.hpp>
 #include "tasks/FlightParametersConfig.hpp"
@@ -57,6 +58,7 @@ public:
      * @return true if the event was processed successfully, false otherwise
      */
     bool sendEvent(FSMEvent event, RocketState targetState = RocketState::INACTIVE, void *eventData = nullptr) override;
+    const char *getReadyAttemptStatus() const override;
 
     /**
      * @brief Get the current state of the FSM
@@ -94,7 +96,7 @@ public:
 private:
     void setupStateActions();
     void setupTransitions();
-    void transitionTo(RocketState newState);
+    bool transitionTo(RocketState newState);
     void processEvent(const FSMEventData &eventData);
     void checkTransitions();
 
@@ -118,6 +120,12 @@ private:
     unsigned long _stateStartTime;
     volatile bool _isRunning;
     volatile bool _isTransitioning;
+    enum class ReadyAttemptStatus : uint8_t {
+        IDLE, PENDING, READY, QUEUE_FAILED, INVALID_STATE, FILE_BUSY,
+        FILENAME_FAILED, CONFIG_LOCK_FAILED, FILE_PREP_FAILED,
+        FILE_ACTIVATION_FAILED, TRANSITION_FAILED, CONFIG_UNLOCK_FAILED
+    };
+    std::atomic<ReadyAttemptStatus> _readyAttemptStatus{ReadyAttemptStatus::IDLE};
 
     // Shared data
     std::shared_ptr<RocketModel> _rocketModel;
