@@ -35,6 +35,10 @@ let configDirty = false;
 let selectedFile = null;
 let deletingAllFiles = false;
 let latestStatus = null;
+let readyAttemptPending = false;
+let readyAttemptUncertain = false;
+let readyStatusFailures = 0;
+let lastReadyAttemptStatus = 'idle';
 let sdkconfigText = null;
 let sdkconfigLoading = false;
 let taskSnapshot = null;
@@ -279,7 +283,7 @@ async function api(path, options = {}) {
     if (!res.ok) body.ok = false;
     return body;
   } catch (err) {
-    return { ok: false, error: err.message || String(err) };
+    return { ok: false, transport_error: true, error: err.message || String(err) };
   }
 }
 
@@ -492,6 +496,35 @@ function checklistPanel(checklist) {
 
 function updateFsmBar(status) {
   latestStatus = status;
+  const attempt = status && status.ready_attempt;
+  if (attempt === 'pending' && !readyAttemptUncertain) readyAttemptPending = true;
+  if (attempt && attempt !== lastReadyAttemptStatus) {
+    lastReadyAttemptStatus = attempt;
+    if (attempt === 'pending') {
+      readyAttemptPending = true;
+      showActionStatus('Preparing the flight log and locking configuration…');
+    } else if (attempt === 'ready') {
+      readyAttemptPending = false;
+      readyAttemptUncertain = false;
+      showActionStatus('READY_FOR_LAUNCH entered. Ground Services will disconnect.');
+    } else if (attempt !== 'idle') {
+      readyAttemptPending = false;
+      readyAttemptUncertain = false;
+      const reason = {
+        queue_failed: 'The FSM event queue is unavailable.',
+        invalid_state: 'The FSM is no longer in Ground Services.',
+        file_busy: 'A file operation is still in progress.',
+        filename_failed: 'The flight recorder filename could not be prepared.',
+        config_lock_failed: 'The flight configuration could not be locked.',
+        file_prep_failed: 'The flight log or configuration snapshot could not be written.',
+        file_activation_failed: 'The prepared flight log could not be activated.',
+        transition_failed: 'The FSM could not commit the READY transition.',
+        config_unlock_failed: 'The READY attempt failed and configuration could not be unlocked. Use Unlock After Recovery before retrying.'
+      }[attempt] || attempt;
+      showActionStatus(`READY_FOR_LAUNCH rejected: ${reason} Check the serial log before retrying.`);
+    }
+  }
+  if (attempt && attempt !== 'pending') readyStatusFailures = 0;
   const state = (status && status.fsm_state) || 'UNKNOWN';
   fsmState.textContent = state;
   fsmState.className = `state-pill state-${state.toLowerCase()}`;
@@ -514,8 +547,10 @@ function updateFsmBar(status) {
     fsmAdvance.textContent = 'Go To Ready For Launch';
     fsmAdvance.classList.remove('hidden');
     fsmAdvance.classList.add('danger-action');
-    fsmAdvance.disabled = configDirty;
-    fsmAdvance.title = configDirty ? 'Save configuration changes before READY FOR LAUNCH.' : '';
+    fsmAdvance.disabled = configDirty || readyAttemptPending || readyAttemptUncertain;
+    fsmAdvance.title = configDirty ? 'Save configuration changes before READY FOR LAUNCH.'
+      : readyAttemptUncertain ? 'Connection lost; verify the FSM state before trying again.'
+      : readyAttemptPending ? 'Preparing READY_FOR_LAUNCH…' : '';
     readyConfigGuard.classList.toggle('hidden', !configDirty);
   } else {
     fsmAdvance.classList.add('hidden');
@@ -536,7 +571,18 @@ async function pollStatus() {
   } finally {
     pollBusy.status = false;
   }
-  if (!s || !s.ok) return;
+  if (!s || !s.ok) {
+    if (readyAttemptPending && ++readyStatusFailures >= 3) {
+      readyAttemptPending = false;
+      readyAttemptUncertain = true;
+      showActionStatus('Ground Services disconnected while preparing READY. The outcome is unknown; verify the FSM state via telemetry or serial before trying again.');
+      if (latestStatus) updateFsmBar(latestStatus);
+    }
+    return;
+  }
+
+  readyAttemptUncertain = false;
+  readyStatusFailures = 0;
 
   updateFsmBar(s);
 
@@ -1720,6 +1766,7 @@ async function uploadFirmware() {
 }
 
 async function advanceFsm() {
+  if (readyAttemptPending || readyAttemptUncertain) return;
   if (!latestStatus) {
     const status = await api('/api/status');
     if (status.ok) updateFsmBar(status);
@@ -1749,8 +1796,19 @@ async function advanceFsm() {
     headers: { 'X-Confirm': confirmation },
     body: ''
   });
-  showActionStatus(s);
-  loadInfo();
+  if (s.ok && s.queued) {
+    readyAttemptPending = true;
+    lastReadyAttemptStatus = 'pending';
+    showActionStatus('Preparing the flight log and locking configuration…');
+    updateFsmBar(latestStatus);
+    pollStatus();
+  } else if (s.transport_error) {
+    readyAttemptUncertain = true;
+    showActionStatus('Connection lost while requesting READY. The outcome is unknown; verify the FSM state via telemetry or serial before trying again.');
+    updateFsmBar(latestStatus);
+  } else {
+    showActionStatus(s);
+  }
 }
 
 navButtons.forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
@@ -1875,6 +1933,7 @@ setInterval(() => {
   }
 }, 1500);
 setInterval(pollStatus, 5000);
+setInterval(() => { if (readyAttemptPending) pollStatus(); }, 750);
 document.getElementById('refreshLogs').addEventListener('click', loadLogs);
 pauseLogsButton.addEventListener('click', () => {
   logsPaused = !logsPaused;
