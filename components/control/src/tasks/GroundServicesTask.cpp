@@ -85,7 +85,7 @@ static constexpr size_t STREAM_CHUNK_SIZE = 4096;
 static constexpr size_t LOG_RESPONSE_BUFFER_SIZE = 4096;
 static constexpr size_t MAX_HTTP_CLIENTS = 4;
 static constexpr size_t MAX_WS_CLIENTS = 2;
-static constexpr size_t REGISTERED_URI_HANDLERS = 32;
+static constexpr size_t REGISTERED_URI_HANDLERS = 33;
 static constexpr size_t HTTPD_STACK_SIZE = 5120;
 static constexpr size_t MAX_SYSTEM_TASK_SNAPSHOT_ENTRIES = 32;
 static constexpr size_t LOG_WS_PREFIX_SPACE = 16;
@@ -768,6 +768,7 @@ void GroundServicesTask::registerHandlers()
     add("/api/logs", HTTP_GET, logsGetHandler);
     add("/api/config/runtime", HTTP_GET, runtimeConfigGetHandler);
     add("/api/config/runtime", HTTP_PUT, runtimeConfigPutHandler);
+    add("/api/config/import", HTTP_POST, runtimeConfigImportHandler);
     add("/api/config/schema", HTTP_GET, runtimeConfigSchemaGetHandler);
     add("/api/config/validation", HTTP_GET, runtimeConfigValidationGetHandler);
     add("/api/config/reset-defaults", HTTP_POST, runtimeConfigResetHandler);
@@ -1489,6 +1490,26 @@ esp_err_t GroundServicesTask::runtimeConfigPutHandler(httpd_req_t *req)
     err = runtime_config_update_from_json(s_responseBuffer, &updated);
     if (err != ESP_OK) return sendErrorJson(req, "400 Bad Request", "config validation or save failed", err);
     runtime_config_to_json(&updated, s_responseBuffer, RESPONSE_BUFFER_SIZE);
+    return sendJson(req, "200 OK", s_responseBuffer);
+}
+
+esp_err_t GroundServicesTask::runtimeConfigImportHandler(httpd_req_t *req)
+{
+    if (!authOrSend(req)) { discardBody(req); return ESP_OK; }
+    if (rejectMutationDuringOta(req, fromReq(req))) return ESP_OK;
+    if (runtime_config_is_locked()) {
+        discardBody(req);
+        return sendErrorJson(req, "423 Locked", "configuration is locked for flight");
+    }
+    esp_err_t err = readBody(req, s_responseBuffer, RESPONSE_BUFFER_SIZE);
+    if (err != ESP_OK) return sendErrorJson(req, "400 Bad Request", "invalid config body", err);
+    if (strlen(s_responseBuffer) != req->content_len) return sendErrorJson(req, "400 Bad Request", "invalid config body");
+    RuntimeConfig updated;
+    err = runtime_config_import_from_json(s_responseBuffer, &updated);
+    if (err != ESP_OK) return sendErrorJson(req, "400 Bad Request", "config import validation or save failed", err);
+    if (runtime_config_to_json(&updated, s_responseBuffer, RESPONSE_BUFFER_SIZE) != ESP_OK) {
+        return sendErrorJson(req, "500 Internal Server Error", "runtime_config_to_json failed");
+    }
     return sendJson(req, "200 OK", s_responseBuffer);
 }
 

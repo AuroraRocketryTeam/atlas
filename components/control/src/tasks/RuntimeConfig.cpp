@@ -4,8 +4,10 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 #include "IBoardHardware.hpp"
+#include "cJSON.h"
 #include "config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -720,6 +722,119 @@ esp_err_t runtime_config_update_from_json(const char *json, RuntimeConfig *updat
 
     err = runtime_config_save(&cfg);
     if (err == ESP_OK && updated_out != nullptr) *updated_out = cfg;
+    return err;
+}
+
+static bool import_string(const cJSON *root, const char *key, char *out, size_t size)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (!cJSON_IsString(item) || item->valuestring == nullptr) return false;
+    const size_t length = strlen(item->valuestring);
+    if (length >= size) return false;
+    for (size_t i = 0; i < length; ++i) {
+        const unsigned char ch = static_cast<unsigned char>(item->valuestring[i]);
+        if (ch < 0x20 && ch != '\n' && ch != '\r' && ch != '\t') return false;
+    }
+    memcpy(out, item->valuestring, length + 1);
+    return true;
+}
+
+static bool import_float(const cJSON *root, const char *key, float *out)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (!cJSON_IsNumber(item) || !std::isfinite(item->valuedouble) ||
+        item->valuedouble < -std::numeric_limits<float>::max() ||
+        item->valuedouble > std::numeric_limits<float>::max()) return false;
+    *out = static_cast<float>(item->valuedouble);
+    return true;
+}
+
+template <typename T>
+static bool import_uint(const cJSON *root, const char *key, T *out)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (!cJSON_IsNumber(item) || !std::isfinite(item->valuedouble) ||
+        item->valuedouble < 0 || item->valuedouble > std::numeric_limits<T>::max() ||
+        std::trunc(item->valuedouble) != item->valuedouble) return false;
+    *out = static_cast<T>(item->valuedouble);
+    return true;
+}
+
+static bool json_has_nul_escape(const char *json)
+{
+    bool in_string = false;
+    for (const char *p = json; *p != '\0'; ++p) {
+        if (*p == '"') in_string = !in_string;
+        else if (in_string && *p == '\\') {
+            if (p[1] == 'u' && strncmp(p + 2, "0000", 4) == 0) return true;
+            if (p[1] != '\0') ++p;
+        }
+    }
+    return false;
+}
+
+/** Restore all configurable NVS fields without replaying device-owned flight state. */
+esp_err_t runtime_config_import_from_json(const char *json, RuntimeConfig *updated_out)
+{
+    if (json == nullptr || json_has_nul_escape(json)) return ESP_ERR_INVALID_ARG;
+    RuntimeConfig cfg;
+    esp_err_t err = runtime_config_get(&cfg);
+    if (err != ESP_OK) return err;
+    if (cfg.config_locked) return ESP_ERR_INVALID_STATE;
+
+    cJSON *root = cJSON_ParseWithOpts(json, nullptr, true);
+    if (root == nullptr) return ESP_ERR_INVALID_ARG;
+    const cJSON *mode = cJSON_GetObjectItemCaseSensitive(root, "recovery_mode");
+    const char *mode_name = cJSON_IsString(mode) ? mode->valuestring : nullptr;
+    // One schema key and 35 persisted values. Reject missing, duplicate, and extra fields.
+    bool valid = cJSON_IsObject(root) && cJSON_GetArraySize(root) == 36 &&
+        import_uint(root, "schema_version", &cfg.schema_version) &&
+        import_string(root, "rocket_name", cfg.mission.rocket_name, sizeof(cfg.mission.rocket_name)) &&
+        import_string(root, "launch_site", cfg.mission.launch_site, sizeof(cfg.mission.launch_site)) &&
+        import_string(root, "operator_note", cfg.mission.operator_note, sizeof(cfg.mission.operator_note)) &&
+        import_float(root, "launch_site_altitude_m", &cfg.mission.launch_site_altitude_m) &&
+        import_float(root, "sea_level_pressure_hpa", &cfg.mission.sea_level_pressure_hpa) &&
+        import_float(root, "liftoff_accel_threshold_mps2", &cfg.flight.liftoff_accel_threshold_mps2) &&
+        import_uint(root, "liftoff_timeout_ms", &cfg.flight.liftoff_timeout_ms) &&
+        import_uint(root, "apogee_lockout_ms", &cfg.flight.apogee_lockout_ms) &&
+        import_uint(root, "drogue_apogee_timeout_ms", &cfg.flight.drogue_apogee_timeout_ms) &&
+        import_uint(root, "launch_to_ballistic_threshold_ms", &cfg.flight.launch_to_ballistic_threshold_ms) &&
+        import_float(root, "burnout_velocity_drop_mps", &cfg.flight_transitions.burnout_velocity_drop_mps) &&
+        import_uint(root, "launch_to_apogee_threshold_ms", &cfg.flight.launch_to_apogee_threshold_ms) &&
+        import_float(root, "main_altitude_threshold_m", &cfg.flight.main_altitude_threshold_m) &&
+        import_float(root, "touchdown_altitude_threshold_m", &cfg.flight.touchdown_altitude_threshold_m) &&
+        import_float(root, "landing_vertical_velocity_threshold", &cfg.flight_transitions.landing_vertical_velocity_threshold) &&
+        import_float(root, "landing_acceleration_threshold", &cfg.flight_transitions.landing_acceleration_threshold) &&
+        import_uint(root, "landing_stability_ms", &cfg.flight_transitions.landing_stability_ms) &&
+        import_uint(root, "telemetry_period_ms", &cfg.telemetry.period_ms) &&
+        import_float(root, "airbrakes_open_altitude_m", &cfg.airbrakes.open_altitude_m) &&
+        import_float(root, "airbrakes_close_altitude_m", &cfg.airbrakes.close_altitude_m) &&
+        import_float(root, "airbrakes_open_rate_per_s", &cfg.airbrakes.open_rate_per_s) &&
+        import_float(root, "airbrakes_close_rate_per_s", &cfg.airbrakes.close_rate_per_s) &&
+        import_uint(root, "altitude_filter_window", &cfg.altitude.filter_window) &&
+        import_float(root, "altitude_max_pressure_rate_pa_per_s", &cfg.altitude.max_pressure_rate_pa_per_s) &&
+        import_uint(root, "apogee_detection_window_size", &cfg.altitude.apogee_window_size) &&
+        import_float(root, "apogee_sample_rate_hz", &cfg.altitude.apogee_sample_rate_hz) &&
+        import_float(root, "apogee_trigger_velocity_mps", &cfg.altitude.apogee_trigger_velocity_mps) &&
+        import_uint(root, "apogee_confirmation_windows", &cfg.altitude.apogee_confirmation_windows) &&
+        import_uint(root, "selected_barometer", &cfg.altitude.selected_barometer) &&
+        import_uint(root, "calibration_timeout_ms", &cfg.calibration.timeout_ms) &&
+        import_uint(root, "barometer_calibration_samples", &cfg.calibration.barometer_samples) &&
+        import_uint(root, "temperature_calibration_samples", &cfg.calibration.temperature_samples) &&
+        mode_name != nullptr &&
+        (strcmp(mode_name, "one_parachute") == 0 || strcmp(mode_name, "two_parachute") == 0) &&
+        import_uint(root, "actuator_pulse_count", &cfg.actuators.pulse_count) &&
+        import_uint(root, "actuator_pulse_duration_ms", &cfg.actuators.pulse_duration_ms);
+    if (valid) {
+        cfg.recovery.mode = strcmp(mode_name, "one_parachute") == 0
+            ? RecoveryMode::OneParachuteMode : RecoveryMode::TwoParachuteMode;
+    }
+    cJSON_Delete(root);
+    if (!valid || cfg.schema_version != runtime_config_defaults().schema_version) return ESP_ERR_INVALID_ARG;
+
+    cfg.config_revision++;
+    err = runtime_config_save(&cfg);
+    if (err == ESP_OK && updated_out != nullptr) err = runtime_config_get(updated_out);
     return err;
 }
 

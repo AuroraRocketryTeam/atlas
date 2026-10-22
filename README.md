@@ -210,6 +210,12 @@ and is compiled into the firmware.
 | Serial Monitor | Live device logs (`/ws/logs`) with pause, filter and copy |
 | Files | List, stream-download and delete flight recorder files |
 
+On the Config page, **Export** downloads the configuration values currently
+saved in NVS as JSON. **Import** accepts the same schema version, validates all
+fields, and immediately saves and activates the values. The device keeps its
+flight lock and recorder filenames, increments the revision, and recomputes the
+checksum. Imports are blocked while the configuration is locked for flight.
+
 **Security.** Wi-Fi access and operator authentication are separate:
 
 - Monitoring endpoints are read-only and open to anyone on the SoftAP.

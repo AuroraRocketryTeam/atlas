@@ -1565,6 +1565,7 @@ async function loadConfig() {
   const valid = runtimeValidation.ok ? 'valid' : 'invalid';
   document.getElementById('configStatus').textContent = `${locked} - ${valid} - schema v${runtimeConfig.schema_version}, revision ${runtimeConfig.config_revision}\n${JSON.stringify(runtimeValidation, null, 2)}`;
   document.getElementById('unlockConfig').classList.toggle('hidden', runtimeConfig.config_locked !== true);
+  document.getElementById('importConfig').disabled = runtimeConfig.config_locked === true;
   persistedConfigSignature = configSignature(runtimeConfig);
   configDirty = false;
   setConfigSaveState();
@@ -1594,6 +1595,60 @@ async function saveConfig() {
     status.textContent = JSON.stringify(s, null, 2);
     setConfigSaveState('Save failed — changes not saved', 'error');
   }
+}
+
+async function exportConfig() {
+  const [cfg, schema] = await Promise.all([
+    api('/api/config/runtime'), api('/api/config/schema')
+  ]);
+  if (!cfg.ok || !schema.ok) {
+    document.getElementById('configStatus').textContent = 'Export failed: could not read the saved configuration.';
+    return;
+  }
+  const fields = schema.fields.filter(field => field.source === 'RuntimeConfig / NVS' &&
+    field.key !== 'flight_log_filename' && field.key !== 'last_flight_log_filename');
+  if (fields.some(field => cfg[field.key] === undefined)) {
+    document.getElementById('configStatus').textContent = 'Export failed: a configuration field is missing.';
+    return;
+  }
+  const backup = { schema_version: cfg.schema_version };
+  fields.forEach(field => { backup[field.key] = cfg[field.key]; });
+  const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2) + '\n'], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `runtime-config-v${cfg.schema_version}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function importConfig(file) {
+  const status = document.getElementById('configStatus');
+  let backup;
+  try {
+    backup = JSON.parse(await file.text());
+  } catch {
+    status.textContent = 'Import failed: invalid JSON file.';
+    return;
+  }
+  if (!backup || Array.isArray(backup) || backup.schema_version !== runtimeConfig.schema_version) {
+    status.textContent = `Import failed: expected RuntimeConfig schema v${runtimeConfig.schema_version}.`;
+    return;
+  }
+  if (!window.confirm('Import this RuntimeConfig and save it to NVS now? Current settings, including calibration and telemetry values, and unsaved edits will be replaced.')) return;
+  const result = await api('/api/config/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(backup)
+  });
+  if (!result.ok) {
+    status.textContent = `Import failed: ${JSON.stringify(result, null, 2)}`;
+    return;
+  }
+  await loadConfig();
+  status.textContent = `✓ RuntimeConfig imported and saved to NVS.\n${status.textContent}`;
+  status.classList.add('config-save-success');
 }
 
 async function resetConfig() {
@@ -1886,6 +1941,13 @@ document.addEventListener('keydown', event => {
   }
 });
 document.getElementById('saveConfig').addEventListener('click', saveConfig);
+document.getElementById('exportConfig').addEventListener('click', exportConfig);
+document.getElementById('importConfig').addEventListener('click', () => document.getElementById('importConfigFile').click());
+document.getElementById('importConfigFile').addEventListener('change', event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (file) importConfig(file);
+});
 document.getElementById('resetConfig').addEventListener('click', resetConfig);
 document.getElementById('unlockConfig').addEventListener('click', unlockConfig);
 document.addEventListener('input', event => {
