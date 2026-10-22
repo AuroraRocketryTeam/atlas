@@ -688,9 +688,6 @@ esp_err_t runtime_config_update_from_json(const char *json, RuntimeConfig *updat
     if (json_update_uint_if_present(json, "launch_to_apogee_threshold_ms", &cfg.flight.launch_to_apogee_threshold_ms) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "touchdown_altitude_threshold_m", &cfg.flight.touchdown_altitude_threshold_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "burnout_velocity_drop_mps", &cfg.flight_transitions.burnout_velocity_drop_mps) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    // Accept old dashboard/API payloads; the new names take precedence if both are present.
-    if (json_update_float_if_present(json, "touchdown_velocity_threshold_mps", &cfg.flight_transitions.landing_vertical_velocity_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    if (json_update_float_if_present(json, "touchdown_accel_tolerance_mps2", &cfg.flight_transitions.landing_acceleration_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "landing_vertical_velocity_threshold", &cfg.flight_transitions.landing_vertical_velocity_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "landing_acceleration_threshold", &cfg.flight_transitions.landing_acceleration_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_uint_if_present(json, "landing_stability_ms", &cfg.flight_transitions.landing_stability_ms) != ESP_OK) return ESP_ERR_INVALID_ARG;
