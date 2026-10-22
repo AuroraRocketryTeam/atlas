@@ -581,9 +581,36 @@ static bool json_get_string(const char *json, const char *key, char *out, size_t
     if (p == nullptr || *p != '"' || out_size == 0) return false;
     ++p;
     size_t i = 0;
-    while (*p != '\0' && *p != '"' && i + 1 < out_size) out[i++] = *p++;
+    while (*p != '\0' && *p != '"' && i + 1 < out_size) {
+        if (*p == '\\') {
+            ++p;
+            if (*p == '"' || *p == '\\' || *p == '/') out[i++] = *p++;
+            else if (*p == 'n') { out[i++] = '\n'; ++p; }
+            else if (*p == 'r') { out[i++] = '\r'; ++p; }
+            else if (*p == 't') { out[i++] = '\t'; ++p; }
+            else return false;
+        } else {
+            out[i++] = *p++;
+        }
+    }
     out[i] = '\0';
     return *p == '"';
+}
+
+static bool json_escape_string(const char *input, char *out, size_t capacity)
+{
+    size_t written = 0;
+    for (const unsigned char *p = reinterpret_cast<const unsigned char *>(input); *p; ++p) {
+        const char *escape = *p == '"' ? "\\\"" : *p == '\\' ? "\\\\" :
+                             *p == '\n' ? "\\n" : *p == '\r' ? "\\r" : *p == '\t' ? "\\t" : nullptr;
+        if (*p < 0x20 && !escape) return false;
+        const size_t length = escape ? 2 : 1;
+        if (written + length >= capacity) return false;
+        if (escape) { out[written++] = escape[0]; out[written++] = escape[1]; }
+        else out[written++] = static_cast<char>(*p);
+    }
+    out[written] = '\0';
+    return true;
 }
 
 /**
@@ -703,6 +730,15 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
 {
     if (cfg == nullptr || out == nullptr) return ESP_ERR_INVALID_ARG;
 
+    char rocketNameJson[sizeof(cfg->mission.rocket_name) * 2 + 1];
+    char launchSiteJson[sizeof(cfg->mission.launch_site) * 2 + 1];
+    char operatorNoteJson[sizeof(cfg->mission.operator_note) * 2 + 1];
+    if (!json_escape_string(cfg->mission.rocket_name, rocketNameJson, sizeof(rocketNameJson)) ||
+        !json_escape_string(cfg->mission.launch_site, launchSiteJson, sizeof(launchSiteJson)) ||
+        !json_escape_string(cfg->mission.operator_note, operatorNoteJson, sizeof(operatorNoteJson))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     const char *board_name = s_board != nullptr ? s_board->get_board_name() : "unknown";
     const int i2c_sda_pin = s_board != nullptr ? gpio_to_int(s_board->get_i2c_sda_pin()) : -1;
     const int i2c_scl_pin = s_board != nullptr ? gpio_to_int(s_board->get_i2c_scl_pin()) : -1;
@@ -723,22 +759,22 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
     const char *recovery_mode = recovery_mode_to_string(static_cast<RecoveryMode>(cfg->recovery.mode));
 
     int n = snprintf(out, out_size,
-        "{\"ok\":true,\"schema_version\":%lu,\"config_revision\":%lu,"
+        "{\"ok\":true,\"schema_version\":%lu,\"config_revision\":%lu,\"checksum\":%lu,"
         "\"config_locked\":%s,\"flight_log_filename\":\"%s\",\"last_flight_log_filename\":\"%s\","
         "\"rocket_name\":\"%s\",\"launch_site\":\"%s\",\"operator_note\":\"%s\","
-        "\"launch_site_altitude_m\":%.3f,\"sea_level_pressure_hpa\":%.3f,"
-        "\"liftoff_accel_threshold_mps2\":%.3f,\"liftoff_timeout_ms\":%lu,"
+        "\"launch_site_altitude_m\":%.9g,\"sea_level_pressure_hpa\":%.9g,"
+        "\"liftoff_accel_threshold_mps2\":%.9g,\"liftoff_timeout_ms\":%lu,"
         "\"apogee_lockout_ms\":%lu,\"drogue_apogee_timeout_ms\":%lu,"
-        "\"main_altitude_threshold_m\":%.3f,"
+        "\"main_altitude_threshold_m\":%.9g,"
         "\"launch_to_ballistic_threshold_ms\":%lu,\"launch_to_apogee_threshold_ms\":%lu,"
-        "\"touchdown_altitude_threshold_m\":%.3f,"
-        "\"burnout_velocity_drop_mps\":%.3f,\"landing_vertical_velocity_threshold\":%.3f,"
-        "\"landing_acceleration_threshold\":%.3f,\"landing_stability_ms\":%lu,"
+        "\"touchdown_altitude_threshold_m\":%.9g,"
+        "\"burnout_velocity_drop_mps\":%.9g,\"landing_vertical_velocity_threshold\":%.9g,"
+        "\"landing_acceleration_threshold\":%.9g,\"landing_stability_ms\":%lu,"
         "\"telemetry_period_ms\":%lu,"
-        "\"airbrakes_open_altitude_m\":%.3f,\"airbrakes_close_altitude_m\":%.3f,"
-        "\"airbrakes_open_rate_per_s\":%.3f,\"airbrakes_close_rate_per_s\":%.3f,"
-        "\"altitude_filter_window\":%lu,\"altitude_max_pressure_rate_pa_per_s\":%.3f,"
-        "\"apogee_detection_window_size\":%lu,\"apogee_sample_rate_hz\":%.3f,\"apogee_trigger_velocity_mps\":%.3f,\"apogee_confirmation_windows\":%u,"
+        "\"airbrakes_open_altitude_m\":%.9g,\"airbrakes_close_altitude_m\":%.9g,"
+        "\"airbrakes_open_rate_per_s\":%.9g,\"airbrakes_close_rate_per_s\":%.9g,"
+        "\"altitude_filter_window\":%lu,\"altitude_max_pressure_rate_pa_per_s\":%.9g,"
+        "\"apogee_detection_window_size\":%lu,\"apogee_sample_rate_hz\":%.9g,\"apogee_trigger_velocity_mps\":%.9g,\"apogee_confirmation_windows\":%u,"
         "\"selected_barometer\":%u,\"calibration_timeout_ms\":%lu,"
         "\"barometer_calibration_samples\":%lu,\"temperature_calibration_samples\":%lu,"
         "\"ms56_i2c_addr_1\":\"0x%02X\",\"ms56_i2c_addr_2\":\"0x%02X\",\"bno055_i2c_addr\":\"0x%02X\","
@@ -751,10 +787,11 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         "\"main_actuator_pin\":%d,\"drogue_actuator_pin\":%d}",
         static_cast<unsigned long>(cfg->schema_version),
         static_cast<unsigned long>(cfg->config_revision),
+        static_cast<unsigned long>(cfg->checksum),
         cfg->config_locked ? "true" : "false",
         cfg->storage_logging.flight_filename,
         cfg->storage_logging.last_flight_filename,
-        cfg->mission.rocket_name, cfg->mission.launch_site, cfg->mission.operator_note,
+        rocketNameJson, launchSiteJson, operatorNoteJson,
         static_cast<double>(cfg->mission.launch_site_altitude_m),
         static_cast<double>(cfg->mission.sea_level_pressure_hpa),
         static_cast<double>(cfg->flight.liftoff_accel_threshold_mps2),
@@ -943,6 +980,7 @@ esp_err_t runtime_config_lock_for_flight(char *reason, size_t reason_size)
     // task-owned flight behavior.
     locked.config_locked = true;
     locked.config_revision++;
+    update_checksum(&locked);
     err = runtime_config_save(&locked);
     if (err != ESP_OK) {
         validation_fail(reason, reason_size, "failed to persist locked flight config");
