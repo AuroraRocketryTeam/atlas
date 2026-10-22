@@ -1,0 +1,9 @@
+# Villafranca (aviosuperficie) - sito e rampa della simulazione di lancio
+# Nella simulazione di lancio il meteo era manuale: 8.7 m/s al suolo verso 315 deg / +5% ogni 50 m fino a 300 m.
+name,value,std,unit,note
+latitude,44.290583,0,deg,
+longitude,12.027111,0,deg,
+elevation,18,0,m,
+rail_length,1.5,0.005,m,
+inclination,70,3,deg,rispetto all'orizzontale
+heading,160,5,deg,rispetto al nord; tra 160 e 180
