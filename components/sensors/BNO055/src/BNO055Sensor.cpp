@@ -66,8 +66,9 @@ bool BNO055Sensor::updateData()
     _data.calibration_accel = _burst_data.calib_accel;
     _data.calibration_mag = _burst_data.calib_mag;
 
-    // AMG has no fusion output. Keep legacy fields neutral until IMUData can
-    // represent unavailable values explicitly.
+    // AMG has no fusion output. Keep placeholders for live telemetry consumers.
+    _data.validGroups = IMUData::VALIDITY_SENSOR_CALIBRATION | IMUData::VALIDITY_ANGULAR_VELOCITY |
+                        IMUData::VALIDITY_ACCELERATION | IMUData::VALIDITY_MAGNETOMETER | IMUData::VALIDITY_TEMPERATURE;
     _data.orientation_x = _data.orientation_y = _data.orientation_z = 0.0f;
 
     // Map angular velocity (gyroscope)

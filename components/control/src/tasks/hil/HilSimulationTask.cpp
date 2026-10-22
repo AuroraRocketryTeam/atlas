@@ -413,6 +413,7 @@ void HilSimulationTask::taskFunction() {
             /* ================= FILL SENSOR DATA ================= */
 
             IMUData bnoData;
+            bnoData.validGroups = IMUData::VALIDITY_ATTITUDE | IMUData::VALIDITY_ACCELERATION;
             AccelerometerSensorData lis3dhData;
             PressureSensorData ms1;
             PressureSensorData ms2;
@@ -428,6 +429,9 @@ void HilSimulationTask::taskFunction() {
             bnoData.quaternion_x = pkt.qx;
             bnoData.quaternion_y = pkt.qy;
             bnoData.quaternion_z = pkt.qz;
+
+            // TODO: add "gravity" vector and "linear acceleration" to IMUData struct, and fill them here.
+            // The cleanest method is to take them from RocketPy data.
 
             constexpr float RADIANS_TO_DEGREES = 180.0f / 3.14159265358979323846f;
             const float roll = std::atan2(

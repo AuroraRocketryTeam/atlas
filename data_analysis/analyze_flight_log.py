@@ -296,7 +296,7 @@ def select_source_with_fields(
     candidates = [
         (source, source_records)
         for source, source_records in grouped.items()
-        if not source.endswith("_AMG") and source_has_fields(source_records, *fields)
+        if source_has_fields(source_records, *fields)
     ]
     return max(candidates, key=lambda candidate: len(candidate[1]))[0] if candidates else None
 
@@ -649,8 +649,11 @@ def create_plots(
     plots: list[tuple[str, Any]] = []
 
     imu_sources = [source for source, values in grouped.items()
-                   if source_has_fields(values, "ax", "ay", "az", "avx", "avy", "avz")]
-    fusion_sources = [source for source in imu_sources if not source.endswith("_AMG")]
+                   if source_has_fields(values, "ax", "ay", "az") and
+                   (source_has_fields(values, "avx", "avy", "avz") or
+                    source_has_fields(values, "qw", "qx", "qy", "qz"))]
+    fusion_sources = [source for source in imu_sources
+                      if source_has_fields(grouped[source], "qw", "qx", "qy", "qz")]
     accel_sources = [source for source, values in grouped.items() if source_has_fields(values, "acceleration_x", "acceleration_y", "acceleration_z")]
     pressure_sources = [source for source, values in grouped.items() if source_has_fields(values, "pressure", "temperature")]
     altitude_estimate_sources = [
@@ -728,9 +731,10 @@ def create_plots(
                 axes[1].plot(time_s, np.sqrt(ax**2 + ay**2 + az**2) / G0, "--", label=f"{source}: |a|")
         plot_fields(axes[2], grouped, fusion_sources, ("lax", "lay", "laz"), origin_ms)
         plot_fields(axes[3], grouped, fusion_sources, ("gx", "gy", "gz"), origin_ms)
-        if not fusion_sources:
-            for axis in axes[2:]:
-                axis.text(0.5, 0.5, "Unavailable in BNO055 AMG mode", transform=axis.transAxes,
+        for axis, fields in ((axes[2], ("lax", "lay", "laz")),
+                             (axes[3], ("gx", "gy", "gz"))):
+            if not any(source_has_fields(grouped[source], *fields) for source in fusion_sources):
+                axis.text(0.5, 0.5, "Unavailable in this recording", transform=axis.transAxes,
                           ha="center", va="center")
         for axis in axes: scale_flight_axis(axis)
         finish_flight_axis(axes[0], "IMU measured acceleration", "Acceleration [g]")
@@ -750,10 +754,15 @@ def create_plots(
             time_s = numeric_series(grouped[source], "qw", origin_ms)[0]
             if arrays and all(len(values) == len(time_s) for values in arrays):
                 axes[3].plot(time_s, np.sqrt(sum(values**2 for values in arrays)), "--", label=f"{source}: |q|")
-        plot_fields(axes[4], grouped, fusion_sources, ("csys", "cgyro", "caccel", "cmag"), origin_ms)
-        if not fusion_sources:
-            for axis in (axes[0], axes[3], axes[4]):
-                axis.text(0.5, 0.5, "Unavailable in BNO055 AMG mode", transform=axis.transAxes,
+        plot_fields(axes[4], grouped, fusion_sources, ("csys",), origin_ms)
+        plot_fields(axes[4], grouped, imu_sources, ("cgyro", "caccel", "cmag"), origin_ms)
+        for axis, sources, fields in ((axes[0], fusion_sources, ("ox", "oy", "oz")),
+                             (axes[1], imu_sources, ("avx", "avy", "avz")),
+                             (axes[2], imu_sources, ("mx", "my", "mz")),
+                             (axes[3], fusion_sources, ("qw", "qx", "qy", "qz")),
+                             (axes[4], imu_sources, ("cgyro", "caccel", "cmag"))):
+            if not any(source_has_fields(grouped[source], *fields) for source in sources):
+                axis.text(0.5, 0.5, "Unavailable in this recording", transform=axis.transAxes,
                           ha="center", va="center")
         for axis in axes: scale_flight_axis(axis)
         finish_flight_axis(axes[0], "Euler attitude", "Angle [deg]")
