@@ -37,6 +37,22 @@ IMU_ORIGIN_ROCKET_M = np.zeros(3)
 REPLAY_SPEEDS = (0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0)
 LEGACY_FSM_RE = re.compile(r"FSM transition t=(\d+) ms:\s*(\S+)\s*->\s*(\S+)")
 FSM_RE = re.compile(r"(?:FSM transition t=\d+ ms:\s*)?(\S+)\s*->\s*(\S+)")
+COMPACT_FIELDS = {
+    "pf_pa": "filtered_pressure_pa",
+    "alt_m": "altitude_m",
+    "vz_mps": "ols_slope_mps",
+    "ready": "ols_ready",
+    "p_pa": "pressure",
+    "temp_c": "temperature",
+    "sats": "satellites",
+    "fix": "fixType",
+    "lat": "latitude",
+    "lon": "longitude",
+    "speed": "ground_speed",
+    "accx": "acceleration_x",
+    "accy": "acceleration_y",
+    "accz": "acceleration_z",
+}
 
 
 @dataclass(frozen=True)
@@ -129,13 +145,19 @@ def load_records(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]
                 continue
 
             is_config = obj.get("type") == "CONFIG" and isinstance(obj.get("config"), dict)
+            source = str(obj.get("source") or obj.get("type") or "UNKNOWN")
             payload = obj.get("sensorData")
             if not isinstance(payload, dict):
                 payload = obj.get("content")
             if not isinstance(payload, dict):
-                payload = {}
+                if "source" in obj and "t" in obj:
+                    aliases = COMPACT_FIELDS.copy()
+                    if "lat" in obj:
+                        aliases["alt_m"] = "altitude"
+                    payload = {aliases.get(key, key): value for key, value in obj.items() if key != "source"}
+                else:
+                    payload = {}
 
-            source = str(obj.get("source") or obj.get("type") or "UNKNOWN")
             timestamp_ms = obj.get("timestamp") if is_config else payload.get("timestamp", payload.get("t"))
             message = str(payload.get("message", ""))
             legacy_fsm_match = LEGACY_FSM_RE.search(message)

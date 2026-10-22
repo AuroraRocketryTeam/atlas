@@ -1,5 +1,7 @@
 #pragma once
 #include <SensorData.hpp>
+#include <cstdint>
+#include <cstdio>
 
 /**
  * @brief Data structure for GPS sensor readings
@@ -33,8 +35,10 @@ public:
     uint32_t timestamp = 0;
     
     size_t serializeJson(char* buffer, size_t maxLength) const {
-        return snprintf(buffer, maxLength, 
-            "{\"source\":\"%s\",\"sensorData\":{\"satellites\":%u,\"fixType\":%u,\"latitude\":%f,\"longitude\":%f,\"altitude\":%f,\"ground_speed\":%f,\"hdop\":%f,\"timestamp\":%lu}}\n",
-            getSensorName(), satellites, fixType, latitude, longitude, altitude, ground_speed, hdop, (unsigned long)timestamp);
+        return std::snprintf(buffer, maxLength,
+            "{\"source\":\"%s\",\"t\":%lu,\"sats\":%u,\"fix\":%u,\"lat\":%.8g,\"lon\":%.8g,"
+            "\"alt_m\":%.6g,\"speed\":%.6g,\"hdop\":%.4g}\n",
+            getSensorName(), static_cast<unsigned long>(timestamp), satellites, fixType,
+            latitude, longitude, altitude, ground_speed, hdop);
     }
 };

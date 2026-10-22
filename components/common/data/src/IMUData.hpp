@@ -2,6 +2,7 @@
 #include <SensorData.hpp>
 #include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 
 /**
@@ -90,12 +91,12 @@ public:
                                               available, format, args);
                 va_end(args);
                 if (written < 0) failed = true;
-                else length += static_cast<size_t>(written);
+                else length += static_cast<size_t>(written); // vsnprintf counts the full chunk, even if truncated.
             }
         };
         Writer writer{buffer, maxLength};
 
-        writer.append("{\"source\":\"%s\",\"sensorData\":{\"t\":%lu",
+        writer.append("{\"source\":\"%s\",\"t\":%lu",
                getSensorName(), static_cast<unsigned long>(timestamp));
         if (validGroups & VALIDITY_SYSTEM_CALIBRATION)
             writer.append(",\"csys\":%u", calibration_sys);
@@ -103,27 +104,27 @@ public:
             writer.append(",\"cgyro\":%u,\"caccel\":%u,\"cmag\":%u",
                    calibration_gyro, calibration_accel, calibration_mag);
         if (validGroups & VALIDITY_ATTITUDE)
-            writer.append(",\"ox\":%f,\"oy\":%f,\"oz\":%f,\"qw\":%f,\"qx\":%f,\"qy\":%f,\"qz\":%f",
+            writer.append(",\"ox\":%.7g,\"oy\":%.7g,\"oz\":%.7g,\"qw\":%.6g,\"qx\":%.6g,\"qy\":%.6g,\"qz\":%.6g",
                    orientation_x, orientation_y, orientation_z,
                    quaternion_w, quaternion_x, quaternion_y, quaternion_z);
         if (validGroups & VALIDITY_ANGULAR_VELOCITY)
-            writer.append(",\"avx\":%f,\"avy\":%f,\"avz\":%f",
+            writer.append(",\"avx\":%.8g,\"avy\":%.8g,\"avz\":%.8g",
                    angular_velocity_x, angular_velocity_y, angular_velocity_z);
         if (validGroups & VALIDITY_LINEAR_ACCELERATION)
-            writer.append(",\"lax\":%f,\"lay\":%f,\"laz\":%f",
+            writer.append(",\"lax\":%.6g,\"lay\":%.6g,\"laz\":%.6g",
                    linear_acceleration_x, linear_acceleration_y, linear_acceleration_z);
         if (validGroups & VALIDITY_ACCELERATION)
-            writer.append(",\"ax\":%f,\"ay\":%f,\"az\":%f",
+            writer.append(",\"ax\":%.6g,\"ay\":%.6g,\"az\":%.6g",
                    acceleration_x, acceleration_y, acceleration_z);
         if (validGroups & VALIDITY_GRAVITY)
-            writer.append(",\"gx\":%f,\"gy\":%f,\"gz\":%f",
+            writer.append(",\"gx\":%.6g,\"gy\":%.6g,\"gz\":%.6g",
                    gravity_x, gravity_y, gravity_z);
         if (validGroups & VALIDITY_MAGNETOMETER)
-            writer.append(",\"mx\":%f,\"my\":%f,\"mz\":%f",
+            writer.append(",\"mx\":%.8g,\"my\":%.8g,\"mz\":%.8g",
                    magnetometer_x, magnetometer_y, magnetometer_z);
         if (validGroups & VALIDITY_TEMPERATURE)
-            writer.append(",\"te\":%f", temperature);
-        writer.append("}}\n");
+            writer.append(",\"te\":%.4g", temperature);
+        writer.append("}\n");
         return writer.failed ? std::numeric_limits<size_t>::max() : writer.length;
     }
 };

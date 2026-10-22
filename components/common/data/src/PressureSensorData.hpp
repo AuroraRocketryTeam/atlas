@@ -1,5 +1,7 @@
 #pragma once
 #include <SensorData.hpp>
+#include <cstdint>
+#include <cstdio>
 
 /**
  * @brief Data structure for Pressure sensor readings
@@ -19,8 +21,8 @@ public:
     uint32_t timestamp = 0;
 
     size_t serializeJson(char* buffer, size_t maxLength) const {
-        return snprintf(buffer, maxLength, 
-            "{\"source\":\"%s\",\"sensorData\":{\"pressure\":%f,\"temperature\":%f,\"timestamp\":%lu}}\n",
-            getSensorName(), pressure, temperature, (unsigned long)timestamp);
+        return std::snprintf(buffer, maxLength,
+            "{\"source\":\"%s\",\"t\":%lu,\"p_pa\":%.8g,\"temp_c\":%.4g}\n",
+            getSensorName(), static_cast<unsigned long>(timestamp), pressure, temperature);
     }
 };
