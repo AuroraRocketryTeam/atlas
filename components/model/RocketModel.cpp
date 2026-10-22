@@ -421,6 +421,15 @@ bool RocketModel::storageFileExists(const char* filename, uint32_t timeoutMs) {
     return false;
 }
 
+bool RocketModel::storageFileExistsChecked(const char* filename, bool& exists, uint32_t timeoutMs) {
+    if (!filename || !_storageMutex) return false;
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) return false;
+    const bool ready = _storage && _storage->isInitialized();
+    if (ready) exists = _storage->fileExists(filename);
+    xSemaphoreGive(_storageMutex);
+    return ready;
+}
+
 bool RocketModel::storageResetReadCursor(const char* filename, uint32_t timeoutMs) {
     if (filename == nullptr) {
         return false;

@@ -163,6 +163,8 @@ public:
      * @brief Thread-safe helper to check if a file exists in storage.
      */
     bool storageFileExists(const char* filename, uint32_t timeoutMs = 200);
+    // Separates "file absent" from "storage mutex unavailable" before creating a flight log.
+    bool storageFileExistsChecked(const char* filename, bool& exists, uint32_t timeoutMs = 200);
 
     /**
      * @brief Thread-safe helper to reset the read cursor of a file in storage.
