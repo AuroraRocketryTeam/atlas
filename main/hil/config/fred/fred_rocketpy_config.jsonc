@@ -280,6 +280,49 @@
           "position_accuracy": 4.0,
           "altitude_accuracy": 4.0
         }
+      },
+
+      "RealisticNoise": {
+        "_inherits": "clean",
+
+        // Empirical noise model calibrated from water-rocket flights.
+        // Reproduces pre-launch measurement variability at 50 Hz.
+        //
+        // The accelerometer model includes some physical disturbances.
+        // Constant bias, random walk and temperature drift are excluded
+        // because they could not be reliably identified.
+        //
+        // If we switch RocketPy to 25 Hz, the corresponding coefficients
+        // for approximately the same per-measurement RMS would be:
+        // Accelerometer noise_density	[0.034, 0.030, 0.040]
+        // Barometer noise_density	0.266
+
+        "Accelerometer": {
+          "name": "Realistic BNO055 Accelerometer",
+
+          // Manny's current ±16 g configuration.
+          "measurement_range": 160.0,
+
+          // Observed logging resolution.
+          "resolution": 0.01,
+
+          // RMS at 50 Hz: approximately [0.170, 0.148, 0.198] m/s².
+          "noise_density": [0.024, 0.021, 0.028],
+          "noise_variance": 1.0
+        },
+
+        "Barometer": {
+          "name": "Realistic MS5611 Barometer",
+
+          "measurement_range": 200000,
+          "resolution": 1.0,
+
+          // RMS at 50 Hz: approximately 1.33 Pa.
+          "noise_density": 0.188,
+          "noise_variance": 1.0
+        }
+
+        // GNSS inherits from clean; no GNSS noise calibration available.
       }
     }
   }
