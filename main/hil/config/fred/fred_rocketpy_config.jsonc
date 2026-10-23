@@ -82,8 +82,10 @@
     ]
   },
   "SolidMotor": {
-    "thrust_source": "TODO_CONFIRM_NEW_STATIC_FIRE_THRUST_CURVE",
-    "dry_mass": 0.5808,
+    // 23 Oct 2026, 8 mm static fire: trimmed to 2.1239-3.6398 s and shifted to t=0.
+    // Duplicate timestamp averaged; negative endpoint readings set to zero.
+    "thrust_source": "thrust_curve8mm_20261023.csv",
+    "dry_mass": 0.61785, // Measured motor hardware; wet mass 0.824 kg.
     "dry_inertia": [0.00455276, 0.00455276, 0.000222935],
     "nozzle_radius": 0.0089443, // Nozzle exit diameter 17.89 mm (expansion ratio 5); throat diameter 8 mm.
     "throat_radius": 0.004,
@@ -91,14 +93,40 @@
     "grain_outer_radius": 0.0165,
     "grain_initial_inner_radius": 0.0065,
     "grain_initial_height": 0.147,
-    "grain_density": 1853.75, // KNSB propellant with 1% Fe2O3.
+    // Fit RocketPy's effective density to the measured grain mass using these grain dimensions.
+    // Material estimate for KNSB + 1% Fe2O3 was 1853.75 kg/m^3.
+    "_grain_mass": 0.20615,
+    "grain_density": "= $SolidMotor._grain_mass / (pi * ($SolidMotor.grain_outer_radius^2 - $SolidMotor.grain_initial_inner_radius^2) * $SolidMotor.grain_initial_height)",
     "grain_separation": 0.002,
     "grains_center_of_mass_position": 0.123459, // Grain center in a 0.2320 m long motor; positions run from nozzle to chamber.
     "center_of_dry_mass_position": 0.0873014,
     "nozzle_position": 0,
-    "burn_time": "TODO_CONFIRM_NEW_STATIC_FIRE_BURN_TIME",
+    "burn_time": 1.5159, // Matches the cleaned curve; reported as 1.520 s.
     "coordinate_system_orientation": "nozzle_to_combustion_chamber"
   },
+  // To use the 23 Oct 7 mm firing, comment out the 8 mm SolidMotor above and uncomment this block.
+  // The 7 mm sheet lists 0.63515 kg dry and 0.20185 kg grain, but 0.846 kg wet: a 0.009 kg discrepancy.
+  // It gives no motor geometry or inertia; those values below carry over from 8 mm, except the 7 mm throat.
+  // The cleaned CSV spans 1.3800 s; the results image reports 1.389 s.
+  // "SolidMotor": {
+  //   "thrust_source": "thrust_curve7mm_20261023.csv",
+  //   "dry_mass": 0.63515,
+  //   "dry_inertia": [0.00455276, 0.00455276, 0.000222935],
+  //   "nozzle_radius": 0.0089443,
+  //   "throat_radius": 0.0035,
+  //   "grain_number": 1,
+  //   "grain_outer_radius": 0.0165,
+  //   "grain_initial_inner_radius": 0.0065,
+  //   "grain_initial_height": 0.147,
+  //   "_grain_mass": 0.20185,
+  //   "grain_density": "= $SolidMotor._grain_mass / (pi * ($SolidMotor.grain_outer_radius^2 - $SolidMotor.grain_initial_inner_radius^2) * $SolidMotor.grain_initial_height)",
+  //   "grain_separation": 0.002,
+  //   "grains_center_of_mass_position": 0.123459,
+  //   "center_of_dry_mass_position": 0.0873014,
+  //   "nozzle_position": 0,
+  //   "burn_time": 1.38,
+  //   "coordinate_system_orientation": "nozzle_to_combustion_chamber"
+  // },
   "RocketV2": {
     // FRED2.0 v1.0 geometry from OpenRocket FRED2.0-V1.0.ork via ork_positions.py.
     // Rocket positions run from nose tip toward tail; motor nozzle exit is at tail.
@@ -152,7 +180,7 @@
       "_cd": 0.97,
       "_area": 1.168,
       "cd_s": "= $_cd * $_area",
-      "lag": 1.5,
+      "lag": 1.5
       // "noise": [0, 6.5, 0.3]
     }
   ],
