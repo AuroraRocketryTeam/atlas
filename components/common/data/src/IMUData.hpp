@@ -96,7 +96,7 @@ public:
         };
         Writer writer{buffer, maxLength};
 
-        writer.append("{\"source\":\"%s\",\"t\":%lu",
+        writer.append("{\"src\":\"%s\",\"t\":%lu",
                getSensorName(), static_cast<unsigned long>(timestamp));
         if (validGroups & VALIDITY_SYSTEM_CALIBRATION)
             writer.append(",\"csys\":%u", calibration_sys);

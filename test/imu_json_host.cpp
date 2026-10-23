@@ -32,7 +32,7 @@ int main() {
     char json[1024];
     const size_t amgLength = imu.serializeJson(json, sizeof(json));
     assert(amgLength == std::strlen(json));
-    assert(std::strstr(json, "{\"source\":\"BNO055\",\"t\":42"));
+    assert(std::strstr(json, "{\"src\":\"BNO055\",\"t\":42"));
     assert(std::strstr(json, "\"ax\":0"));
     assert(std::strstr(json, "\"avx\":-0.0625"));
     assert(std::strstr(json, "\"cgyro\":0"));
@@ -68,7 +68,7 @@ int main() {
     pressure.pressure = 102031.0f;
     pressure.temperature = 25.309999f;
     assert(pressure.serializeJson(json, sizeof(json)) == std::strlen(json));
-    assert(std::strcmp(json, "{\"source\":\"MS561101BA03_1\",\"t\":44,\"p_pa\":102031,\"temp_c\":25.31}\n") == 0);
+    assert(std::strcmp(json, "{\"src\":\"MS561101BA03_1\",\"t\":44,\"p_pa\":102031,\"temp_c\":25.31}\n") == 0);
     checkRequiredLength(pressure);
 
     AccelerometerSensorData accel;
@@ -76,7 +76,7 @@ int main() {
     accel.timestamp = 45;
     accel.acceleration_x = -0.0625f;
     assert(accel.serializeJson(json, sizeof(json)) == std::strlen(json));
-    assert(std::strcmp(json, "{\"source\":\"LIS3DHTR\",\"t\":45,\"accx\":-0.0625,\"accy\":0,\"accz\":0}\n") == 0);
+    assert(std::strcmp(json, "{\"src\":\"LIS3DHTR\",\"t\":45,\"accx\":-0.0625,\"accy\":0,\"accz\":0}\n") == 0);
     checkRequiredLength(accel);
 
     GPSData gps;

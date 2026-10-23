@@ -37,6 +37,7 @@ let deletingAllFiles = false;
 let latestStatus = null;
 let readyAttemptPending = false;
 let readyAttemptUncertain = false;
+let readyScheduled = false;
 let readyStatusFailures = 0;
 let lastReadyAttemptStatus = 'idle';
 let sdkconfigText = null;
@@ -93,7 +94,7 @@ function setAuthState(authenticated, message = '') {
   isAuthenticated = authenticated;
   document.body.classList.toggle('authenticated', authenticated);
   authState.className = `auth-state ${authenticated ? 'operator' : 'guest'}`;
-  authState.textContent = message || (authenticated ? 'OPERATOR · controls unlocked' : 'VIEWER · monitoring only');
+  authState.textContent = message || (authenticated ? 'OPERATOR - controls unlocked' : 'VIEWER - monitoring only');
   authenticateButton.textContent = authenticated ? 'Lock Controls' : 'Unlock Controls';
   protectedNavButtons.forEach(button => { button.disabled = !authenticated; });
   if (!authenticated) {
@@ -245,7 +246,7 @@ async function authenticateOperator() {
     if (!res.ok) throw new Error('Authentication failed');
     setAuthState(true);
   } catch (err) {
-    setAuthState(false, `VIEWER · ${err.message || 'authentication failed'}`);
+    setAuthState(false, `VIEWER - ${err.message || 'authentication failed'}`);
   }
 }
 
@@ -256,14 +257,30 @@ async function authFetch(path, options = {}) {
     const bodySha256 = await sha256Hex(body);
     const headers = await buildSignedHeaders(path, method, bodySha256, options.headers || {});
     const res = await fetch(path, { ...options, method, headers, cache: 'no-store' });
-    if (res.status === 401) setAuthState(false, 'VIEWER · authentication failed');
+    if (res.status === 401) setAuthState(false, 'VIEWER - authentication failed');
     return res;
   });
 }
 
+// Every request gets a deadline. Without one, a request issued just as the
+// access point goes down hangs until the OS TCP timeout, which can be minutes:
+// the pollBusy guard in pollStatus() stays latched, no further poll runs, and
+// the dashboard freezes on whatever it was showing. Status polls are small and
+// frequent so they get the short deadline; authenticated calls may touch flash
+// or the SD card, so they get a generous one.
+const PUBLIC_REQUEST_TIMEOUT_MS = 4000;
+const AUTH_REQUEST_TIMEOUT_MS = 15000;
+
+function withDeadline(options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return { options: { ...options, signal: controller.signal }, clear: () => clearTimeout(timer) };
+}
+
 async function publicApi(path) {
+  const deadline = withDeadline({ cache: 'no-store' }, PUBLIC_REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(path, { cache: 'no-store' });
+    const res = await fetch(path, deadline.options);
     const text = await res.text();
     let body;
     try { body = JSON.parse(text); } catch { body = { ok: res.ok, text }; }
@@ -271,12 +288,15 @@ async function publicApi(path) {
     return body;
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
+  } finally {
+    deadline.clear();
   }
 }
 
 async function api(path, options = {}) {
+  const deadline = withDeadline(options, AUTH_REQUEST_TIMEOUT_MS);
   try {
-    const res = await authFetch(path, options);
+    const res = await authFetch(path, deadline.options);
     const text = await res.text();
     let body;
     try { body = JSON.parse(text); } catch { body = { ok: res.ok, text }; }
@@ -284,6 +304,8 @@ async function api(path, options = {}) {
     return body;
   } catch (err) {
     return { ok: false, transport_error: true, error: err.message || String(err) };
+  } finally {
+    deadline.clear();
   }
 }
 
@@ -502,7 +524,18 @@ function updateFsmBar(status) {
     lastReadyAttemptStatus = attempt;
     if (attempt === 'pending') {
       readyAttemptPending = true;
+      readyScheduled = false;
       showActionStatus('Preparing the flight log and locking configuration…');
+    } else if (attempt === 'scheduled') {
+      // The transition is committing. Every path that can still refuse it
+      // returns before any task is stopped, so Ground Services staying up means
+      // a refusal and losing the connection from here means it went through.
+      // Clearing the pending flag stops pollStatus() from reporting that
+      // expected disconnection as an unknown outcome.
+      readyAttemptPending = false;
+      readyAttemptUncertain = false;
+      readyScheduled = true;
+      showActionStatus('Scheduled transition, check the LED on the board (blinking red)');
     } else if (attempt === 'ready') {
       readyAttemptPending = false;
       readyAttemptUncertain = false;
@@ -510,6 +543,7 @@ function updateFsmBar(status) {
     } else if (attempt !== 'idle') {
       readyAttemptPending = false;
       readyAttemptUncertain = false;
+      readyScheduled = false;
       const reason = {
         queue_failed: 'The FSM event queue is unavailable.',
         invalid_state: 'The FSM is no longer in Ground Services.',
@@ -547,9 +581,10 @@ function updateFsmBar(status) {
     fsmAdvance.textContent = 'Go To Ready For Launch';
     fsmAdvance.classList.remove('hidden');
     fsmAdvance.classList.add('danger-action');
-    fsmAdvance.disabled = configDirty || readyAttemptPending || readyAttemptUncertain;
+    fsmAdvance.disabled = configDirty || readyAttemptPending || readyAttemptUncertain || readyScheduled;
     fsmAdvance.title = configDirty ? 'Save configuration changes before READY FOR LAUNCH.'
       : readyAttemptUncertain ? 'Connection lost; verify the FSM state before trying again.'
+      : readyScheduled ? 'Transition scheduled; the board LED is the confirmation.'
       : readyAttemptPending ? 'Preparing READY_FOR_LAUNCH…' : '';
     readyConfigGuard.classList.toggle('hidden', !configDirty);
   } else {
@@ -1139,7 +1174,7 @@ function mountingPreview(mapping) {
     ${axis([1.3, 0, 0], '+X IMU', '#ef4444')}
     ${axis([0, 1.1, 0], '+Y IMU', '#22c55e')}
     ${axis([0, 0, 1.0], '+Z IMU', '#38bdf8')}
-  </svg><small>Rocket: +Z nose · +Y rail · +X completes right-handed frame</small>`;
+  </svg><small>Rocket: +Z nose - +Y rail - +X completes right-handed frame</small>`;
 }
 
 function selectAttitudeMounting(index) {
@@ -1153,8 +1188,8 @@ function attitudeAlignmentControls() {
   const selectedKey = attitudeMountingKey(attitudeMountingDraft);
   const options = SUPPORTED_ATTITUDE_MOUNTINGS.map((mapping, index) => {
     const key = attitudeMountingKey(mapping);
-    const label = ['x', 'y', 'z'].map(axis => `Body ${axis.toUpperCase()} → Sensor ${mapping[axis].toUpperCase()}`).join(' · ');
-    return `<option value="${key}"${key === selectedKey ? ' selected' : ''}>${index + 1}/24 · ${label}</option>`;
+    const label = ['x', 'y', 'z'].map(axis => `Body ${axis.toUpperCase()} → Sensor ${mapping[axis].toUpperCase()}`).join(' - ');
+    return `<option value="${key}"${key === selectedKey ? ' selected' : ''}>${index + 1}/24 - ${label}</option>`;
   }).join('');
   return `<div class="attitude-alignment"><strong>Board mounting</strong><small>Visualization only; raw IMU records are unchanged.</small><div id="mountingPreview">${mountingPreview(attitudeMountingDraft)}</div><div><label>Reference-frame transformation<select class="attitude-frame-map">${options}</select></label></div><div class="mounting-navigation"><button type="button" data-mounting-step="-1">← Previous</button><button type="button" data-mounting-step="1">Next →</button></div><button type="button" id="applyAttitudeAlignment">Apply alignment</button><span id="attitudeAlignmentStatus">Changes are staged until applied.</span></div>`;
 }
@@ -1496,7 +1531,7 @@ function configInput(key, value) {
   return `<label class="${classes}">
     <span class="config-label"><strong>${esc(meta.label || key)}</strong>${badges}</span>
     <span class="config-control">${input}${meta.unit ? `<small>${esc(meta.unit)}</small>` : ''}</span>
-    <span class="config-desc">${esc(meta.description || '')}${meta.source ? ` · Source: ${esc(meta.source)}` : ''}</span>
+    <span class="config-desc">${esc(meta.description || '')}${meta.source ? ` - Source: ${esc(meta.source)}` : ''}</span>
     ${issue ? `<span class="config-message">${esc(issue.message)}</span>` : ''}
   </label>`;
 }
@@ -2005,7 +2040,10 @@ setInterval(() => {
   }
 }, 1500);
 setInterval(pollStatus, 5000);
-setInterval(() => { if (readyAttemptPending) pollStatus(); }, 750);
+// Fast only while a READY attempt is open, and short enough that at least one
+// poll lands inside the brief window Ground Services stays up for after the
+// transition is scheduled. It is a small JSON over a local link.
+setInterval(() => { if (readyAttemptPending) pollStatus(); }, 300);
 document.getElementById('refreshLogs').addEventListener('click', loadLogs);
 pauseLogsButton.addEventListener('click', () => {
   logsPaused = !logsPaused;

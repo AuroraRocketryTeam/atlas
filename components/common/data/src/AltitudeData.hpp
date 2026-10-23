@@ -15,7 +15,7 @@ struct AltitudeData {
 
     size_t serializeJson(char* buffer, size_t maxLength) const {
         return std::snprintf(buffer, maxLength,
-            "{\"source\":\"ALTITUDE\",\"t\":%lu,\"pf_pa\":%.8g,\"alt_m\":%.6g,\"vz_mps\":%.6g,"
+            "{\"src\":\"ALTITUDE\",\"t\":%lu,\"pf_pa\":%.8g,\"alt_m\":%.6g,\"vz_mps\":%.6g,"
             "\"ready\":%s,\"rising\":%s}\n",
             static_cast<unsigned long>(timestamp), filtered_pressure_pa, altitude_m, ols_slope_mps,
             ols_ready ? "true" : "false", rising ? "true" : "false");

@@ -71,6 +71,12 @@ static const char *TAG = "GroundServices";
 // Live Data is best-effort operator monitoring; 10 Hz is responsive without
 // creating unnecessary HTTPD and Wi-Fi load on the flight controller.
 static constexpr uint32_t GROUND_SERVICES_LOOP_PERIOD_MS = 100;
+// Arming stops this task and the wifi AP. We use these timeouts to allow the last
+// dashboard poll to complete (it polls very 300ms).
+// Timeout for graceful httpd shutdown
+static constexpr uint32_t SHUTDOWN_POLL_GRACE_MS = 500;
+// Timeout for wifi non-graceful shutdown
+static constexpr uint32_t SHUTDOWN_FLUSH_MS = 150;
 
 #ifndef CONFIG_GROUND_SERVICES_AUTH_TOKEN
 #error "CONFIG_GROUND_SERVICES_AUTH_TOKEN must be configured. It is used as the HMAC shared secret for Ground Services."
@@ -628,7 +634,10 @@ void GroundServicesTask::onTaskStop()
 {
     // BaseTask calls onTaskStop() only after taskFunction() has returned, so
     // queueWebSocketBroadcast() can no longer race httpd_stop() or mutex teardown.
+    // The HTTP server is a separate task and keeps answering during this wait.
+    vTaskDelay(pdMS_TO_TICKS(SHUTDOWN_POLL_GRACE_MS));
     stopServer();
+    vTaskDelay(pdMS_TO_TICKS(SHUTDOWN_FLUSH_MS));
     if (_softApAcquired) {
         if (_board != nullptr && !_board->stopWifi()) {
             LOG_ERROR(TAG, "Failed to release Ground Services SoftAP");

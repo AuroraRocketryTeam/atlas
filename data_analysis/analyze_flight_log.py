@@ -145,16 +145,19 @@ def load_records(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]
                 continue
 
             is_config = obj.get("type") == "CONFIG" and isinstance(obj.get("config"), dict)
-            source = str(obj.get("source") or obj.get("type") or "UNKNOWN")
+            # The firmware writes "src"; "source" is the pre-rename spelling and
+            # is still accepted so older recordings keep parsing.
+            source_key = "src" if "src" in obj else "source"
+            source = str(obj.get(source_key) or obj.get("type") or "UNKNOWN")
             payload = obj.get("sensorData")
             if not isinstance(payload, dict):
                 payload = obj.get("content")
             if not isinstance(payload, dict):
-                if "source" in obj and "t" in obj:
+                if source_key in obj and "t" in obj:
                     aliases = COMPACT_FIELDS.copy()
                     if "lat" in obj:
                         aliases["alt_m"] = "altitude"
-                    payload = {aliases.get(key, key): value for key, value in obj.items() if key != "source"}
+                    payload = {aliases.get(key, key): value for key, value in obj.items() if key != source_key}
                 else:
                     payload = {}
 

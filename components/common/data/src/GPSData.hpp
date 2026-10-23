@@ -36,7 +36,7 @@ public:
     
     size_t serializeJson(char* buffer, size_t maxLength) const {
         return std::snprintf(buffer, maxLength,
-            "{\"source\":\"%s\",\"t\":%lu,\"sats\":%u,\"fix\":%u,\"lat\":%.8g,\"lon\":%.8g,"
+            "{\"src\":\"%s\",\"t\":%lu,\"sats\":%u,\"fix\":%u,\"lat\":%.8g,\"lon\":%.8g,"
             "\"alt_m\":%.6g,\"speed\":%.6g,\"hdop\":%.4g}\n",
             getSensorName(), static_cast<unsigned long>(timestamp), satellites, fixType,
             latitude, longitude, altitude, ground_speed, hdop);

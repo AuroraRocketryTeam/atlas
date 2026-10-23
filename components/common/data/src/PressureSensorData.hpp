@@ -22,7 +22,7 @@ public:
 
     size_t serializeJson(char* buffer, size_t maxLength) const {
         return std::snprintf(buffer, maxLength,
-            "{\"source\":\"%s\",\"t\":%lu,\"p_pa\":%.8g,\"temp_c\":%.4g}\n",
+            "{\"src\":\"%s\",\"t\":%lu,\"p_pa\":%.8g,\"temp_c\":%.4g}\n",
             getSensorName(), static_cast<unsigned long>(timestamp), pressure, temperature);
     }
 };

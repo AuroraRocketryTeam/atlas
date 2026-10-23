@@ -21,7 +21,7 @@ public:
 
     size_t serializeJson(char* buffer, size_t maxLength) const {
         return std::snprintf(buffer, maxLength,
-            "{\"source\":\"%s\",\"t\":%lu,\"accx\":%.6g,\"accy\":%.6g,\"accz\":%.6g}\n",
+            "{\"src\":\"%s\",\"t\":%lu,\"accx\":%.6g,\"accy\":%.6g,\"accz\":%.6g}\n",
             getSensorName(), static_cast<unsigned long>(timestamp),
             acceleration_x, acceleration_y, acceleration_z);
     }

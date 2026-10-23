@@ -218,7 +218,7 @@ void TaskManager::logActiveTaskStackHealth() const
     const size_t taskCount = getActiveTaskStackHealth(tasks.data(), tasks.size());
     for (size_t index = 0; index < taskCount; ++index)
     {
-        LOG_INFO("TaskManager", "Task stack: [%s] %s remaining=%u bytes",
+        LOG_EVERY_MS(5000, INFO, "TaskManager", "Task stack: [%s] %s remaining=%u bytes",
                  tasks[index].type, tasks[index].name, tasks[index].high_water_mark_bytes);
     }
 }

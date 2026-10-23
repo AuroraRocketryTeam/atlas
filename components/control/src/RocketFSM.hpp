@@ -120,8 +120,9 @@ private:
     unsigned long _stateStartTime;
     volatile bool _isRunning;
     volatile bool _isTransitioning;
+    // SCHEDULED is the last value the dashboard can ever observe
     enum class ReadyAttemptStatus : uint8_t {
-        IDLE, PENDING, READY, QUEUE_FAILED, INVALID_STATE, FILE_BUSY,
+        IDLE, PENDING, SCHEDULED, READY, QUEUE_FAILED, INVALID_STATE, FILE_BUSY,
         FILENAME_FAILED, CONFIG_LOCK_FAILED, FILE_PREP_FAILED,
         FILE_ACTIVATION_FAILED, TRANSITION_FAILED, CONFIG_UNLOCK_FAILED
     };

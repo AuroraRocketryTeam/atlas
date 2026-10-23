@@ -267,7 +267,7 @@ The *E220 Configuration* test writes this configuration into the module.
 - **Format.** The recorder writes JSON Lines. Sensor samples are flat objects with `source`, `t` (milliseconds), and compact field names; events and configuration keep their existing objects. Floating fields use per-field `%g` precision to omit trailing zeros. `data_analysis/analyze_flight_log.py` reads both this format and older nested `sensorData` records. For example:
 
   ```json
-  {"source":"ALTITUDE","t":73614,"pf_pa":102032,"alt_m":-0.164139,"vz_mps":-0.427954,"ready":true,"rising":false}
+  {"src":"ALTITUDE","t":73614,"pf_pa":102032,"alt_m":-0.164139,"vz_mps":-0.427954,"ready":true,"rising":false}
   ```
 - **Storage.** Files go to external SPI flash (LittleFS, mounted at `/ext`) through `MirrorStorage`. If an SD card is present, the same data is also written there.
 - **Per-flight files.** Each flight gets its own file (`flight_telemetry_NNNNNN.jsonl`). The file name is reserved and saved to NVS before the config is locked, so a reboot never overwrites a previous flight.

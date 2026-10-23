@@ -258,6 +258,7 @@ const char *RocketFSM::getReadyAttemptStatus() const
     switch (_readyAttemptStatus.load()) {
     case ReadyAttemptStatus::IDLE: return "idle";
     case ReadyAttemptStatus::PENDING: return "pending";
+    case ReadyAttemptStatus::SCHEDULED: return "scheduled";
     case ReadyAttemptStatus::READY: return "ready";
     case ReadyAttemptStatus::QUEUE_FAILED: return "queue_failed";
     case ReadyAttemptStatus::INVALID_STATE: return "invalid_state";
@@ -884,6 +885,17 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
         }
     }
 
+    if (preparingReady)
+    {
+        // Everything that can refuse the arming has already succeeded, and both
+        // remaining failure paths inside transitionTo() return before any task
+        // is stopped, so a refusal leaves Ground Services and its AP running.
+        // Publish here: the transition takes the Wi-Fi down with it, so this is
+        // the last state the dashboard can read.
+        _readyAttemptStatus.store(ReadyAttemptStatus::SCHEDULED);
+        LOG_INFO("RocketFSM", "READY_FOR_LAUNCH scheduled: committing transition, Ground Services will stop");
+    }
+
     const bool transitioned = transitionTo(newState.value());
     if (preparingReady) {
         if (!transitioned) {
@@ -892,7 +904,7 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
                       unlockError == ESP_OK ? "" : "; configuration remains locked");
             if (unlockError != ESP_OK)
                 _readyAttemptStatus.store(ReadyAttemptStatus::CONFIG_UNLOCK_FAILED);
-            else if (_readyAttemptStatus.load() == ReadyAttemptStatus::PENDING)
+            else if (_readyAttemptStatus.load() == ReadyAttemptStatus::SCHEDULED)
                 _readyAttemptStatus.store(ReadyAttemptStatus::TRANSITION_FAILED);
         } else {
             _readyAttemptStatus.store(ReadyAttemptStatus::READY);
