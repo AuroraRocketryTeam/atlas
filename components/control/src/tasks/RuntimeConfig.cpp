@@ -4,8 +4,10 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 
 #include "IBoardHardware.hpp"
+#include "cJSON.h"
 #include "config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -91,8 +93,8 @@ static RuntimeConfig make_default_config()
     cfg.actuators.pulse_count = 3;
     cfg.actuators.pulse_duration_ms = 3;
     cfg.flight_transitions.burnout_velocity_drop_mps = 5.0f;
-    cfg.flight_transitions.touchdown_velocity_threshold_mps = 2.0f;
-    cfg.flight_transitions.touchdown_accel_tolerance_mps2 = 2.0f;
+    cfg.flight_transitions.landing_vertical_velocity_threshold = 2.0f;
+    cfg.flight_transitions.landing_acceleration_threshold = 2.0f;
     cfg.flight_transitions.landing_stability_ms = 2000;
     cfg.config_locked = false;
     return cfg;
@@ -277,15 +279,15 @@ esp_err_t runtime_config_validate_each(const RuntimeConfig *cfg, RuntimeConfigVa
         cfg->flight_transitions.burnout_velocity_drop_mps > 100.0f) {
         error("flight.burnout_velocity_drop_mps", "Burnout velocity drop must be between 0.5 and 100 m/s");
     }
-    if (!std::isfinite(cfg->flight_transitions.touchdown_velocity_threshold_mps) ||
-        cfg->flight_transitions.touchdown_velocity_threshold_mps < 0.1f ||
-        cfg->flight_transitions.touchdown_velocity_threshold_mps > 20.0f) {
-        error("flight.touchdown_velocity_threshold_mps", "Touchdown velocity threshold must be between 0.1 and 20 m/s");
+    if (!std::isfinite(cfg->flight_transitions.landing_vertical_velocity_threshold) ||
+        cfg->flight_transitions.landing_vertical_velocity_threshold < 0.1f ||
+        cfg->flight_transitions.landing_vertical_velocity_threshold > 20.0f) {
+        error("flight.landing_vertical_velocity_threshold", "Landing barometric vertical-speed limit must be between 0.1 and 20 m/s");
     }
-    if (!std::isfinite(cfg->flight_transitions.touchdown_accel_tolerance_mps2) ||
-        cfg->flight_transitions.touchdown_accel_tolerance_mps2 < 0.1f ||
-        cfg->flight_transitions.touchdown_accel_tolerance_mps2 > 20.0f) {
-        error("flight.touchdown_accel_tolerance_mps2", "Touchdown acceleration tolerance must be between 0.1 and 20 m/s^2");
+    if (!std::isfinite(cfg->flight_transitions.landing_acceleration_threshold) ||
+        cfg->flight_transitions.landing_acceleration_threshold < 0.1f ||
+        cfg->flight_transitions.landing_acceleration_threshold > 20.0f) {
+        error("flight.landing_acceleration_threshold", "Landing IMU acceleration tolerance must be between 0.1 and 20 m/s^2");
     }
     if (cfg->flight_transitions.landing_stability_ms < 500 ||
         cfg->flight_transitions.landing_stability_ms > 30000) {
@@ -581,9 +583,36 @@ static bool json_get_string(const char *json, const char *key, char *out, size_t
     if (p == nullptr || *p != '"' || out_size == 0) return false;
     ++p;
     size_t i = 0;
-    while (*p != '\0' && *p != '"' && i + 1 < out_size) out[i++] = *p++;
+    while (*p != '\0' && *p != '"' && i + 1 < out_size) {
+        if (*p == '\\') {
+            ++p;
+            if (*p == '"' || *p == '\\' || *p == '/') out[i++] = *p++;
+            else if (*p == 'n') { out[i++] = '\n'; ++p; }
+            else if (*p == 'r') { out[i++] = '\r'; ++p; }
+            else if (*p == 't') { out[i++] = '\t'; ++p; }
+            else return false;
+        } else {
+            out[i++] = *p++;
+        }
+    }
     out[i] = '\0';
     return *p == '"';
+}
+
+static bool json_escape_string(const char *input, char *out, size_t capacity)
+{
+    size_t written = 0;
+    for (const unsigned char *p = reinterpret_cast<const unsigned char *>(input); *p; ++p) {
+        const char *escape = *p == '"' ? "\\\"" : *p == '\\' ? "\\\\" :
+                             *p == '\n' ? "\\n" : *p == '\r' ? "\\r" : *p == '\t' ? "\\t" : nullptr;
+        if (*p < 0x20 && !escape) return false;
+        const size_t length = escape ? 2 : 1;
+        if (written + length >= capacity) return false;
+        if (escape) { out[written++] = escape[0]; out[written++] = escape[1]; }
+        else out[written++] = static_cast<char>(*p);
+    }
+    out[written] = '\0';
+    return true;
 }
 
 /**
@@ -659,8 +688,8 @@ esp_err_t runtime_config_update_from_json(const char *json, RuntimeConfig *updat
     if (json_update_uint_if_present(json, "launch_to_apogee_threshold_ms", &cfg.flight.launch_to_apogee_threshold_ms) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "touchdown_altitude_threshold_m", &cfg.flight.touchdown_altitude_threshold_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "burnout_velocity_drop_mps", &cfg.flight_transitions.burnout_velocity_drop_mps) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    if (json_update_float_if_present(json, "touchdown_velocity_threshold_mps", &cfg.flight_transitions.touchdown_velocity_threshold_mps) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    if (json_update_float_if_present(json, "touchdown_accel_tolerance_mps2", &cfg.flight_transitions.touchdown_accel_tolerance_mps2) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "landing_vertical_velocity_threshold", &cfg.flight_transitions.landing_vertical_velocity_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "landing_acceleration_threshold", &cfg.flight_transitions.landing_acceleration_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_uint_if_present(json, "landing_stability_ms", &cfg.flight_transitions.landing_stability_ms) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "airbrakes_open_altitude_m", &cfg.airbrakes.open_altitude_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "airbrakes_close_altitude_m", &cfg.airbrakes.close_altitude_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
@@ -693,12 +722,134 @@ esp_err_t runtime_config_update_from_json(const char *json, RuntimeConfig *updat
     return err;
 }
 
+static bool import_string(const cJSON *root, const char *key, char *out, size_t size)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (!cJSON_IsString(item) || item->valuestring == nullptr) return false;
+    const size_t length = strlen(item->valuestring);
+    if (length >= size) return false;
+    for (size_t i = 0; i < length; ++i) {
+        const unsigned char ch = static_cast<unsigned char>(item->valuestring[i]);
+        if (ch < 0x20 && ch != '\n' && ch != '\r' && ch != '\t') return false;
+    }
+    memcpy(out, item->valuestring, length + 1);
+    return true;
+}
+
+static bool import_float(const cJSON *root, const char *key, float *out)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (!cJSON_IsNumber(item) || !std::isfinite(item->valuedouble) ||
+        item->valuedouble < -std::numeric_limits<float>::max() ||
+        item->valuedouble > std::numeric_limits<float>::max()) return false;
+    *out = static_cast<float>(item->valuedouble);
+    return true;
+}
+
+template <typename T>
+static bool import_uint(const cJSON *root, const char *key, T *out)
+{
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, key);
+    if (!cJSON_IsNumber(item) || !std::isfinite(item->valuedouble) ||
+        item->valuedouble < 0 || item->valuedouble > std::numeric_limits<T>::max() ||
+        std::trunc(item->valuedouble) != item->valuedouble) return false;
+    *out = static_cast<T>(item->valuedouble);
+    return true;
+}
+
+static bool json_has_nul_escape(const char *json)
+{
+    bool in_string = false;
+    for (const char *p = json; *p != '\0'; ++p) {
+        if (*p == '"') in_string = !in_string;
+        else if (in_string && *p == '\\') {
+            if (p[1] == 'u' && strncmp(p + 2, "0000", 4) == 0) return true;
+            if (p[1] != '\0') ++p;
+        }
+    }
+    return false;
+}
+
+/** Restore all configurable NVS fields without replaying device-owned flight state. */
+esp_err_t runtime_config_import_from_json(const char *json, RuntimeConfig *updated_out)
+{
+    if (json == nullptr || json_has_nul_escape(json)) return ESP_ERR_INVALID_ARG;
+    RuntimeConfig cfg;
+    esp_err_t err = runtime_config_get(&cfg);
+    if (err != ESP_OK) return err;
+    if (cfg.config_locked) return ESP_ERR_INVALID_STATE;
+
+    cJSON *root = cJSON_ParseWithOpts(json, nullptr, true);
+    if (root == nullptr) return ESP_ERR_INVALID_ARG;
+    const cJSON *mode = cJSON_GetObjectItemCaseSensitive(root, "recovery_mode");
+    const char *mode_name = cJSON_IsString(mode) ? mode->valuestring : nullptr;
+    // One schema key and 35 persisted values. Reject missing, duplicate, and extra fields.
+    bool valid = cJSON_IsObject(root) && cJSON_GetArraySize(root) == 36 &&
+        import_uint(root, "schema_version", &cfg.schema_version) &&
+        import_string(root, "rocket_name", cfg.mission.rocket_name, sizeof(cfg.mission.rocket_name)) &&
+        import_string(root, "launch_site", cfg.mission.launch_site, sizeof(cfg.mission.launch_site)) &&
+        import_string(root, "operator_note", cfg.mission.operator_note, sizeof(cfg.mission.operator_note)) &&
+        import_float(root, "launch_site_altitude_m", &cfg.mission.launch_site_altitude_m) &&
+        import_float(root, "sea_level_pressure_hpa", &cfg.mission.sea_level_pressure_hpa) &&
+        import_float(root, "liftoff_accel_threshold_mps2", &cfg.flight.liftoff_accel_threshold_mps2) &&
+        import_uint(root, "liftoff_timeout_ms", &cfg.flight.liftoff_timeout_ms) &&
+        import_uint(root, "apogee_lockout_ms", &cfg.flight.apogee_lockout_ms) &&
+        import_uint(root, "drogue_apogee_timeout_ms", &cfg.flight.drogue_apogee_timeout_ms) &&
+        import_uint(root, "launch_to_ballistic_threshold_ms", &cfg.flight.launch_to_ballistic_threshold_ms) &&
+        import_float(root, "burnout_velocity_drop_mps", &cfg.flight_transitions.burnout_velocity_drop_mps) &&
+        import_uint(root, "launch_to_apogee_threshold_ms", &cfg.flight.launch_to_apogee_threshold_ms) &&
+        import_float(root, "main_altitude_threshold_m", &cfg.flight.main_altitude_threshold_m) &&
+        import_float(root, "touchdown_altitude_threshold_m", &cfg.flight.touchdown_altitude_threshold_m) &&
+        import_float(root, "landing_vertical_velocity_threshold", &cfg.flight_transitions.landing_vertical_velocity_threshold) &&
+        import_float(root, "landing_acceleration_threshold", &cfg.flight_transitions.landing_acceleration_threshold) &&
+        import_uint(root, "landing_stability_ms", &cfg.flight_transitions.landing_stability_ms) &&
+        import_uint(root, "telemetry_period_ms", &cfg.telemetry.period_ms) &&
+        import_float(root, "airbrakes_open_altitude_m", &cfg.airbrakes.open_altitude_m) &&
+        import_float(root, "airbrakes_close_altitude_m", &cfg.airbrakes.close_altitude_m) &&
+        import_float(root, "airbrakes_open_rate_per_s", &cfg.airbrakes.open_rate_per_s) &&
+        import_float(root, "airbrakes_close_rate_per_s", &cfg.airbrakes.close_rate_per_s) &&
+        import_uint(root, "altitude_filter_window", &cfg.altitude.filter_window) &&
+        import_float(root, "altitude_max_pressure_rate_pa_per_s", &cfg.altitude.max_pressure_rate_pa_per_s) &&
+        import_uint(root, "apogee_detection_window_size", &cfg.altitude.apogee_window_size) &&
+        import_float(root, "apogee_sample_rate_hz", &cfg.altitude.apogee_sample_rate_hz) &&
+        import_float(root, "apogee_trigger_velocity_mps", &cfg.altitude.apogee_trigger_velocity_mps) &&
+        import_uint(root, "apogee_confirmation_windows", &cfg.altitude.apogee_confirmation_windows) &&
+        import_uint(root, "selected_barometer", &cfg.altitude.selected_barometer) &&
+        import_uint(root, "calibration_timeout_ms", &cfg.calibration.timeout_ms) &&
+        import_uint(root, "barometer_calibration_samples", &cfg.calibration.barometer_samples) &&
+        import_uint(root, "temperature_calibration_samples", &cfg.calibration.temperature_samples) &&
+        mode_name != nullptr &&
+        (strcmp(mode_name, "one_parachute") == 0 || strcmp(mode_name, "two_parachute") == 0) &&
+        import_uint(root, "actuator_pulse_count", &cfg.actuators.pulse_count) &&
+        import_uint(root, "actuator_pulse_duration_ms", &cfg.actuators.pulse_duration_ms);
+    if (valid) {
+        cfg.recovery.mode = strcmp(mode_name, "one_parachute") == 0
+            ? RecoveryMode::OneParachuteMode : RecoveryMode::TwoParachuteMode;
+    }
+    cJSON_Delete(root);
+    if (!valid || cfg.schema_version != runtime_config_defaults().schema_version) return ESP_ERR_INVALID_ARG;
+
+    cfg.config_revision++;
+    err = runtime_config_save(&cfg);
+    if (err == ESP_OK && updated_out != nullptr) err = runtime_config_get(updated_out);
+    return err;
+}
+
 /**
  * @brief Build the dashboard runtime/config response.
  */
 esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out_size)
 {
     if (cfg == nullptr || out == nullptr) return ESP_ERR_INVALID_ARG;
+
+    char rocketNameJson[sizeof(cfg->mission.rocket_name) * 2 + 1];
+    char launchSiteJson[sizeof(cfg->mission.launch_site) * 2 + 1];
+    char operatorNoteJson[sizeof(cfg->mission.operator_note) * 2 + 1];
+    if (!json_escape_string(cfg->mission.rocket_name, rocketNameJson, sizeof(rocketNameJson)) ||
+        !json_escape_string(cfg->mission.launch_site, launchSiteJson, sizeof(launchSiteJson)) ||
+        !json_escape_string(cfg->mission.operator_note, operatorNoteJson, sizeof(operatorNoteJson))) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
     const char *board_name = s_board != nullptr ? s_board->get_board_name() : "unknown";
     const int i2c_sda_pin = s_board != nullptr ? gpio_to_int(s_board->get_i2c_sda_pin()) : -1;
@@ -720,22 +871,22 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
     const char *recovery_mode = recovery_mode_to_string(static_cast<RecoveryMode>(cfg->recovery.mode));
 
     int n = snprintf(out, out_size,
-        "{\"ok\":true,\"schema_version\":%lu,\"config_revision\":%lu,"
+        "{\"ok\":true,\"schema_version\":%lu,\"config_revision\":%lu,\"checksum\":%lu,"
         "\"config_locked\":%s,\"flight_log_filename\":\"%s\",\"last_flight_log_filename\":\"%s\","
         "\"rocket_name\":\"%s\",\"launch_site\":\"%s\",\"operator_note\":\"%s\","
-        "\"launch_site_altitude_m\":%.3f,\"sea_level_pressure_hpa\":%.3f,"
-        "\"liftoff_accel_threshold_mps2\":%.3f,\"liftoff_timeout_ms\":%lu,"
+        "\"launch_site_altitude_m\":%.9g,\"sea_level_pressure_hpa\":%.9g,"
+        "\"liftoff_accel_threshold_mps2\":%.9g,\"liftoff_timeout_ms\":%lu,"
         "\"apogee_lockout_ms\":%lu,\"drogue_apogee_timeout_ms\":%lu,"
-        "\"main_altitude_threshold_m\":%.3f,"
+        "\"main_altitude_threshold_m\":%.9g,"
         "\"launch_to_ballistic_threshold_ms\":%lu,\"launch_to_apogee_threshold_ms\":%lu,"
-        "\"touchdown_altitude_threshold_m\":%.3f,"
-        "\"burnout_velocity_drop_mps\":%.3f,\"touchdown_velocity_threshold_mps\":%.3f,"
-        "\"touchdown_accel_tolerance_mps2\":%.3f,\"landing_stability_ms\":%lu,"
+        "\"touchdown_altitude_threshold_m\":%.9g,"
+        "\"burnout_velocity_drop_mps\":%.9g,\"landing_vertical_velocity_threshold\":%.9g,"
+        "\"landing_acceleration_threshold\":%.9g,\"landing_stability_ms\":%lu,"
         "\"telemetry_period_ms\":%lu,"
-        "\"airbrakes_open_altitude_m\":%.3f,\"airbrakes_close_altitude_m\":%.3f,"
-        "\"airbrakes_open_rate_per_s\":%.3f,\"airbrakes_close_rate_per_s\":%.3f,"
-        "\"altitude_filter_window\":%lu,\"altitude_max_pressure_rate_pa_per_s\":%.3f,"
-        "\"apogee_detection_window_size\":%lu,\"apogee_sample_rate_hz\":%.3f,\"apogee_trigger_velocity_mps\":%.3f,\"apogee_confirmation_windows\":%u,"
+        "\"airbrakes_open_altitude_m\":%.9g,\"airbrakes_close_altitude_m\":%.9g,"
+        "\"airbrakes_open_rate_per_s\":%.9g,\"airbrakes_close_rate_per_s\":%.9g,"
+        "\"altitude_filter_window\":%lu,\"altitude_max_pressure_rate_pa_per_s\":%.9g,"
+        "\"apogee_detection_window_size\":%lu,\"apogee_sample_rate_hz\":%.9g,\"apogee_trigger_velocity_mps\":%.9g,\"apogee_confirmation_windows\":%u,"
         "\"selected_barometer\":%u,\"calibration_timeout_ms\":%lu,"
         "\"barometer_calibration_samples\":%lu,\"temperature_calibration_samples\":%lu,"
         "\"ms56_i2c_addr_1\":\"0x%02X\",\"ms56_i2c_addr_2\":\"0x%02X\",\"bno055_i2c_addr\":\"0x%02X\","
@@ -748,10 +899,11 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         "\"main_actuator_pin\":%d,\"drogue_actuator_pin\":%d}",
         static_cast<unsigned long>(cfg->schema_version),
         static_cast<unsigned long>(cfg->config_revision),
+        static_cast<unsigned long>(cfg->checksum),
         cfg->config_locked ? "true" : "false",
         cfg->storage_logging.flight_filename,
         cfg->storage_logging.last_flight_filename,
-        cfg->mission.rocket_name, cfg->mission.launch_site, cfg->mission.operator_note,
+        rocketNameJson, launchSiteJson, operatorNoteJson,
         static_cast<double>(cfg->mission.launch_site_altitude_m),
         static_cast<double>(cfg->mission.sea_level_pressure_hpa),
         static_cast<double>(cfg->flight.liftoff_accel_threshold_mps2),
@@ -763,8 +915,8 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         static_cast<unsigned long>(cfg->flight.launch_to_apogee_threshold_ms),
         static_cast<double>(cfg->flight.touchdown_altitude_threshold_m),
         static_cast<double>(cfg->flight_transitions.burnout_velocity_drop_mps),
-        static_cast<double>(cfg->flight_transitions.touchdown_velocity_threshold_mps),
-        static_cast<double>(cfg->flight_transitions.touchdown_accel_tolerance_mps2),
+        static_cast<double>(cfg->flight_transitions.landing_vertical_velocity_threshold),
+        static_cast<double>(cfg->flight_transitions.landing_acceleration_threshold),
         static_cast<unsigned long>(cfg->flight_transitions.landing_stability_ms),
         static_cast<unsigned long>(cfg->telemetry.period_ms),
         static_cast<double>(cfg->airbrakes.open_altitude_m),
@@ -823,8 +975,8 @@ esp_err_t runtime_config_schema_json(char *out, size_t out_size)
         "{\"key\":\"launch_to_apogee_threshold_ms\",\"label\":\"Launch-to-apogee timeout\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":true,\"locked_after_ready\":true,\"min\":1,\"max\":300000,\"description\":\"Maximum time to apogee detection.\"},"
         "{\"key\":\"main_altitude_threshold_m\",\"label\":\"Main deployment altitude\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true,\"min\":50,\"max\":1000,\"description\":\"Altitude below which the main parachute may deploy.\"},"
         "{\"key\":\"touchdown_altitude_threshold_m\",\"label\":\"Touchdown altitude threshold\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true,\"min\":0,\"max\":200,\"description\":\"Altitude threshold used by touchdown logic.\"},"
-        "{\"key\":\"touchdown_velocity_threshold_mps\",\"label\":\"Touchdown velocity threshold\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.1,\"max\":20,\"description\":\"Maximum absolute vertical velocity considered stationary.\"},"
-        "{\"key\":\"touchdown_accel_tolerance_mps2\",\"label\":\"Touchdown acceleration tolerance\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s^2\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.1,\"max\":20,\"description\":\"Allowed acceleration-magnitude difference from gravity while stationary.\"},"
+        "{\"key\":\"landing_vertical_velocity_threshold\",\"label\":\"Landing vertical-speed limit (barometer)\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.1,\"max\":20,\"description\":\"Maximum absolute barometric vertical speed; must remain below this limit with IMU stability for the configured duration.\"},"
+        "{\"key\":\"landing_acceleration_threshold\",\"label\":\"Landing acceleration tolerance (IMU)\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m/s^2\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.1,\"max\":20,\"description\":\"Maximum deviation of IMU acceleration magnitude from 9.81 m/s^2; must remain below this limit with barometric stability for the configured duration.\"},"
         "{\"key\":\"landing_stability_ms\",\"label\":\"Landing stability time\",\"group\":\"Mission Flight\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":true,\"locked_after_ready\":true,\"min\":500,\"max\":30000,\"description\":\"Continuous stable time required before recovery.\"},"
         "{\"key\":\"telemetry_period_ms\",\"label\":\"Telemetry period\",\"group\":\"Telemetry\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":false,\"min\":100,\"max\":10000,\"description\":\"Telemetry transmit interval.\"},"
         "{\"key\":\"flight_log_filename\",\"label\":\"Incumbent flight file\",\"group\":\"Flight Recorder\",\"source\":\"RuntimeConfig / NVS\",\"editable\":false,\"description\":\"Filename prepared at boot for the next recording.\"},"
@@ -940,6 +1092,7 @@ esp_err_t runtime_config_lock_for_flight(char *reason, size_t reason_size)
     // task-owned flight behavior.
     locked.config_locked = true;
     locked.config_revision++;
+    update_checksum(&locked);
     err = runtime_config_save(&locked);
     if (err != ESP_OK) {
         validation_fail(reason, reason_size, "failed to persist locked flight config");

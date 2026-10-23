@@ -6,8 +6,8 @@
 #include "RocketLogger.hpp"
 #include "AltitudeData.hpp"
 
-static constexpr uint32_t ALTITUDE_LOG_PERIOD_MS = 1000;
-static constexpr uint32_t ALTITUDE_DIAGNOSTIC_PERIOD_MS = 1000;
+static constexpr uint32_t ALTITUDE_LOG_PERIOD_MS = 5000;
+static constexpr uint32_t ALTITUDE_DIAGNOSTIC_PERIOD_MS = 5000;
 static constexpr uint32_t UNUSUAL_BAROMETER_DT_MS = 75;
 // Flight-recorder diagnostic rate: log every processed altitude sample by default.
 // Increase this value to reduce flash/SPI load without changing estimator behavior.

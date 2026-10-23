@@ -82,11 +82,11 @@ std::string MirrorStorage::readLine() {
     return "";
 }
 
-size_t MirrorStorage::listFiles(StorageFileInfo* files, size_t capacity) {
+ssize_t MirrorStorage::listFiles(StorageFileInfo* files, size_t capacity) {
     for (const auto& storage : _storages) {
         if (storage->isInitialized()) return storage->listFiles(files, capacity);
     }
-    return 0;
+    return -1;
 }
 
 bool MirrorStorage::readFileChunk(const char* filename, size_t offset, uint8_t* buffer,

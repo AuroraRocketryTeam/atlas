@@ -105,6 +105,7 @@ The launcher requires an explicit rocket and sensor profile:
 python hil_rocketpy.py --rocket fred --sensor-profile clean
 python hil_rocketpy.py --rocket fred --sensor-profile noisy
 python hil_rocketpy.py --rocket fred --sensor-profile very_noisy
+python hil_rocketpy.py --rocket fred --sensor-profile RealisticNoise
 ```
 
 Useful options:
@@ -114,6 +115,22 @@ python hil_rocketpy.py --rocket fred --sensor-profile clean --sampling-rate 50
 python hil_rocketpy.py --rocket fred --sensor-profile clean --no-startup-reset
 python hil_rocketpy.py --rocket fred --sensor-profile clean --startup-reset-timeout 30
 ```
+
+The firmware's `HilSimulationTask` accepts fresh readings for both barometers at
+18 Hz in simulated time (`HIL_BAROMETER_RATE_HZ`), for every sensor profile and
+during both calibration and flight. Between updates it retains the previous
+pressure, temperature and timestamp, so altitude processing and HIL calibration
+do not consume a held reading twice. Each accepted barometer reading is queued
+for recording once.
+
+Keep `--sampling-rate 50` with `RealisticNoise`: its coefficients are calibrated
+for noise generation at 50 Hz. The receiver selects individual noisy samples
+without averaging them. On the 20 ms packet grid, accepted barometer readings
+have 40/60 ms spacing, averaging 18 Hz; missed time slots are not replayed.
+This approximates the observed rate, without modelling individual SPI stalls.
+IMU, accelerometer and GPS still update on every packet and are queued for
+recording every second packet (25 Hz by default). Python captures retain the
+full input stream; firmware barometer records contain the accepted samples.
 
 The FC endpoint is configured with environment variables:
 

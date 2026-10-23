@@ -78,6 +78,9 @@ public:
      */
     void logSensorData(const LogPayload& payload);
 
+    // Recovery cuts off new samples before the recorder drains and closes.
+    void stopSensorLogging() { _sensorLoggingEnabled.store(false); }
+
     /**
      * @brief Clear all logged sensor data.
      * 
@@ -95,6 +98,11 @@ public:
      * @return size_t The total number of bytes written to outBuffer.
      */
     size_t consumeBatch(uint8_t* outBuffer, size_t bufferCapacity);
+
+    // READY preparation writes each event before removing it, so a failed
+    // flash write cannot erase the only RAM copy of an early FSM transition.
+    size_t peekNextEvent(uint8_t* outBuffer, size_t bufferCapacity) const;
+    bool discardNextEvent();
     
     private:
     // Sensor data is high-rate and drops its oldest entry when full. System
@@ -103,6 +111,7 @@ public:
     QueueHandle_t _logQueue;
     QueueHandle_t _eventQueue;
     std::atomic_uint32_t _dropped{0};
+    std::atomic_bool _sensorLoggingEnabled{true};
 
     // Store the function pointer instead of an object pointer
     SerializeFunction _serializeFn = nullptr;

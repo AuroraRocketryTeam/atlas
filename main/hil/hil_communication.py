@@ -344,7 +344,7 @@ def tcp_client(
 
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(3.0)
+            sock.settimeout(15.0)
             sock.connect((ESP_IP, PORT))
 
             if not announced_first_connection:
