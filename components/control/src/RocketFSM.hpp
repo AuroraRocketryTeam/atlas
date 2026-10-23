@@ -147,6 +147,8 @@ private:
 
     // Important timers and tresholds
     unsigned long _launchDetectionTime = 0;
+    // Start of the current run of high acceleration samples
+    uint32_t _launchHighSince = 0;
     float _acceleratedPeakVelocityMps = 0.0f;
     uint32_t _acceleratedLastVelocityTimestamp = 0;
     uint8_t _burnoutConfirmationSamples = 0;

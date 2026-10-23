@@ -462,7 +462,12 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::READY_FOR_LAUNCH] = std::make_unique<StateAction>(RocketState::READY_FOR_LAUNCH);
     _stateActions[RocketState::READY_FOR_LAUNCH]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH"); })
+                         {
+                             // Reset at entry. This indicates for how long we have high
+                             // enough accelerationt to transition to LAUNCH.
+                             _launchHighSince = 0;
+                             LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH");
+                         })
         #if AURORA_HIL_ENABLED
         // TODO: do not treat HilSimulationTask as a normal fsm task, start in ONCE from rocketfsm.
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ready", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
@@ -921,9 +926,6 @@ void RocketFSM::checkTransitions()
         return; // automatic transition handled
     }
 
-    // Cache some persistent values across calls to avoid repeated allocations
-    static uint32_t launchHighSince = 0;
-
     // Get accelerometer data before switch statement
     auto accX = 0.0f;
     auto accY = 0.0f;
@@ -1021,11 +1023,11 @@ void RocketFSM::checkTransitions()
 
             if (accelAboveThreshold)
             {
-                if (launchHighSince == 0)
+                if (_launchHighSince == 0)
                 {
-                    launchHighSince = Utils::millis();
+                    _launchHighSince = Utils::millis();
                 }
-                else if (Utils::millis() - launchHighSince >= runtimeCfg.flight.liftoff_timeout_ms)
+                else if (Utils::millis() - _launchHighSince >= runtimeCfg.flight.liftoff_timeout_ms)
                 {
                     _launchDetectionTime = Utils::millis();
                     sendEvent(FSMEvent::LAUNCH_DETECTED);
@@ -1033,7 +1035,7 @@ void RocketFSM::checkTransitions()
             }
             else 
             {
-                launchHighSince = 0;
+                _launchHighSince = 0;
             }
         } catch (const std::exception& e) {
             LOG_ERROR("RocketFSM", "READY_FOR_LAUNCH: Exception occurred: %s", e.what());
