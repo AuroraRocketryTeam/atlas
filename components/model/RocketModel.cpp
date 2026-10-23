@@ -542,6 +542,10 @@ bool RocketModel::isSensorSystemCalibrated() {
     return true; 
 }
 
+bool RocketModel::isIMUFusionMode() {
+    return _bno && _bno->isFusionMode();
+}
+
 void RocketModel::setCalibrationSampleTargets(size_t barometerSamples, size_t temperatureSamples) {
     // A zero target would zero the sensor off a single reading; keep the default.
     if (barometerSamples > 0) _requiredBarometerSamples = barometerSamples;

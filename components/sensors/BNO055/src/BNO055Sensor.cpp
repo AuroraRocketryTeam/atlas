@@ -4,6 +4,10 @@
 static constexpr uint32_t BNO055_LOOKUP_MAX_ATTEMPTS = 5;
 static constexpr uint32_t BNO055_LOOKUP_TIMEOUT_MS = 1000;
 
+// Mode the device is left in once init() succeeds. AMG keeps the +/-16 g
+// accelerometer range, which any fusion mode would force back to +/-4 g.
+static constexpr uint8_t BNO055_TARGET_OPERATION_MODE = BNO055_OPERATION_MODE_AMG;
+
 BNO055Sensor::BNO055Sensor(const char *sensorName, I2CBus* bus, uint8_t address)
     : ISensor(sensorName), _bno_interface(bus, address)
 {
@@ -18,15 +22,20 @@ bool BNO055Sensor::init()
     
     while (attempts++ < BNO055_LOOKUP_MAX_ATTEMPTS) {
         if (_bno_interface.init()) {
-            // Auto-load calibration from NVS
-            loadCalibrationFromNVS();
-
-            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_AMG)) {
-                initialized = true;
-                break;
-            } else {
+            if (!_bno_interface.set_operation_mode(BNO055_TARGET_OPERATION_MODE)) {
                 return false;
             }
+            _operationMode = BNO055_TARGET_OPERATION_MODE;
+
+            if (isFusionMode()) {
+                loadCalibrationFromNVS();
+            } else {
+                // Non fusion modes do not apply offsets
+                LOG_INFO("BNO055", "Calibration skipped: device is in a non-fusion mode.");
+            }
+
+            initialized = true;
+            break;
         } else {
             return false;
         }
@@ -119,9 +128,19 @@ IMUData BNO055Sensor::getData() {
     return _data;
 }
 
+bool BNO055Sensor::isFusionMode() const {
+    return _operationMode >= BNO055_OPERATION_MODE_IMUPLUS;
+}
+
 bool BNO055Sensor::isFullyCalibrated() {
     if (!this->isInitialized()) {
         return false;
+    }
+
+    // If we're not in a fusion mode calibrating is done manually
+    // via live data.
+    if (!isFusionMode()) {
+        return true;
     }
 
     // If the calibration was restored from NVS, we can assume it's fully calibrated

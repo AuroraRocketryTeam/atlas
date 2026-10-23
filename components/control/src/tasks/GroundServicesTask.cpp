@@ -1620,6 +1620,12 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     const bool config_unlocked = config_loaded && !cfg.config_locked;
     const bool barometer_ready = self->_rocketModel && self->_rocketModel->isBarometerZeroed();
     const bool imu_ready = self->_rocketModel && self->_rocketModel->isSensorSystemCalibrated();
+    // A non-fusion BNO055 has no calibration to report, so the item passes by
+    // definition. Say so, rather than claiming a calibration that never ran.
+    const bool imu_fusion = self->_rocketModel && self->_rocketModel->isIMUFusionMode();
+    const char *imu_message = !imu_ready ? "IMU calibration is not ready"
+                            : imu_fusion ? "IMU calibration is ready"
+                                         : "Non-fusion mode: no IMU calibration to run, check acceleration magnitude on Live Data";
     const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
 
     bool all_ok = true;
@@ -1631,7 +1637,7 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, config_valid, "runtime_config_valid", "Runtime config valid", "error", config_valid ? "Runtime config validation passed" : reason)) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, config_unlocked, "config_unlocked", "Config not already locked", "error", config_unlocked ? "Configuration can be locked for flight" : "Configuration is already locked")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, barometer_ready, "barometer_baseline", "Barometer baseline available", "error", barometer_ready ? "Barometer baseline is available" : "Barometer baseline is not ready")) return ESP_ERR_NO_MEM;
-    if (!appendChecklistItem(body, body_size, &offset, &all_ok, imu_ready, "imu_calibrated", "IMU calibrated", "error", imu_ready ? "IMU calibration is ready" : "IMU calibration is not ready")) return ESP_ERR_NO_MEM;
+    if (!appendChecklistItem(body, body_size, &offset, &all_ok, imu_ready, "imu_calibrated", "IMU calibrated", "error", imu_message)) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, lora.available, "lora_available", "LoRa telemetry module", "warning",
                              lora.available ? "LoRa module initialized" : "LoRa unavailable; explicit operator override is required")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "recovery_mode", "Recovery mode", "info",

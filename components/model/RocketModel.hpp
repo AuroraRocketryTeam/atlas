@@ -324,9 +324,14 @@ public:
     std::shared_ptr<BNO055Sensor> getBNO055Sensor();
 
     /**
-     * @brief Check if the IMU is fully calibrated (Status == 3)
+     * @brief Check if the IMU is fully calibrated OR is in a non-fusion mode
      */
     bool isSensorSystemCalibrated();
+
+    /**
+     * @brief Check whether the BNO055 runs one of the fusion modes.
+     */
+    bool isIMUFusionMode();
 
     /**
      * @brief Set how many samples the barometer/temperature zeroing needs.

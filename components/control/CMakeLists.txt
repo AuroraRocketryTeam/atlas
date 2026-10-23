@@ -46,7 +46,7 @@ idf_component_register(
         rocket_logger
         SD
         BNO055
-        espressif__cjson
+        json
         GPS
         LIS3DHTR
         MS561101BA03

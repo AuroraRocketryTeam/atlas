@@ -975,17 +975,22 @@ void RocketFSM::checkTransitions()
         }
 
         const bool isBaroReady = _rocketModel->isBarometerZeroed();
+        // In a non-fusion mode (AMG) the BNO055 never updates CALIB_STAT, so
+        // there is no IMU calibration to wait for.
+        const bool isImuFusion = _rocketModel->isIMUFusionMode();
         const bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();
 
         if (useBaroSample)
         {
-            LOG_EVERY_MS(1000, INFO, "RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d",
-                         isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
+            LOG_EVERY_MS(1000, INFO, "RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d (%s)",
+                         isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady,
+                         isImuFusion ? "fusion" : "non-fusion: skipped");
         }
 
         if (isBaroReady && isBnoReady)
         {
-            LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed & IMU calibrated.");
+            LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed, IMU %s.",
+                     isImuFusion ? "calibrated" : "skipped");
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
         else if (Utils::millis() - _stateStartTime > runtimeCfg.calibration.timeout_ms)

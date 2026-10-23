@@ -1306,6 +1306,13 @@ function renderLive(s) {
   const gravity = imu.gravity_m_s2 || {};
   const magnetometer = imu.magnetometer_ut || {};
   const bodyVector = vector => sensorToBody(['x', 'y', 'z'].map(axis => Number(vector[axis]) || 0));
+  // Total acceleration magnitude, used to check IMU sanity in AMG mode
+  const vectorMagnitude = vector => Math.hypot(Number(vector.x), Number(vector.y), Number(vector.z));
+  const imuAccelMagnitude = vectorMagnitude(acceleration);
+  const lisAccelMagnitude = vectorMagnitude(accelerometer);
+  const fmtMagnitude = value => Number.isFinite(value)
+    ? `${value.toFixed(2)} m/s2 (${(value / 9.80665).toFixed(2)} g)`
+    : 'n/a';
   const fmtVector = (vector, digits) => vector.map(value => value.toFixed(digits)).join(', ');
   const lora = ((s.telemetry || {}).lora || {});
   const loraTxPulse = performance.now() < loRaTxPulseUntil;
@@ -1314,6 +1321,7 @@ function renderLive(s) {
     attitudeY: fusionAvailable ? Number(orientation.y) : NaN,
     attitudeZ: fusionAvailable ? Number(orientation.z) : NaN,
     imuAx: Number(acceleration.x), imuAy: Number(acceleration.y), imuAz: Number(acceleration.z),
+    imuAmag: imuAccelMagnitude, lisAmag: lisAccelMagnitude,
     lisAx: Number(accelerometer.x), lisAy: Number(accelerometer.y), lisAz: Number(accelerometer.z),
     gyroX: Number(angularVelocity.x), gyroY: Number(angularVelocity.y), gyroZ: Number(angularVelocity.z),
     pressure: Number(barometer.pressure), gpsAltitude: Number(gps.alt)
@@ -1324,11 +1332,13 @@ function renderLive(s) {
       <div><span>Height</span><strong>${Number(flight.height_m || 0).toFixed(2)} m</strong></div>
       <div><span>Vertical speed</span><strong>${Number(flight.vertical_speed_mps || 0).toFixed(2)} m/s</strong></div>
       <div><span>Rising</span><strong>${flight.is_rising ? 'yes' : 'no'}</strong></div>
-      <div><span>Calibrated</span><strong>${calibration.imu ? 'yes' : 'no'}</strong></div>
+      <div><span>Acceleration |a|</span><strong>${fmtMagnitude(imuAccelMagnitude)}</strong></div>
+      <div><span>Calibrated</span><strong>${calibration.imu ? (fusionAvailable ? 'yes' : 'n/a (AMG)') : 'no'}</strong></div>
       <div class="${loraTxPulse ? 'tx-pulse' : ''}"><span>LoRa</span><strong>${lora.available ? (loraTxPulse ? 'TX pulse' : 'ready') : 'unavailable'}</strong></div>
     </div>
     <div class="trend-grid-layout">
       ${fusionAvailable ? trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1) : ''}
+      ${trendChart('Acceleration magnitude', 'm/s2', [{ key: 'imuAmag', label: 'BNO055', color: '#f97316' }, { key: 'lisAmag', label: 'LIS3DHTR', color: '#06b6d4' }], 2)}
       ${trendChart('BNO055 acceleration', 'm/s2', [{ key: 'imuAx', label: 'X', color: '#ef4444' }, { key: 'imuAy', label: 'Y', color: '#22c55e' }, { key: 'imuAz', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('LIS3DHTR acceleration', 'm/s2', [{ key: 'lisAx', label: 'X', color: '#ef4444' }, { key: 'lisAy', label: 'Y', color: '#22c55e' }, { key: 'lisAz', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('Angular velocity', 'deg/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}

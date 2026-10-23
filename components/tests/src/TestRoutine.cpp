@@ -926,6 +926,12 @@ bool TestRoutine::calibrateAndSaveIMU()
         return waitForUserInput("Type FAILED to continue");
     }
 
+    // Calibrating is useless in non-fusion mode.
+    if (!bnoSensor->isFusionMode()) {
+        LOG_INFO("Test", "Nothing to calibrate. Check the accelerometer from the Live Data page instead.");
+        return waitForUserInput("Type PASSED to continue");
+    }
+
     bool calibrated = false;
     LOG_INFO("Test", "Waiting for calibration");
 
