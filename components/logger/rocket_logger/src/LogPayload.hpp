@@ -36,7 +36,7 @@ struct SystemLog {
     // Writes up to maxLength. Returns the true required size (excluding null terminator).
     size_t serializeJson(char* buffer, size_t maxLength) const {
         return snprintf(buffer, maxLength,
-            "{\"type\":\"%s\",\"source\":\"%s\",\"content\":{\"message\":\"%s\",\"timestamp\":%lu}}\n",
+            "{\"type\":\"%s\",\"src\":\"%s\",\"content\":{\"message\":\"%s\",\"timestamp\":%lu}}\n",
             level, source, message, static_cast<unsigned long>(timestamp));
     }
 };

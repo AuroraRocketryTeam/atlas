@@ -421,6 +421,15 @@ bool RocketModel::storageFileExists(const char* filename, uint32_t timeoutMs) {
     return false;
 }
 
+bool RocketModel::storageFileExistsChecked(const char* filename, bool& exists, uint32_t timeoutMs) {
+    if (!filename || !_storageMutex) return false;
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) return false;
+    const bool ready = _storage && _storage->isInitialized();
+    if (ready) exists = _storage->fileExists(filename);
+    xSemaphoreGive(_storageMutex);
+    return ready;
+}
+
 bool RocketModel::storageResetReadCursor(const char* filename, uint32_t timeoutMs) {
     if (filename == nullptr) {
         return false;
@@ -487,15 +496,15 @@ bool RocketModel::storageAppendFile(const char* filename, const uint8_t* data, s
     return false;
 }
 
-size_t RocketModel::storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs) {
-    if (files == nullptr || capacity == 0) return 0;
-    if (!_storageMutex) { reportMissingMutex("storageListFiles"); return 0; }
+ssize_t RocketModel::storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs) {
+    if (files == nullptr || capacity == 0) return -1;
+    if (!_storageMutex) { reportMissingMutex("storageListFiles"); return -1; }
     if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
-        const size_t count = (_storage && _storage->isInitialized()) ? _storage->listFiles(files, capacity) : 0;
+        const ssize_t count = (_storage && _storage->isInitialized()) ? _storage->listFiles(files, capacity) : -1;
         xSemaphoreGive(_storageMutex);
         return count;
     }
-    return 0;
+    return -1;
 }
 
 bool RocketModel::storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
@@ -531,6 +540,10 @@ bool RocketModel::isSensorSystemCalibrated() {
         return _bno->isFullyCalibrated(); 
     }
     return true; 
+}
+
+bool RocketModel::isIMUFusionMode() {
+    return _bno && _bno->isFusionMode();
 }
 
 void RocketModel::setCalibrationSampleTargets(size_t barometerSamples, size_t temperatureSamples) {

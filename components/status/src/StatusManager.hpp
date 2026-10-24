@@ -57,6 +57,8 @@ struct StatusPattern
     BuzzerPattern buzzerPattern;
     BuzzerTone buzzerTone;
     bool buzzerSync; // Whether to sync buzzer with LED
+    // When set, the buzzer repeats the jingle instead of buzzerPattern.
+    bool buzzerJingleLoop = false;
 };
 
 /**

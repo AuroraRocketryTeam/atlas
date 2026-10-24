@@ -33,7 +33,13 @@ let runtimeValidation = { items: [] };
 let persistedConfigSignature = '';
 let configDirty = false;
 let selectedFile = null;
+let deletingAllFiles = false;
 let latestStatus = null;
+let readyAttemptPending = false;
+let readyAttemptUncertain = false;
+let readyScheduled = false;
+let readyStatusFailures = 0;
+let lastReadyAttemptStatus = 'idle';
 let sdkconfigText = null;
 let sdkconfigLoading = false;
 let taskSnapshot = null;
@@ -88,7 +94,7 @@ function setAuthState(authenticated, message = '') {
   isAuthenticated = authenticated;
   document.body.classList.toggle('authenticated', authenticated);
   authState.className = `auth-state ${authenticated ? 'operator' : 'guest'}`;
-  authState.textContent = message || (authenticated ? 'OPERATOR · controls unlocked' : 'VIEWER · monitoring only');
+  authState.textContent = message || (authenticated ? 'OPERATOR - controls unlocked' : 'VIEWER - monitoring only');
   authenticateButton.textContent = authenticated ? 'Lock Controls' : 'Unlock Controls';
   protectedNavButtons.forEach(button => { button.disabled = !authenticated; });
   if (!authenticated) {
@@ -240,7 +246,7 @@ async function authenticateOperator() {
     if (!res.ok) throw new Error('Authentication failed');
     setAuthState(true);
   } catch (err) {
-    setAuthState(false, `VIEWER · ${err.message || 'authentication failed'}`);
+    setAuthState(false, `VIEWER - ${err.message || 'authentication failed'}`);
   }
 }
 
@@ -251,14 +257,30 @@ async function authFetch(path, options = {}) {
     const bodySha256 = await sha256Hex(body);
     const headers = await buildSignedHeaders(path, method, bodySha256, options.headers || {});
     const res = await fetch(path, { ...options, method, headers, cache: 'no-store' });
-    if (res.status === 401) setAuthState(false, 'VIEWER · authentication failed');
+    if (res.status === 401) setAuthState(false, 'VIEWER - authentication failed');
     return res;
   });
 }
 
+// Every request gets a deadline. Without one, a request issued just as the
+// access point goes down hangs until the OS TCP timeout, which can be minutes:
+// the pollBusy guard in pollStatus() stays latched, no further poll runs, and
+// the dashboard freezes on whatever it was showing. Status polls are small and
+// frequent so they get the short deadline; authenticated calls may touch flash
+// or the SD card, so they get a generous one.
+const PUBLIC_REQUEST_TIMEOUT_MS = 4000;
+const AUTH_REQUEST_TIMEOUT_MS = 15000;
+
+function withDeadline(options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return { options: { ...options, signal: controller.signal }, clear: () => clearTimeout(timer) };
+}
+
 async function publicApi(path) {
+  const deadline = withDeadline({ cache: 'no-store' }, PUBLIC_REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(path, { cache: 'no-store' });
+    const res = await fetch(path, deadline.options);
     const text = await res.text();
     let body;
     try { body = JSON.parse(text); } catch { body = { ok: res.ok, text }; }
@@ -266,19 +288,24 @@ async function publicApi(path) {
     return body;
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
+  } finally {
+    deadline.clear();
   }
 }
 
 async function api(path, options = {}) {
+  const deadline = withDeadline(options, AUTH_REQUEST_TIMEOUT_MS);
   try {
-    const res = await authFetch(path, options);
+    const res = await authFetch(path, deadline.options);
     const text = await res.text();
     let body;
     try { body = JSON.parse(text); } catch { body = { ok: res.ok, text }; }
     if (!res.ok) body.ok = false;
     return body;
   } catch (err) {
-    return { ok: false, error: err.message || String(err) };
+    return { ok: false, transport_error: true, error: err.message || String(err) };
+  } finally {
+    deadline.clear();
   }
 }
 
@@ -310,6 +337,7 @@ function fmtMs(ms) {
 }
 
 async function loadFiles() {
+  if (deletingAllFiles) return;
   const content = document.getElementById('filesContent');
   const status = document.getElementById('filesStatus');
   content.innerHTML = '<p>Loading files…</p>';
@@ -322,7 +350,7 @@ async function loadFiles() {
   const files = result.files || [];
   content.innerHTML = files.length ? `<div class="config-table-wrap"><table class="config-table file-table">
     <thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead>
-    <tbody>${files.map(file => `<tr><td><strong>${esc(file.name)}</strong>${file.latest ? ' <em class="badge latest">Latest</em>' : ''}</td><td>${esc(fmtBytes(file.size))}</td><td>
+    <tbody>${files.map(file => `<tr><td><strong>${esc(file.name)}</strong>${file.latest ? ' <em class="badge latest">LATEST</em>' : ''}</td><td>${esc(fmtBytes(file.size))}</td><td>
       <button type="button" data-file-download="${esc(file.name)}">Download</button>
       <button type="button" class="danger-action" data-file-delete="${esc(file.name)}">Delete</button>
     </td></tr>`).join('')}</tbody></table></div>` : '<p>No stored files.</p>';
@@ -351,6 +379,7 @@ async function downloadStoredFile(name) {
 }
 
 async function deleteStoredFile(name) {
+  if (deletingAllFiles) return;
   if (window.prompt(`Type DELETE to permanently remove ${name}`) !== 'DELETE') return;
   const path = `/api/files?name=${encodeURIComponent(name)}`;
   const result = await api(path, { method: 'DELETE', headers: { 'X-Confirm': 'DELETE_FILE' } });
@@ -358,6 +387,51 @@ async function deleteStoredFile(name) {
   status.classList.remove('hidden');
   status.textContent = result.ok ? `Deleted ${name}` : `Delete failed: ${result.error || 'unknown error'}`;
   if (result.ok) loadFiles();
+}
+
+async function deleteAllStoredFiles() {
+  if (deletingAllFiles || window.prompt('Permanently delete ALL flight telemetry files? This cannot be undone.\n\nType DELETE ALL to continue.') !== 'DELETE ALL') return;
+  deletingAllFiles = true;
+  const button = document.getElementById('deleteAllFiles');
+  const status = document.getElementById('filesStatus');
+  button.disabled = true;
+  status.classList.remove('hidden');
+  const attempted = new Set();
+  const failures = [];
+  let deleted = 0;
+  try {
+    // The backend lists a bounded page; deletions expose later entries.
+    while (true) {
+      const listing = await api('/api/files');
+      if (!listing.ok) throw new Error(listing.error || 'Unable to list remaining files');
+      const pending = (listing.files || []).filter(file =>
+        /^flight_telemetry_\d+\.jsonl$/.test(file.name) && !attempted.has(file.name));
+      if (!pending.length) {
+        if ((listing.files || []).length >= 128) {
+          failures.push('The file list reached its 128-entry limit; some flight files may remain.');
+        }
+        break;
+      }
+      for (const file of pending) {
+        attempted.add(file.name);
+        status.textContent = `Deleting ${file.name}… (${deleted} deleted)`;
+        const result = await api(`/api/files?name=${encodeURIComponent(file.name)}`, {
+          method: 'DELETE', headers: { 'X-Confirm': 'DELETE_FILE' }
+        });
+        if (result.ok) deleted++;
+        else failures.push(`${file.name}: ${result.error || 'delete failed'}`);
+      }
+    }
+  } catch (error) {
+    failures.push(error.message || String(error));
+  } finally {
+    deletingAllFiles = false;
+    button.disabled = false;
+    await loadFiles();
+    status.classList.remove('hidden');
+    status.textContent = `${deleted} flight file(s) deleted.` +
+      (failures.length ? ` Some files remain.\nFailures:\n${failures.join('\n')}` : '');
+  }
 }
 
 function showActionStatus(value) {
@@ -444,6 +518,47 @@ function checklistPanel(checklist) {
 
 function updateFsmBar(status) {
   latestStatus = status;
+  const attempt = status && status.ready_attempt;
+  if (attempt === 'pending' && !readyAttemptUncertain) readyAttemptPending = true;
+  if (attempt && attempt !== lastReadyAttemptStatus) {
+    lastReadyAttemptStatus = attempt;
+    if (attempt === 'pending') {
+      readyAttemptPending = true;
+      readyScheduled = false;
+      showActionStatus('Preparing the flight log and locking configuration…');
+    } else if (attempt === 'scheduled') {
+      // The transition is committing. Every path that can still refuse it
+      // returns before any task is stopped, so Ground Services staying up means
+      // a refusal and losing the connection from here means it went through.
+      // Clearing the pending flag stops pollStatus() from reporting that
+      // expected disconnection as an unknown outcome.
+      readyAttemptPending = false;
+      readyAttemptUncertain = false;
+      readyScheduled = true;
+      showActionStatus('Scheduled transition, check the LED on the board (blinking red)');
+    } else if (attempt === 'ready') {
+      readyAttemptPending = false;
+      readyAttemptUncertain = false;
+      showActionStatus('READY_FOR_LAUNCH entered. Ground Services will disconnect.');
+    } else if (attempt !== 'idle') {
+      readyAttemptPending = false;
+      readyAttemptUncertain = false;
+      readyScheduled = false;
+      const reason = {
+        queue_failed: 'The FSM event queue is unavailable.',
+        invalid_state: 'The FSM is no longer in Ground Services.',
+        file_busy: 'A file operation is still in progress.',
+        filename_failed: 'The flight recorder filename could not be prepared.',
+        config_lock_failed: 'The flight configuration could not be locked.',
+        file_prep_failed: 'The flight log or configuration snapshot could not be written.',
+        file_activation_failed: 'The prepared flight log could not be activated.',
+        transition_failed: 'The FSM could not commit the READY transition.',
+        config_unlock_failed: 'The READY attempt failed and configuration could not be unlocked. Use Unlock After Recovery before retrying.'
+      }[attempt] || attempt;
+      showActionStatus(`READY_FOR_LAUNCH rejected: ${reason} Check the serial log before retrying.`);
+    }
+  }
+  if (attempt && attempt !== 'pending') readyStatusFailures = 0;
   const state = (status && status.fsm_state) || 'UNKNOWN';
   fsmState.textContent = state;
   fsmState.className = `state-pill state-${state.toLowerCase()}`;
@@ -466,8 +581,11 @@ function updateFsmBar(status) {
     fsmAdvance.textContent = 'Go To Ready For Launch';
     fsmAdvance.classList.remove('hidden');
     fsmAdvance.classList.add('danger-action');
-    fsmAdvance.disabled = configDirty;
-    fsmAdvance.title = configDirty ? 'Save configuration changes before READY FOR LAUNCH.' : '';
+    fsmAdvance.disabled = configDirty || readyAttemptPending || readyAttemptUncertain || readyScheduled;
+    fsmAdvance.title = configDirty ? 'Save configuration changes before READY FOR LAUNCH.'
+      : readyAttemptUncertain ? 'Connection lost; verify the FSM state before trying again.'
+      : readyScheduled ? 'Transition scheduled; the board LED is the confirmation.'
+      : readyAttemptPending ? 'Preparing READY_FOR_LAUNCH…' : '';
     readyConfigGuard.classList.toggle('hidden', !configDirty);
   } else {
     fsmAdvance.classList.add('hidden');
@@ -488,7 +606,18 @@ async function pollStatus() {
   } finally {
     pollBusy.status = false;
   }
-  if (!s || !s.ok) return;
+  if (!s || !s.ok) {
+    if (readyAttemptPending && ++readyStatusFailures >= 3) {
+      readyAttemptPending = false;
+      readyAttemptUncertain = true;
+      showActionStatus('Ground Services disconnected while preparing READY. The outcome is unknown; verify the FSM state via telemetry or serial before trying again.');
+      if (latestStatus) updateFsmBar(latestStatus);
+    }
+    return;
+  }
+
+  readyAttemptUncertain = false;
+  readyStatusFailures = 0;
 
   updateFsmBar(s);
 
@@ -954,6 +1083,15 @@ function bodyToSensor(vector, mapping = attitudeMounting) {
   return sensor;
 }
 
+function sensorToBody(vector, mapping = attitudeMounting) {
+  // A valid mounting is an orthogonal rotation: its inverse is its transpose.
+  return ['x', 'y', 'z'].map((_, axis) => {
+    const unit = [0, 0, 0];
+    unit[axis] = 1;
+    return bodyToSensor(unit, mapping).reduce((sum, value, i) => sum + value * vector[i], 0);
+  });
+}
+
 function attitudeGeometry(quaternion) {
   const cameraForward = ATTITUDE_CAMERA_FORWARD;
   const cameraRight = ATTITUDE_CAMERA_RIGHT;
@@ -1019,14 +1157,41 @@ function rocketFacesSvg(faces) {
   return faces.map(face => `<polygon points="${face.points}" class="${face.kind}"/>`).join('');
 }
 
+function mountingPreview(mapping) {
+  const projectBody = body => [140 + 48 * (body[0] - body[1]), 95 + 25 * (body[0] + body[1]) - 48 * body[2]];
+  const project = sensorVector => projectBody(sensorToBody(sensorVector, mapping));
+  const corners = [[-1, -.55, 0], [1, -.55, 0], [1, .55, 0], [-1, .55, 0]];
+  const polygon = corners.map(point => project(point).join(',')).join(' ');
+  const axis = (vector, label, color) => {
+    const end = project(vector);
+    const center = project([0, 0, 0]);
+    return `<line x1="${center[0]}" y1="${center[1]}" x2="${end[0]}" y2="${end[1]}" stroke="${color}" stroke-width="3"/><text x="${end[0] + 4}" y="${end[1] - 4}" fill="${color}">${label}</text>`;
+  };
+  return `<svg viewBox="0 0 290 195" role="img" aria-label="Board mounting preview, rocket nose is body plus Z">
+    <line x1="140" y1="172" x2="140" y2="18" stroke="#718b99" stroke-width="2" stroke-dasharray="5 4"/>
+    <text x="148" y="25" fill="#718b99">NOSE +Z</text>
+    <polygon points="${polygon}" fill="#294857" stroke="#a9c0ca" stroke-width="2"/>
+    ${axis([1.3, 0, 0], '+X IMU', '#ef4444')}
+    ${axis([0, 1.1, 0], '+Y IMU', '#22c55e')}
+    ${axis([0, 0, 1.0], '+Z IMU', '#38bdf8')}
+  </svg><small>Rocket: +Z nose - +Y rail - +X completes right-handed frame</small>`;
+}
+
+function selectAttitudeMounting(index) {
+  const count = SUPPORTED_ATTITUDE_MOUNTINGS.length;
+  attitudeMountingDraft = { ...SUPPORTED_ATTITUDE_MOUNTINGS[(index + count) % count] };
+  document.querySelector('.attitude-frame-map').value = attitudeMountingKey(attitudeMountingDraft);
+  document.getElementById('mountingPreview').innerHTML = mountingPreview(attitudeMountingDraft);
+}
+
 function attitudeAlignmentControls() {
   const selectedKey = attitudeMountingKey(attitudeMountingDraft);
-  const options = SUPPORTED_ATTITUDE_MOUNTINGS.map(mapping => {
+  const options = SUPPORTED_ATTITUDE_MOUNTINGS.map((mapping, index) => {
     const key = attitudeMountingKey(mapping);
-    const label = ['x', 'y', 'z'].map(axis => `Body ${axis.toUpperCase()} → Sensor ${mapping[axis].toUpperCase()}`).join(' · ');
-    return `<option value="${key}"${key === selectedKey ? ' selected' : ''}>${label}</option>`;
+    const label = ['x', 'y', 'z'].map(axis => `Body ${axis.toUpperCase()} → Sensor ${mapping[axis].toUpperCase()}`).join(' - ');
+    return `<option value="${key}"${key === selectedKey ? ' selected' : ''}>${index + 1}/24 - ${label}</option>`;
   }).join('');
-  return `<div class="attitude-alignment"><strong>Board mounting</strong><small>Select one complete right-handed body-to-sensor rotation</small><div><label>Reference-frame transformation<select class="attitude-frame-map">${options}</select></label></div><button type="button" id="applyAttitudeAlignment">Apply alignment</button><span id="attitudeAlignmentStatus">Changes are staged until applied.</span></div>`;
+  return `<div class="attitude-alignment"><strong>Board mounting</strong><small>Visualization only; raw IMU records are unchanged.</small><div id="mountingPreview">${mountingPreview(attitudeMountingDraft)}</div><div><label>Reference-frame transformation<select class="attitude-frame-map">${options}</select></label></div><div class="mounting-navigation"><button type="button" data-mounting-step="-1">← Previous</button><button type="button" data-mounting-step="1">Next →</button></div><button type="button" id="applyAttitudeAlignment">Apply alignment</button><span id="attitudeAlignmentStatus">Changes are staged until applied.</span></div>`;
 }
 
 function attitudeSvg() {
@@ -1164,6 +1329,7 @@ function renderLive(s) {
   const calibration = s.calibration || {};
   const sensors = s.sensors || {};
   const imu = sensors.imu || {};
+  const fusionAvailable = imu.fusion_available !== false;
   const accelerometer = sensors.accelerometer || {};
   const barometer = sensors.barometer || {};
   const gps = sensors.gps || {};
@@ -1174,11 +1340,23 @@ function renderLive(s) {
   const linearAcceleration = imu.linear_acceleration_m_s2 || {};
   const gravity = imu.gravity_m_s2 || {};
   const magnetometer = imu.magnetometer_ut || {};
+  const bodyVector = vector => sensorToBody(['x', 'y', 'z'].map(axis => Number(vector[axis]) || 0));
+  // Total acceleration magnitude, used to check IMU sanity in AMG mode
+  const vectorMagnitude = vector => Math.hypot(Number(vector.x), Number(vector.y), Number(vector.z));
+  const imuAccelMagnitude = vectorMagnitude(acceleration);
+  const lisAccelMagnitude = vectorMagnitude(accelerometer);
+  const fmtMagnitude = value => Number.isFinite(value)
+    ? `${value.toFixed(2)} m/s2 (${(value / 9.80665).toFixed(2)} g)`
+    : 'n/a';
+  const fmtVector = (vector, digits) => vector.map(value => value.toFixed(digits)).join(', ');
   const lora = ((s.telemetry || {}).lora || {});
   const loraTxPulse = performance.now() < loRaTxPulseUntil;
   addLiveHistorySample({
-    attitudeX: Number(orientation.x), attitudeY: Number(orientation.y), attitudeZ: Number(orientation.z),
+    attitudeX: fusionAvailable ? Number(orientation.x) : NaN,
+    attitudeY: fusionAvailable ? Number(orientation.y) : NaN,
+    attitudeZ: fusionAvailable ? Number(orientation.z) : NaN,
     imuAx: Number(acceleration.x), imuAy: Number(acceleration.y), imuAz: Number(acceleration.z),
+    imuAmag: imuAccelMagnitude, lisAmag: lisAccelMagnitude,
     lisAx: Number(accelerometer.x), lisAy: Number(accelerometer.y), lisAz: Number(accelerometer.z),
     gyroX: Number(angularVelocity.x), gyroY: Number(angularVelocity.y), gyroZ: Number(angularVelocity.z),
     pressure: Number(barometer.pressure), gpsAltitude: Number(gps.alt)
@@ -1189,11 +1367,13 @@ function renderLive(s) {
       <div><span>Height</span><strong>${Number(flight.height_m || 0).toFixed(2)} m</strong></div>
       <div><span>Vertical speed</span><strong>${Number(flight.vertical_speed_mps || 0).toFixed(2)} m/s</strong></div>
       <div><span>Rising</span><strong>${flight.is_rising ? 'yes' : 'no'}</strong></div>
-      <div><span>Calibrated</span><strong>${calibration.imu ? 'yes' : 'no'}</strong></div>
+      <div><span>Acceleration |a|</span><strong>${fmtMagnitude(imuAccelMagnitude)}</strong></div>
+      <div><span>Calibrated</span><strong>${calibration.imu ? (fusionAvailable ? 'yes' : 'n/a (AMG)') : 'no'}</strong></div>
       <div class="${loraTxPulse ? 'tx-pulse' : ''}"><span>LoRa</span><strong>${lora.available ? (loraTxPulse ? 'TX pulse' : 'ready') : 'unavailable'}</strong></div>
     </div>
     <div class="trend-grid-layout">
-      ${trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1)}
+      ${fusionAvailable ? trendChart('Attitude', 'deg', [{ key: 'attitudeX', label: 'X', color: '#ef4444' }, { key: 'attitudeY', label: 'Y', color: '#22c55e' }, { key: 'attitudeZ', label: 'Z', color: '#3b82f6' }], 1) : ''}
+      ${trendChart('Acceleration magnitude', 'm/s2', [{ key: 'imuAmag', label: 'BNO055', color: '#f97316' }, { key: 'lisAmag', label: 'LIS3DHTR', color: '#06b6d4' }], 2)}
       ${trendChart('BNO055 acceleration', 'm/s2', [{ key: 'imuAx', label: 'X', color: '#ef4444' }, { key: 'imuAy', label: 'Y', color: '#22c55e' }, { key: 'imuAz', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('LIS3DHTR acceleration', 'm/s2', [{ key: 'lisAx', label: 'X', color: '#ef4444' }, { key: 'lisAy', label: 'Y', color: '#22c55e' }, { key: 'lisAz', label: 'Z', color: '#3b82f6' }], 2)}
       ${trendChart('Angular velocity', 'deg/s', [{ key: 'gyroX', label: 'X', color: '#ef4444' }, { key: 'gyroY', label: 'Y', color: '#22c55e' }, { key: 'gyroZ', label: 'Z', color: '#3b82f6' }], 2)}
@@ -1201,11 +1381,13 @@ function renderLive(s) {
       ${trendChart('GPS altitude', 'm ASL', [{ key: 'gpsAltitude', label: 'Altitude', color: '#f59e0b' }], 1)}
     </div>
     <div class="attitude-grid">
-      ${panel('Rocket Attitude', attitudeSvg())}
+      ${panel('Rocket Attitude', fusionAvailable ? attitudeSvg() : '<p>Unavailable: BNO055 AMG mode does not provide attitude fusion.</p>')}
       ${panel('Attitude & Calibration', [
-        row('Euler X / heading', `${Number(orientation.x || 0).toFixed(2)} deg`),
-        row('Euler Y / roll', `${Number(orientation.y || 0).toFixed(2)} deg`),
-        row('Euler Z / pitch', `${Number(orientation.z || 0).toFixed(2)} deg`),
+        ...(fusionAvailable ? [
+          row('Euler X / heading', `${Number(orientation.x || 0).toFixed(2)} deg`),
+          row('Euler Y / roll', `${Number(orientation.y || 0).toFixed(2)} deg`),
+          row('Euler Z / pitch', `${Number(orientation.z || 0).toFixed(2)} deg`)
+        ] : []),
         row('Calibration SYS / GYR / ACC / MAG', `${imuCalibration.system || 0} / ${imuCalibration.gyro || 0} / ${imuCalibration.accelerometer || 0} / ${imuCalibration.magnetometer || 0}`),
         row('Angular velocity', `${Number(angularVelocity.x || 0).toFixed(3)}, ${Number(angularVelocity.y || 0).toFixed(3)}, ${Number(angularVelocity.z || 0).toFixed(3)} deg/s`),
         attitudeAlignmentControls()
@@ -1214,8 +1396,13 @@ function renderLive(s) {
     <div class="sensor-grid">
       ${sensorCard('IMU', imu, [
         ['Acceleration', `${Number(acceleration.x || 0).toFixed(3)}, ${Number(acceleration.y || 0).toFixed(3)}, ${Number(acceleration.z || 0).toFixed(3)} m/s2`],
-        ['Linear acceleration', `${Number(linearAcceleration.x || 0).toFixed(3)}, ${Number(linearAcceleration.y || 0).toFixed(3)}, ${Number(linearAcceleration.z || 0).toFixed(3)} m/s2`],
-        ['Gravity', `${Number(gravity.x || 0).toFixed(3)}, ${Number(gravity.y || 0).toFixed(3)}, ${Number(gravity.z || 0).toFixed(3)} m/s2`],
+        ['Rocket-frame acceleration', `${fmtVector(bodyVector(acceleration), 3)} m/s2`],
+        ['Rocket-frame angular rate', `${fmtVector(bodyVector(angularVelocity), 3)} deg/s`],
+        ['Rocket-frame magnetic field', `${fmtVector(bodyVector(magnetometer), 2)} uT`],
+        ...(fusionAvailable ? [
+          ['Linear acceleration', `${Number(linearAcceleration.x || 0).toFixed(3)}, ${Number(linearAcceleration.y || 0).toFixed(3)}, ${Number(linearAcceleration.z || 0).toFixed(3)} m/s2`],
+          ['Gravity', `${Number(gravity.x || 0).toFixed(3)}, ${Number(gravity.y || 0).toFixed(3)}, ${Number(gravity.z || 0).toFixed(3)} m/s2`]
+        ] : []),
         ['Magnetometer', `${Number(magnetometer.x || 0).toFixed(2)}, ${Number(magnetometer.y || 0).toFixed(2)}, ${Number(magnetometer.z || 0).toFixed(2)} uT`],
         ['Temperature', `${Number(imu.temperature_c || 0).toFixed(1)} C`]
       ])}
@@ -1246,7 +1433,7 @@ function ingestLive(s) {
   if (s && s.ok) {
     const imu = ((s.sensors || {}).imu || {});
     const acceleration = imu.acceleration_m_s2 || {};
-    targetAttitudeQuaternion = imu.quaternion || targetAttitudeQuaternion;
+    if (imu.fusion_available !== false) targetAttitudeQuaternion = imu.quaternion || targetAttitudeQuaternion;
     targetAttitudeAcceleration = [Number(acceleration.x) || 0, Number(acceleration.y) || 0, Number(acceleration.z) || 0];
     const loraSuccess = Number((((s.telemetry || {}).lora || {}).tx_success) || 0);
     if (loraSuccess > lastLoRaTxSuccess) loRaTxPulseUntil = performance.now() + 400;
@@ -1344,7 +1531,7 @@ function configInput(key, value) {
   return `<label class="${classes}">
     <span class="config-label"><strong>${esc(meta.label || key)}</strong>${badges}</span>
     <span class="config-control">${input}${meta.unit ? `<small>${esc(meta.unit)}</small>` : ''}</span>
-    <span class="config-desc">${esc(meta.description || '')}${meta.source ? ` · Source: ${esc(meta.source)}` : ''}</span>
+    <span class="config-desc">${esc(meta.description || '')}${meta.source ? ` - Source: ${esc(meta.source)}` : ''}</span>
     ${issue ? `<span class="config-message">${esc(issue.message)}</span>` : ''}
   </label>`;
 }
@@ -1423,6 +1610,7 @@ async function loadConfig() {
   const valid = runtimeValidation.ok ? 'valid' : 'invalid';
   document.getElementById('configStatus').textContent = `${locked} - ${valid} - schema v${runtimeConfig.schema_version}, revision ${runtimeConfig.config_revision}\n${JSON.stringify(runtimeValidation, null, 2)}`;
   document.getElementById('unlockConfig').classList.toggle('hidden', runtimeConfig.config_locked !== true);
+  document.getElementById('importConfig').disabled = runtimeConfig.config_locked === true;
   persistedConfigSignature = configSignature(runtimeConfig);
   configDirty = false;
   setConfigSaveState();
@@ -1454,10 +1642,65 @@ async function saveConfig() {
   }
 }
 
+async function exportConfig() {
+  const [cfg, schema] = await Promise.all([
+    api('/api/config/runtime'), api('/api/config/schema')
+  ]);
+  if (!cfg.ok || !schema.ok) {
+    document.getElementById('configStatus').textContent = 'Export failed: could not read the saved configuration.';
+    return;
+  }
+  const fields = schema.fields.filter(field => field.source === 'RuntimeConfig / NVS' &&
+    field.key !== 'flight_log_filename' && field.key !== 'last_flight_log_filename');
+  if (fields.some(field => cfg[field.key] === undefined)) {
+    document.getElementById('configStatus').textContent = 'Export failed: a configuration field is missing.';
+    return;
+  }
+  const backup = { schema_version: cfg.schema_version };
+  fields.forEach(field => { backup[field.key] = cfg[field.key]; });
+  const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2) + '\n'], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `runtime-config-v${cfg.schema_version}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function importConfig(file) {
+  const status = document.getElementById('configStatus');
+  let backup;
+  try {
+    backup = JSON.parse(await file.text());
+  } catch {
+    status.textContent = 'Import failed: invalid JSON file.';
+    return;
+  }
+  if (!backup || Array.isArray(backup) || backup.schema_version !== runtimeConfig.schema_version) {
+    status.textContent = `Import failed: expected RuntimeConfig schema v${runtimeConfig.schema_version}.`;
+    return;
+  }
+  if (!window.confirm('Import this RuntimeConfig and save it to NVS now? Current settings, including calibration and telemetry values, and unsaved edits will be replaced.')) return;
+  const result = await api('/api/config/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(backup)
+  });
+  if (!result.ok) {
+    status.textContent = `Import failed: ${JSON.stringify(result, null, 2)}`;
+    return;
+  }
+  await loadConfig();
+  status.textContent = `✓ RuntimeConfig imported and saved to NVS.\n${status.textContent}`;
+  status.classList.add('config-save-success');
+}
+
 async function resetConfig() {
+  if (!window.confirm('Replace the current RuntimeConfig with firmware defaults and save them to NVS? Unsaved edits and current configuration values will be replaced.')) return;
   const s = await api('/api/config/reset-defaults', { method: 'POST' });
   document.getElementById('configStatus').textContent = JSON.stringify(s, null, 2);
-  loadConfig();
+  if (s.ok) loadConfig();
 }
 
 async function unlockConfig() {
@@ -1623,6 +1866,7 @@ async function uploadFirmware() {
 }
 
 async function advanceFsm() {
+  if (readyAttemptPending || readyAttemptUncertain) return;
   if (!latestStatus) {
     const status = await api('/api/status');
     if (status.ok) updateFsmBar(status);
@@ -1652,8 +1896,19 @@ async function advanceFsm() {
     headers: { 'X-Confirm': confirmation },
     body: ''
   });
-  showActionStatus(s);
-  loadInfo();
+  if (s.ok && s.queued) {
+    readyAttemptPending = true;
+    lastReadyAttemptStatus = 'pending';
+    showActionStatus('Preparing the flight log and locking configuration…');
+    updateFsmBar(latestStatus);
+    pollStatus();
+  } else if (s.transport_error) {
+    readyAttemptUncertain = true;
+    showActionStatus('Connection lost while requesting READY. The outcome is unknown; verify the FSM state via telemetry or serial before trying again.');
+    updateFsmBar(latestStatus);
+  } else {
+    showActionStatus(s);
+  }
 }
 
 navButtons.forEach(b => b.addEventListener('click', () => show(b.dataset.page)));
@@ -1693,6 +1948,7 @@ drop.addEventListener('drop', event => {
 });
 document.getElementById('upload').addEventListener('click', uploadFirmware);
 document.getElementById('refreshFiles').addEventListener('click', loadFiles);
+document.getElementById('deleteAllFiles').addEventListener('click', deleteAllStoredFiles);
 document.getElementById('filesContent').addEventListener('click', event => {
   const download = event.target.closest('[data-file-download]');
   if (download) downloadStoredFile(download.dataset.fileDownload);
@@ -1730,6 +1986,13 @@ document.addEventListener('keydown', event => {
   }
 });
 document.getElementById('saveConfig').addEventListener('click', saveConfig);
+document.getElementById('exportConfig').addEventListener('click', exportConfig);
+document.getElementById('importConfig').addEventListener('click', () => document.getElementById('importConfigFile').click());
+document.getElementById('importConfigFile').addEventListener('change', event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (file) importConfig(file);
+});
 document.getElementById('resetConfig').addEventListener('click', resetConfig);
 document.getElementById('unlockConfig').addEventListener('click', unlockConfig);
 document.addEventListener('input', event => {
@@ -1738,14 +2001,22 @@ document.addEventListener('input', event => {
 document.addEventListener('change', event => {
   if (event.target.matches('[data-config]')) updateConfigDirtyState();
   if (!event.target.classList.contains('attitude-frame-map')) return;
-  const selected = SUPPORTED_ATTITUDE_MOUNTINGS.find(mapping =>
+  const index = SUPPORTED_ATTITUDE_MOUNTINGS.findIndex(mapping =>
     attitudeMountingKey(mapping) === event.target.value);
-  if (!selected) return;
-  attitudeMountingDraft = { ...selected };
+  if (index < 0) return;
+  selectAttitudeMounting(index);
   const status = document.getElementById('attitudeAlignmentStatus');
   if (status) status.textContent = 'Right-handed transformation ready to apply.';
 });
 document.addEventListener('click', event => {
+  const step = event.target.closest('[data-mounting-step]');
+  if (step) {
+    const index = SUPPORTED_ATTITUDE_MOUNTINGS.findIndex(mapping =>
+      attitudeMountingKey(mapping) === attitudeMountingKey(attitudeMountingDraft));
+    selectAttitudeMounting(index + Number(step.dataset.mountingStep));
+    step.blur(); // Let Live Data resume updating after the button click.
+    return;
+  }
   if (event.target.id !== 'applyAttitudeAlignment') return;
   const status = document.getElementById('attitudeAlignmentStatus');
   if (!validAttitudeMounting(attitudeMountingDraft)) {
@@ -1755,6 +2026,7 @@ document.addEventListener('click', event => {
   attitudeMounting = { ...attitudeMountingDraft };
   localStorage.setItem('atlas_attitude_mounting', JSON.stringify(attitudeMounting));
   if (status) status.textContent = 'Saved in this browser.';
+  event.target.blur();
 });
 
 setInterval(() => runPoll('live', !otaUploadActive && !document.getElementById('live').classList.contains('hidden') && (!liveSocket || liveSocket.readyState !== WebSocket.OPEN), loadLive), 1000);
@@ -1768,6 +2040,10 @@ setInterval(() => {
   }
 }, 1500);
 setInterval(pollStatus, 5000);
+// Fast only while a READY attempt is open, and short enough that at least one
+// poll lands inside the brief window Ground Services stays up for after the
+// transition is scheduled. It is a small JSON over a local link.
+setInterval(() => { if (readyAttemptPending) pollStatus(); }, 300);
 document.getElementById('refreshLogs').addEventListener('click', loadLogs);
 pauseLogsButton.addEventListener('click', () => {
   logsPaused = !logsPaused;

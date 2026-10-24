@@ -36,7 +36,9 @@ class IBoardHardware;
  * 7. Add field metadata in runtime_config_schema_json() with its owning source,
  *    useful unit/min/max values, and editable=true plus
  *    locked_after_ready=true only for launch-ramp adjustments.
- * 8. Update any task/class to read the value from
+ * 8. Add NVS-backed fields to runtime_config_import_from_json() and update
+ *    its required field count so exported configurations remain complete.
+ * 9. Update any task/class to read the value from
  *    runtime_config_get_flight_snapshot(), not directly from config.h.
  *
  * Read-only dashboard/checklist parameter workflow:
@@ -209,6 +211,14 @@ esp_err_t runtime_config_unlock_after_recovery();
  * This intentionally accepts only the editable RuntimeConfig fields.
  */
 esp_err_t runtime_config_update_from_json(const char *json, RuntimeConfig *updated_out);
+
+/**
+ * @brief Restore every persisted configuration value from a complete JSON export.
+ *
+ * The flight lock, revision, checksum, and recorder filenames remain owned by
+ * the current device. The import is rejected while the config is locked.
+ */
+esp_err_t runtime_config_import_from_json(const char *json, RuntimeConfig *updated_out);
 
 /**
  * @brief Serialize RuntimeConfig plus read-only firmware and board metadata.

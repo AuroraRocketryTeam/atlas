@@ -28,16 +28,14 @@ Typical usage from hil_rocketpy.py:
     from hil_capture import create_capture_file, save_hil_capture, plot_hil_log
     capture_file = create_capture_file(BASE_DIR / "hil_captures")
     ...
+    metadata = {"sampling_rate_hz": sampling_rate, "rocket": rocket_model}
     save_hil_capture(
         filename=capture_file,
         hil_log=hil_log,
         hil_events=hil_events,
-        metadata={
-            "sampling_rate_hz": sampling_rate,
-            "rocket": rocket_model,
-        },
+        metadata=metadata,
     )
-    plot_hil_log(hil_log, hil_events)
+    plot_hil_log(hil_log, hil_events, metadata=metadata)
 
 Typical direct usage:
 
@@ -73,6 +71,10 @@ from hil_utils import (
 # ----------------------------------------------------------------------
 
 G0 = 9.80665
+FRED_SITE_IMAGE = Path(__file__).with_name("Villafranca_airfield_launch_site.jpg")
+FRED_SITE_ORIGIN = (44.290583, 12.027111)  # latitude, longitude of (0, 0)
+# Manually fitted to OpenStreetMap roads/buildings; approximate, not survey-grade.
+FRED_SITE_EXTENT_M = (-1043, 657, -407, 593)  # west, east, south, north
 
 # Keep this local so hil_capture.py can plot saved captures without importing
 # hil_communication.py. These names mirror RocketState / hil_communication.
@@ -221,6 +223,7 @@ def _as_array(log: dict[str, list[Any]], key: str) -> np.ndarray:
 def _lat_lon_to_local_meters(
     lat_deg: np.ndarray,
     lon_deg: np.ndarray,
+    origin_lat_lon: tuple[float, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Convert latitude/longitude to a local tangent-plane approximation.
@@ -232,7 +235,8 @@ def _lat_lon_to_local_meters(
         north ~= earth_radius * delta_lat
         east  ~= earth_radius * delta_lon * cos(latitude_at_launch)
 
-    This treats the first GPS sample as the local origin.
+    By default the first GPS sample is the local origin. A site map can supply
+    its calibrated launch point instead, so GPS noise does not shift the image.
 
     Output:
         x = east displacement [m]
@@ -241,8 +245,7 @@ def _lat_lon_to_local_meters(
     lat = np.deg2rad(lat_deg)
     lon = np.deg2rad(lon_deg)
 
-    lat0 = lat[0]
-    lon0 = lon[0]
+    lat0, lon0 = (lat[0], lon[0]) if origin_lat_lon is None else np.deg2rad(origin_lat_lon)
 
     earth_radius = 6_371_000.0
 
@@ -1539,6 +1542,7 @@ def plot_hil_log(
     hil_log: dict[str, list[Any]],
     hil_events: dict[str, list[Any]] | None = None,
     *,
+    metadata: dict[str, Any] | None = None,
     show: bool = True,
 ) -> None:
     """
@@ -1558,6 +1562,8 @@ def plot_hil_log(
     """
     if hil_events is None:
         hil_events = {}
+    if metadata is None:
+        metadata = {}
 
     sim_time_s = _as_array(hil_log, "sim_time_s")
 
@@ -1576,7 +1582,19 @@ def plot_hil_log(
     longitude_deg = _as_array(hil_log, "longitude_deg")
     altitude_m = _as_array(hil_log, "altitude_m")
 
-    gps_x, gps_y = _lat_lon_to_local_meters(latitude_deg, longitude_deg)
+    is_fred_capture = metadata.get("rocket") == "fred"
+    fred_site_map = (
+        is_fred_capture
+        and metadata.get("environment_latitude") == FRED_SITE_ORIGIN[0]
+        and metadata.get("environment_longitude") == FRED_SITE_ORIGIN[1]
+    )
+    if is_fred_capture and not fred_site_map:
+        print("[PLOT] Villafranca map skipped: capture launch coordinates differ from its calibrated origin")
+    gps_x, gps_y = _lat_lon_to_local_meters(
+        latitude_deg,
+        longitude_deg,
+        FRED_SITE_ORIGIN if fred_site_map else None,
+    )
 
     accel_x_g = accel_x_m_s2 / G0
     accel_y_g = accel_y_m_s2 / G0
@@ -1700,15 +1718,33 @@ def plot_hil_log(
     # GPS ground track
     # ------------------------------------------------------------------
     fig_track, ax_track = plt.subplots(figsize=(8, 8))
-    ax_track.plot(gps_x, gps_y, label="GPS ground track")
-    ax_track.scatter(gps_x[0], gps_y[0], s=50, marker="o", label="START")
-    ax_track.scatter(gps_x[-1], gps_y[-1], s=50, marker="X", label="END")
-    if apogee_idx is not None:
-        ax_track.scatter(gps_x[apogee_idx], gps_y[apogee_idx], s=60, marker="^", label="RocketPy apogee time")
+    map_image_available = fred_site_map and FRED_SITE_IMAGE.is_file()
+    if map_image_available:
+        ax_track.imshow(plt.imread(FRED_SITE_IMAGE), extent=FRED_SITE_EXTENT_M, origin="upper")
+    elif fred_site_map:
+        print(f"[PLOT] Villafranca map image not found: {FRED_SITE_IMAGE}")
+    track_line, = ax_track.plot(gps_x, gps_y, label="GPS ground track")
+    if fred_site_map:
+        track_line.set_color("magenta")
+        track_line.set_linewidth(2)
+        ax_track.scatter(0, 0, s=70, marker="o", color="white",
+                         edgecolors="black", label="Launch point")
+        ax_track.scatter(hil_log["x"][-1], hil_log["y"][-1], s=70,
+                         marker="X", color="red", label="RocketPy landing")
+        if rocketpy_apogee is not None:
+            ax_track.scatter(rocketpy_apogee["x"], rocketpy_apogee["y"], s=70,
+                             marker="^", color="yellow", edgecolors="black",
+                             label="RocketPy apogee")
+    else:
+        ax_track.scatter(gps_x[0], gps_y[0], s=50, marker="o", label="START")
+        ax_track.scatter(gps_x[-1], gps_y[-1], s=50, marker="X", label="END")
+        if apogee_idx is not None:
+            ax_track.scatter(gps_x[apogee_idx], gps_y[apogee_idx], s=60, marker="^", label="RocketPy apogee time")
     _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, drogue_times, "OPEN_DROGUE", "v")
     _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, main_times, "OPEN_MAIN", "s")
     _mark_fsm_points_2d(ax_track, sim_time_s, gps_x, gps_y, fsm_events, annotate=True)
-    ax_track.set_title("GPS Ground Track Sent to FC")
+    ax_track.set_title("GPS Ground Track Sent to FC" +
+                       (" (approximate Villafranca map)" if map_image_available else ""))
     ax_track.set_xlabel("local GPS x / east [m]")
     ax_track.set_ylabel("local GPS y / north [m]")
     ax_track.axis("equal")
@@ -1910,6 +1946,7 @@ def main() -> None:
         plot_hil_log(
             hil_log,
             hil_events,
+            metadata=metadata,
             show=not args.no_show and not replay_requested,
         )
 

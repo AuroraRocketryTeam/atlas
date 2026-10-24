@@ -67,6 +67,7 @@ private:
     bool testPowerAndLEDs();
     bool testSensors();
     bool testActuators();
+    bool testBuzzerJingle();
     bool testSDCard();
     bool testFlashMemory();
     bool testTelemetry();

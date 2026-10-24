@@ -1,0 +1,25 @@
+# SRAD BRICO 45 ugello 8 mm
+# thrust_curve.csv: test al banco del 24/05/2026 ore 16:36 (tools/propulsion/thrust_curve/8mm/test_2026-05-24_16-36-50_8mm_2.csv): tolto il primo campione (87 N) / tagliato da 1.14 s (accensione) a 3.10 s / tolta la deriva lineare della cella di carico (da 0.42 N prima a 2.68 N dopo la combustione) / chiuso a zero
+# Geometria da FRED_45_PARAMETERS_8mm.txt (propulsione); il file dà motore a secco 0.737 kg / propellente 0.197 kg / pieno 0.934 kg.
+# Baricentri e inerzie a secco ricavati con tools/propulsion/motor_geometry/motor_mass_properties.py (risultati in tools/propulsion/motor_geometry/8mm/).
+# Massa a secco: stimata dal motore da 7 mm pesato (0.621 kg) meno la differenza di ugello del modello (0.382 - 0.342 kg); da pesare.
+# L'hardware del motore è la motor_dry_mass: è escluso dalla rocket_dry_mass (vedi geometry)
+# La fine dell'ugello coincide con la fine del razzo
+# Posizioni misurate dall'ugello verso la camera di combustione.
+name,value,std,unit,note
+impulse,207.30,1,N*s,integrale di thrust_curve.csv
+burn_time,1.9594,0.001,s,durata di thrust_curve.csv
+nozzle_radius,0.0089443,0.0001,m,uscita: diametro 17.89 mm (rapporto di espansione 5)
+throat_radius,0.004,0.0001,m,gola: diametro 8 mm
+nozzle_position,0,0.0001,m,
+grain_number,1,0,-,
+grain_separation,0.002,0.0001,m,
+grain_density,1853.75,1,kg/m^3,KNSB + 1% Fe2O3
+grain_outer_radius,0.0165,0.0001,m,
+grain_initial_inner_radius,0.0065,0.0001,m,
+grain_initial_height,0.147,0.0001,m,
+grains_center_of_mass_position,0.123459,0.001,m,centro del grain (motore lungo 0.2320 m)
+motor_dry_mass,0.5808,0.02,kg,stima (vedi in testa); std più larga perché non pesato
+motor_dry_mass_position,0.0873014,0.001,m,
+motor_inertia_11,0.00455276,0,kg*m^2,perpendicolare all'asse attorno al baricentro a secco
+motor_inertia_33,0.000222935,0,kg*m^2,attorno all'asse

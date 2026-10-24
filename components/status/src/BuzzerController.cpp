@@ -117,6 +117,72 @@ void BuzzerController::stopTone()
     ledc_update_duty(LEDC_MODE, channel);
 }
 
+static const MelodyNote JINGLE[] = {
+    {Note::E4, 415}, {Note::E4, 415}, {Note::GS4, 197}, {Note::FS4, 197}, {Note::E4, 415},
+    {Note::GS4, 415}, {Note::GS4, 415}, {Note::B4, 197}, {Note::A4, 197}, {Note::GS4, 415},
+    {Note::A4, 415}, {Note::A4, 415}, {Note::C5, 197}, {Note::B4, 197}, {Note::A4, 415},
+};
+
+void BuzzerController::playMelodyNotes(const MelodyNote *notes, uint8_t count, uint16_t gapMs)
+{
+    for (uint8_t i = 0; i < count; i++)
+    {
+        // A rest is a note with no frequency
+        if (notes[i].frequency > 0) playToneFreq(notes[i].frequency);
+        else stopTone();
+
+        vTaskDelay(pdMS_TO_TICKS(notes[i].duration));
+        stopTone();
+
+        if (gapMs > 0) vTaskDelay(pdMS_TO_TICKS(gapMs));
+    }
+}
+
+void BuzzerController::playMelody(const MelodyNote *notes, uint8_t count, uint16_t gapMs)
+{
+    if (!initialized || notes == nullptr) return;
+
+    stopPattern();
+    playMelodyNotes(notes, count, gapMs);
+}
+
+void BuzzerController::playJingle()
+{
+    playMelody(JINGLE, sizeof(JINGLE) / sizeof(JINGLE[0]));
+}
+
+void BuzzerController::melodyTaskFunction(void *param)
+{
+    BuzzerController *self = static_cast<BuzzerController *>(param);
+
+    while (true)
+    {
+        self->playMelodyNotes(self->_loopNotes, self->_loopCount, self->_loopGapMs);
+        self->stopTone();
+        vTaskDelay(pdMS_TO_TICKS(self->_loopPauseMs));
+    }
+}
+
+void BuzzerController::startMelodyLoop(const MelodyNote *notes, uint8_t count, uint16_t gapMs, uint16_t pauseMs)
+{
+    if (!initialized || notes == nullptr || count == 0) return;
+
+    stopPattern();
+
+    _loopNotes = notes;
+    _loopCount = count;
+    _loopGapMs = gapMs;
+    _loopPauseMs = pauseMs;
+
+    // Low priority
+    xTaskCreatePinnedToCore(melodyTaskFunction, "BuzzerMelody", 2048, this, 1, &buzzerTaskHandle, 1);
+}
+
+void BuzzerController::startJingleLoop(uint16_t pauseMs)
+{
+    startMelodyLoop(JINGLE, sizeof(JINGLE) / sizeof(JINGLE[0]), 20, pauseMs);
+}
+
 void BuzzerController::playTone(BuzzerTone frequency, uint16_t duration)
 {
     if (buzzerPin == 0 || frequency == TONE_OFF)

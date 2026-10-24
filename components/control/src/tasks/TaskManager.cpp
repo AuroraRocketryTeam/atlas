@@ -48,7 +48,8 @@ void TaskManager::initializeTasks()
     } else LOG_INFO("TaskManager", "GPS unavailable. Skipping GPS task");
     _tasks[TaskType::STORAGE] = std::make_unique<StorageLoggingTask>(
         _rocketModel,
-        _logger);
+        _logger,
+        _fsm);
 
 #if AURORA_HIL_ENABLED
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
@@ -217,7 +218,7 @@ void TaskManager::logActiveTaskStackHealth() const
     const size_t taskCount = getActiveTaskStackHealth(tasks.data(), tasks.size());
     for (size_t index = 0; index < taskCount; ++index)
     {
-        LOG_INFO("TaskManager", "Task stack: [%s] %s remaining=%u bytes",
+        LOG_EVERY_MS(5000, INFO, "TaskManager", "Task stack: [%s] %s remaining=%u bytes",
                  tasks[index].type, tasks[index].name, tasks[index].high_water_mark_bytes);
     }
 }
@@ -262,6 +263,27 @@ bool TaskManager::prepareStorageLogging()
     auto it = _tasks.find(TaskType::STORAGE);
     if (it == _tasks.end() || !it->second) return false;
     return static_cast<StorageLoggingTask *>(it->second.get())->prepareTelemetryFilename();
+}
+
+bool TaskManager::prepareFlightLog()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    return it != _tasks.end() && it->second && it->second->isRunning() &&
+           static_cast<StorageLoggingTask *>(it->second.get())->prepareFlightLog();
+}
+
+bool TaskManager::activateFlightLog()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    return it != _tasks.end() && it->second && it->second->isRunning() &&
+           static_cast<StorageLoggingTask *>(it->second.get())->activateFlightLog();
+}
+
+void TaskManager::markFlightLogComplete()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    if (it != _tasks.end() && it->second)
+        static_cast<StorageLoggingTask *>(it->second.get())->markFlightComplete();
 }
 
 int TaskManager::getRunningTaskCount()

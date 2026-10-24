@@ -19,12 +19,27 @@ static const char *TAG = "HilSimulationTask";
 static constexpr int HIL_SERVER_PORT = 5000;
 static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 5000;
 static constexpr uint32_t HIL_PACKET_PERIOD_MS = 20;
+static constexpr uint32_t HIL_BAROMETER_RATE_HZ = 18;
 
 // The simulator drives one packet per acquisition cycle at the same 50 Hz the
 // real SensorTask loop runs at, so recording every SENSOR_LOG_INTERVAL_LOOPS-th
-// packet reproduces the flight recorder cadence (25 Hz) in simulation.
+// packet records IMU/accelerometer/GPS at 25 Hz. Barometers update and log at 18 Hz.
 static_assert(HIL_PACKET_PERIOD_MS == SENSOR_LOOP_PERIOD_MS,
               "HIL packet cadence must match the sensor loop period");
+
+static constexpr bool barometerSampleDue(uint32_t currentMs, uint32_t previousMs)
+{
+    // Fixed simulated-time slots avoid rounding 55.56 ms up to 60 ms on every update.
+    // A new sample is due whenever the current and previous timestamps
+    // belong to different slots, maintaining an average rate of 18 Hz.
+    return static_cast<uint64_t>(currentMs) * HIL_BAROMETER_RATE_HZ / 1000 !=
+           static_cast<uint64_t>(previousMs) * HIL_BAROMETER_RATE_HZ / 1000;
+}
+
+static_assert(!barometerSampleDue(40, 0) && barometerSampleDue(60, 0) &&
+              !barometerSampleDue(100, 60) && barometerSampleDue(120, 60) &&
+              barometerSampleDue(280, 240) && !barometerSampleDue(280, 280),
+              "18 Hz barometer updates must allow 40/60 ms spacing and reject duplicates");
 /* ===================== PACKETS ===================== */
 
 typedef struct __attribute__((packed)) {
@@ -282,6 +297,8 @@ void HilSimulationTask::taskFunction() {
 
     proto_msg_t in_msg;
     proto_msg_t out_msg;
+    bool hasBarometerSample = false;
+    uint32_t lastBarometerTimestamp = 0;
 
     while (running) {
 
@@ -413,9 +430,8 @@ void HilSimulationTask::taskFunction() {
             /* ================= FILL SENSOR DATA ================= */
 
             IMUData bnoData;
+            bnoData.validGroups = IMUData::VALIDITY_ATTITUDE | IMUData::VALIDITY_ACCELERATION;
             AccelerometerSensorData lis3dhData;
-            PressureSensorData ms1;
-            PressureSensorData ms2;
             GPSData gps;
             
             const uint32_t sim_time_ms = static_cast<uint32_t>(pkt.sim_time * 1000.0f);
@@ -428,6 +444,9 @@ void HilSimulationTask::taskFunction() {
             bnoData.quaternion_x = pkt.qx;
             bnoData.quaternion_y = pkt.qy;
             bnoData.quaternion_z = pkt.qz;
+
+            // TODO: add "gravity" vector and "linear acceleration" to IMUData struct, and fill them here.
+            // The cleanest method is to take them from RocketPy data.
 
             constexpr float RADIANS_TO_DEGREES = 180.0f / 3.14159265358979323846f;
             const float roll = std::atan2(
@@ -450,15 +469,6 @@ void HilSimulationTask::taskFunction() {
             lis3dhData.acceleration_z = pkt.az;
             lis3dhData.setSensorName("LIS3DH_SIM");
 
-            ms1.timestamp = sim_time_ms;
-            ms1.pressure = pkt.p;
-            ms1.temperature = pkt.t - 273.15f;
-            ms1.setSensorName("MS56_1_SIM");
-            ms2.timestamp = sim_time_ms;
-            ms2.pressure = pkt.p;
-            ms2.temperature = pkt.t - 273.15f;
-            ms2.setSensorName("MS56_2_SIM");
-
             gps.timestamp = sim_time_ms;
             gps.latitude  = pkt.lat;
             gps.longitude = pkt.lon;
@@ -473,18 +483,36 @@ void HilSimulationTask::taskFunction() {
 
             _rocketModel->setSimulatedBNO055Data(bnoData);
             _rocketModel->setSimulatedLIS3DHTRData(lis3dhData);
-            _rocketModel->setSimulatedMS561101BA03Data_1(ms1);
-            _rocketModel->setSimulatedMS561101BA03Data_2(ms2);
             _rocketModel->setSimulatedGPSData(gps);
 
-            // Record every second acquisition cycle, exactly as SensorTask does.
+            // Hold both values and timestamps between updates so consumers skip stale samples.
+            if (!hasBarometerSample || barometerSampleDue(sim_time_ms, lastBarometerTimestamp)) {
+                hasBarometerSample = true;
+                lastBarometerTimestamp = sim_time_ms;
+
+                PressureSensorData ms1;
+                ms1.timestamp = sim_time_ms;
+                ms1.pressure = pkt.p;
+                ms1.temperature = pkt.t - 273.15f;
+                ms1.setSensorName("MS56_1_SIM");
+                PressureSensorData ms2 = ms1;
+                ms2.setSensorName("MS56_2_SIM");
+
+                // Record each accepted reading once, independently of the 25 Hz log tick.
+                if (_rocketModel->setSimulatedMS561101BA03Data_1(ms1) && _logger) {
+                    _logger->logSensorData(ms1);
+                }
+                if (_rocketModel->setSimulatedMS561101BA03Data_2(ms2) && _logger) {
+                    _logger->logSensorData(ms2);
+                }
+            }
+
+            // Record the remaining sensors every second acquisition cycle.
             if (++sensorLogCounter >= SENSOR_LOG_INTERVAL_LOOPS) {
                 sensorLogCounter = 0;
                 if (_logger) {
                     _logger->logSensorData(bnoData);
                     _logger->logSensorData(lis3dhData);
-                    _logger->logSensorData(ms1);
-                    _logger->logSensorData(ms2);
                     _logger->logSensorData(gps);
                 }
             }

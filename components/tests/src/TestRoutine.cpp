@@ -54,6 +54,7 @@ static const GroundTestDescriptor GROUND_TESTS[] = {
     {5,  "Sensors",   "I2C Scan",                "Probe the I2C bus and report known/unknown devices on serial logs.", false, ""},
     {14, "Sensors",   "IMU Calibration to NVS",  "Run BNO055 calibration and save offsets to internal NVS.", false, ""},
     {3,  "Actuators", "Actuators and Buzzer",    "Energize drogue/main outputs and buzzer for operator verification.", true, "ARM_ACTUATORS"},
+    {15, "Actuators", "Buzzer Jingle",           "Play the armed jingle through the buzzer.", false, ""},
     {7,  "Telemetry", "LoRa Telemetry Send",     "Initialize E220 LoRa and transmit three test packets.", false, ""},
     {8,  "Telemetry", "E220 Connector GPIO",     "Pulse E220 connector pins in a visible sequence.", false, ""},
     {10, "Telemetry", "LoRa Command Receive",    "Wait up to 30 seconds for a command from the ground station.", false, ""},
@@ -229,6 +230,7 @@ bool TestRoutine::runSingleTestById(int id)
     case 12: return dumpFlashJsonFiles();
     case 13: return clearFlashMemory();
     case 14: return calibrateAndSaveIMU();
+    case 15: return testBuzzerJingle();
     default: return false;
     }
 }
@@ -427,6 +429,13 @@ bool TestRoutine::testActuators()
     _buzzerController.playTone(TONE_MID, 1000);
 
     return waitForUserInput("Verificare accensione LED e tensione in uscita da DROGUE e MAIN, verificare funzionamento Buzzer. Scrivi PASSED o FAILED");
+}
+
+bool TestRoutine::testBuzzerJingle()
+{
+    LOG_INFO("Test", "[STEP 15] Jingle buzzer");
+    _buzzerController.playJingle();
+    return waitForUserInput("Il buzzer ha suonato il motivetto? Scrivi PASSED o FAILED");
 }
 
 bool TestRoutine::testSDCard()
@@ -924,6 +933,12 @@ bool TestRoutine::calibrateAndSaveIMU()
     if (!bnoSensor) {
         LOG_ERROR("Test", "BNO055 Sensor not available!");
         return waitForUserInput("Type FAILED to continue");
+    }
+
+    // Calibrating is useless in non-fusion mode.
+    if (!bnoSensor->isFusionMode()) {
+        LOG_INFO("Test", "Nothing to calibrate. Check the accelerometer from the Live Data page instead.");
+        return waitForUserInput("Type PASSED to continue");
     }
 
     bool calibrated = false;

@@ -138,8 +138,7 @@ void setupHil()
     // Initialize status patterns
     statusManager.init();
 
-    // Set initial status with PRE_FLIGHT_MODE
-    statusManager.setSystemCode(PRE_FLIGHT_MODE);
+    statusManager.setFlightPhase(RocketState::INACTIVE);
 
     LOG_INFO("Main", "\n=== Aurora Rocketry Flight Software ===");
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
@@ -240,8 +239,9 @@ static void createAndStartFSM()
 
     // Start FSM tasks
     LOG_INFO("Main", "Starting Flight State Machine...");
-    rocketFSM->start();
     statusManager.setSystemCode(FSM_STARTED);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    rocketFSM->start();
 }
 
 void loopHil()
@@ -289,6 +289,7 @@ void loopHil()
 
     const unsigned long now = Utils::realMillis();
     const RocketState currentState = rocketFSM->getCurrentState();
+    statusManager.setFlightPhase(currentState);
     if (!stateLogged || currentState != lastLoggedState || now - lastStateLog >= 30000)
     {
         LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));

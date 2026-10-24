@@ -163,6 +163,8 @@ public:
      * @brief Thread-safe helper to check if a file exists in storage.
      */
     bool storageFileExists(const char* filename, uint32_t timeoutMs = 200);
+    // Separates "file absent" from "storage mutex unavailable" before creating a flight log.
+    bool storageFileExistsChecked(const char* filename, bool& exists, uint32_t timeoutMs = 200);
 
     /**
      * @brief Thread-safe helper to reset the read cursor of a file in storage.
@@ -189,7 +191,7 @@ public:
      */
     bool storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs = 200);
 
-    size_t storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs = 200);
+    ssize_t storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs = 200);
     bool storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
                               size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs = 200);
     bool storageDeleteFile(const char* filename, uint32_t timeoutMs = 200);
@@ -322,9 +324,14 @@ public:
     std::shared_ptr<BNO055Sensor> getBNO055Sensor();
 
     /**
-     * @brief Check if the IMU is fully calibrated (Status == 3)
+     * @brief Check if the IMU is fully calibrated OR is in a non-fusion mode
      */
     bool isSensorSystemCalibrated();
+
+    /**
+     * @brief Check whether the BNO055 runs one of the fusion modes.
+     */
+    bool isIMUFusionMode();
 
     /**
      * @brief Set how many samples the barometer/temperature zeroing needs.

@@ -1,0 +1,11 @@
+# FRED v0_lancio23maggio - un solo paracadute (main Rocketman 4 ft / Cd 0.97 / senza spill hole) aperto all'apogeo
+# I ritardi vanno dal segnale di espulsione al paracadute completamente aperto.
+name,value,std,unit,note
+cd_s_main,1.13296,0.0277,m^2,0.97 * 1.168
+main_lag,1.5,0.05,s,conservativo; prima era 1.73 +- 0.2
+electronics_lag,0,0.001,s,sensore -> segnale di espulsione; conservativo
+sampling_rate,105,0,Hz,frequenza dell'algoritmo di recupero
+apogee_threshold,0.1,0,s,discesa continua prima di riconoscere l'apogeo
+noise_mean,0,0.001,Pa,rumore del barometro
+noise_std,6.5,0.01,Pa,
+noise_time_correlation,0.3,0.01,-,

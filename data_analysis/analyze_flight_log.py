@@ -16,6 +16,7 @@ from typing import Any, Iterable
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
+from matplotlib.ticker import FuncFormatter
 from matplotlib.widgets import Button, RadioButtons, Slider
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
@@ -36,6 +37,22 @@ IMU_ORIGIN_ROCKET_M = np.zeros(3)
 REPLAY_SPEEDS = (0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0)
 LEGACY_FSM_RE = re.compile(r"FSM transition t=(\d+) ms:\s*(\S+)\s*->\s*(\S+)")
 FSM_RE = re.compile(r"(?:FSM transition t=\d+ ms:\s*)?(\S+)\s*->\s*(\S+)")
+COMPACT_FIELDS = {
+    "pf_pa": "filtered_pressure_pa",
+    "alt_m": "altitude_m",
+    "vz_mps": "ols_slope_mps",
+    "ready": "ols_ready",
+    "p_pa": "pressure",
+    "temp_c": "temperature",
+    "sats": "satellites",
+    "fix": "fixType",
+    "lat": "latitude",
+    "lon": "longitude",
+    "speed": "ground_speed",
+    "accx": "acceleration_x",
+    "accy": "acceleration_y",
+    "accz": "acceleration_z",
+}
 
 
 @dataclass(frozen=True)
@@ -127,14 +144,24 @@ def load_records(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]
                 )
                 continue
 
+            is_config = obj.get("type") == "CONFIG" and isinstance(obj.get("config"), dict)
+            # The firmware writes "src"; "source" is the pre-rename spelling and
+            # is still accepted so older recordings keep parsing.
+            source_key = "src" if "src" in obj else "source"
+            source = str(obj.get(source_key) or obj.get("type") or "UNKNOWN")
             payload = obj.get("sensorData")
             if not isinstance(payload, dict):
                 payload = obj.get("content")
             if not isinstance(payload, dict):
-                payload = {}
+                if source_key in obj and "t" in obj:
+                    aliases = COMPACT_FIELDS.copy()
+                    if "lat" in obj:
+                        aliases["alt_m"] = "altitude"
+                    payload = {aliases.get(key, key): value for key, value in obj.items() if key != source_key}
+                else:
+                    payload = {}
 
-            source = str(obj.get("source") or obj.get("type") or "UNKNOWN")
-            timestamp_ms = payload.get("timestamp", payload.get("t"))
+            timestamp_ms = obj.get("timestamp") if is_config else payload.get("timestamp", payload.get("t"))
             message = str(payload.get("message", ""))
             legacy_fsm_match = LEGACY_FSM_RE.search(message)
             fsm_match = FSM_RE.search(message)
@@ -153,6 +180,8 @@ def load_records(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]
                     "timestamp_ms": timestamp_ms,
                     "payload": payload,
                     "type": obj.get("type"),
+                    "is_config": is_config,
+                    "config": obj.get("config") if is_config else None,
                     "is_event": isinstance(obj.get("type"), str) and isinstance(obj.get("content"), dict),
                     "fsm": (
                         (fsm_match.group(1), fsm_match.group(2))
@@ -170,6 +199,8 @@ def split_records(records: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any
     datalog: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     for record in records:
+        if record["is_config"]:
+            continue
         (events if record["is_event"] else datalog).append(record)
     return datalog, events
 
@@ -268,13 +299,18 @@ def fsm_state_intervals(
         return []
 
     intervals: list[tuple[float, float, str]] = []
-    first = transitions[0]
-    if first.time_s > start_s:
-        intervals.append((start_s, first.time_s, first.old_state))
-    for index, transition in enumerate(transitions):
-        interval_end = transitions[index + 1].time_s if index + 1 < len(transitions) else end_s
-        if interval_end > transition.time_s:
-            intervals.append((transition.time_s, interval_end, transition.new_state))
+    state = transitions[0].old_state
+    cursor = start_s
+    for transition in transitions:
+        if transition.time_s <= start_s:
+            state = transition.new_state
+            continue
+        if transition.time_s >= end_s:
+            break
+        intervals.append((cursor, transition.time_s, state))
+        cursor, state = transition.time_s, transition.new_state
+    if cursor < end_s:
+        intervals.append((cursor, end_s, state))
     return intervals
 
 
@@ -433,6 +469,8 @@ def overlay_fsm_states(
                 clip_on=True,
             )
     for index, transition in enumerate(transitions, 1):
+        if not start_s <= transition.time_s <= end_s:
+            continue
         axis.axvline(transition.time_s, color="0.25", linestyle=":", linewidth=0.8, alpha=0.8, zorder=1)
         axis.text(
             transition.time_s,
@@ -454,9 +492,12 @@ def finish_axis(
     transitions: list[FsmTransition],
     start_s: float,
     end_s: float,
+    launch_s: float | None = None,
 ) -> None:
     axis.set_title(title)
-    axis.set_xlabel("Time since first timestamp [s]")
+    axis.set_xlabel("Time since launch, T [s]" if launch_s is not None else "Time since first timestamp [s]")
+    if launch_s is not None:
+        axis.xaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value - launch_s:g}"))
     axis.set_ylabel(ylabel)
     axis.grid(True, alpha=0.3)
     if end_s > start_s:
@@ -465,6 +506,23 @@ def finish_axis(
     handles, labels = axis.get_legend_handles_labels()
     if handles:
         axis.legend(fontsize=8, ncols=min(4, len(handles)))
+
+
+def robust_y_limits(axis: Any, start_s: float, end_s: float, preferred_label: str | None = None) -> None:
+    """Use the useful signal for scale; original raw lines remain plotted and clip visibly."""
+    lines = [line for line in axis.get_lines() if not line.get_label().startswith("_")]
+    preferred = [line for line in lines if preferred_label and preferred_label in line.get_label()]
+    selected = preferred or lines
+    values = []
+    for line in selected:
+        x, y = np.asarray(line.get_xdata(), dtype=float), np.asarray(line.get_ydata(), dtype=float)
+        valid = np.isfinite(x) & np.isfinite(y) & (x >= start_s) & (x <= end_s)
+        values.extend(y[valid])
+    if len(values) < 20:
+        return
+    low, high = np.percentile(values, [1, 99])
+    margin = max((high - low) * 0.12, abs(high) * 0.001, 0.01)
+    axis.set_ylim(low - margin, high + margin)
 
 
 def plot_fields(
@@ -522,12 +580,14 @@ def print_report(
     grouped: dict[str, list[dict[str, Any]]],
 ) -> None:
     timestamps = [record["timestamp_ms"] for record in records if record["timestamp_ms"] is not None]
+    configs = [record for record in records if record["is_config"]]
     print("\n========== FLIGHT RECORDER SUMMARY ==========")
     print(f"File:               {path}")
     print(f"Size:               {path.stat().st_size:,} bytes")
     print(f"Valid records:      {len(records):,}")
-    print(f"Data records:       {len(records) - len(events):,}")
+    print(f"Data records:       {len(records) - len(events) - len(configs):,}")
     print(f"Event records:      {len(events):,}")
+    print(f"Config snapshots:   {len(configs):,}")
     print(f"Malformed records:  {len(malformed):,}")
     print(f"Without timestamp:  {sum(record['timestamp_ms'] is None for record in records):,}")
     if timestamps:
@@ -570,6 +630,11 @@ def print_report(
             timestamp = event["timestamp_ms"]
             timestamp_text = f"{timestamp:.0f} ms" if timestamp is not None else "no timestamp"
             print(f"  {timestamp_text:>12}  {event['type']:<7} {event['source']}: {event['payload'].get('message', '')}")
+    for index, config_record in enumerate(configs, 1):
+        stamp = config_record["timestamp_ms"]
+        print(f"\nLocked RuntimeConfig #{index} at {stamp:.0f} ms:" if stamp is not None else
+              f"\nLocked RuntimeConfig #{index} (no timestamp):")
+        print(json.dumps(config_record["config"], indent=2, sort_keys=True))
     print("=============================================\n")
 
 
@@ -578,6 +643,9 @@ def create_plots(
     events: list[dict[str, Any]],
     malformed: list[dict[str, Any]],
     grouped: dict[str, list[dict[str, Any]]],
+    *,
+    full_timeline: bool = False,
+    full_y_range: bool = False,
 ) -> list[tuple[str, Any]]:
     # Events can precede the first sensor sample; keep one origin for every plot lane.
     timestamps = [
@@ -590,9 +658,27 @@ def create_plots(
     origin_ms = min(timestamps)
     end_s = (max(timestamps) - origin_ms) / 1000.0
     transitions = fsm_transitions(events, origin_ms)
+    launch_s = next((item.time_s for item in transitions
+                     if item.old_state == "READY_FOR_LAUNCH" and item.new_state == "LAUNCH"), None)
+    recovery_s = next((item.time_s for item in transitions if item.new_state == "RECOVERED"), end_s)
+    plot_start = max(0.0, launch_s - 3.0) if launch_s is not None and not full_timeline else 0.0
+    plot_end = min(end_s, recovery_s + 2.0) if launch_s is not None and not full_timeline else end_s
+
+    def finish_flight_axis(axis: Any, title: str, ylabel: str) -> None:
+        finish_axis(axis, title, ylabel, transitions, plot_start, plot_end,
+                    launch_s if not full_timeline else None)
+
+    def scale_flight_axis(axis: Any, preferred: str | None = None) -> None:
+        if not full_y_range:
+            robust_y_limits(axis, plot_start, plot_end, preferred)
     plots: list[tuple[str, Any]] = []
 
-    imu_sources = [source for source, values in grouped.items() if source_has_fields(values, "ax", "ay", "az", "qw")]
+    imu_sources = [source for source, values in grouped.items()
+                   if source_has_fields(values, "ax", "ay", "az") and
+                   (source_has_fields(values, "avx", "avy", "avz") or
+                    source_has_fields(values, "qw", "qx", "qy", "qz"))]
+    fusion_sources = [source for source in imu_sources
+                      if source_has_fields(grouped[source], "qw", "qx", "qy", "qz")]
     accel_sources = [source for source, values in grouped.items() if source_has_fields(values, "acceleration_x", "acceleration_y", "acceleration_z")]
     pressure_sources = [source for source, values in grouped.items() if source_has_fields(values, "pressure", "temperature")]
     altitude_estimate_sources = [
@@ -668,31 +754,47 @@ def create_plots(
                 axes[1].plot(time_s, ay / G0, label=f"{source}: y")
                 axes[1].plot(time_s, az / G0, label=f"{source}: z")
                 axes[1].plot(time_s, np.sqrt(ax**2 + ay**2 + az**2) / G0, "--", label=f"{source}: |a|")
-        plot_fields(axes[2], grouped, imu_sources, ("lax", "lay", "laz"), origin_ms)
-        plot_fields(axes[3], grouped, imu_sources, ("gx", "gy", "gz"), origin_ms)
-        finish_axis(axes[0], "IMU measured acceleration", "Acceleration [g]", transitions, 0.0, end_s)
-        finish_axis(axes[1], "Dedicated accelerometer", "Acceleration [g]", transitions, 0.0, end_s)
-        finish_axis(axes[2], "IMU linear acceleration", "Acceleration [m/s²]", transitions, 0.0, end_s)
-        finish_axis(axes[3], "IMU gravity vector", "Acceleration [m/s²]", transitions, 0.0, end_s)
+        plot_fields(axes[2], grouped, fusion_sources, ("lax", "lay", "laz"), origin_ms)
+        plot_fields(axes[3], grouped, fusion_sources, ("gx", "gy", "gz"), origin_ms)
+        for axis, fields in ((axes[2], ("lax", "lay", "laz")),
+                             (axes[3], ("gx", "gy", "gz"))):
+            if not any(source_has_fields(grouped[source], *fields) for source in fusion_sources):
+                axis.text(0.5, 0.5, "Unavailable in this recording", transform=axis.transAxes,
+                          ha="center", va="center")
+        for axis in axes: scale_flight_axis(axis)
+        finish_flight_axis(axes[0], "IMU measured acceleration", "Acceleration [g]")
+        finish_flight_axis(axes[1], "Dedicated accelerometer", "Acceleration [g]")
+        finish_flight_axis(axes[2], "IMU linear acceleration", "Acceleration [m/s²]")
+        finish_flight_axis(axes[3], "IMU gravity vector", "Acceleration [m/s²]")
         plots.append(("motion", fig))
 
     if imu_sources:
         fig, axes = plt.subplots(5, 1, figsize=(14, 15), sharex=True, constrained_layout=True)
-        plot_fields(axes[0], grouped, imu_sources, ("ox", "oy", "oz"), origin_ms)
+        plot_fields(axes[0], grouped, fusion_sources, ("ox", "oy", "oz"), origin_ms)
         plot_fields(axes[1], grouped, imu_sources, ("avx", "avy", "avz"), origin_ms)
         plot_fields(axes[2], grouped, imu_sources, ("mx", "my", "mz"), origin_ms)
-        for source in imu_sources:
+        for source in fusion_sources:
             plot_fields(axes[3], grouped, [source], ("qw", "qx", "qy", "qz"), origin_ms)
             arrays = [numeric_series(grouped[source], key, origin_ms)[1] for key in ("qw", "qx", "qy", "qz")]
             time_s = numeric_series(grouped[source], "qw", origin_ms)[0]
             if arrays and all(len(values) == len(time_s) for values in arrays):
                 axes[3].plot(time_s, np.sqrt(sum(values**2 for values in arrays)), "--", label=f"{source}: |q|")
-        plot_fields(axes[4], grouped, imu_sources, ("csys", "cgyro", "caccel", "cmag"), origin_ms)
-        finish_axis(axes[0], "Euler attitude", "Angle [deg]", transitions, 0.0, end_s)
-        finish_axis(axes[1], "Angular velocity", "Angular velocity [deg/s]", transitions, 0.0, end_s)
-        finish_axis(axes[2], "Magnetometer", "Magnetic field [µT]", transitions, 0.0, end_s)
-        finish_axis(axes[3], "Orientation quaternion and norm", "Quaternion", transitions, 0.0, end_s)
-        finish_axis(axes[4], "IMU calibration status", "Status [0..3]", transitions, 0.0, end_s)
+        plot_fields(axes[4], grouped, fusion_sources, ("csys",), origin_ms)
+        plot_fields(axes[4], grouped, imu_sources, ("cgyro", "caccel", "cmag"), origin_ms)
+        for axis, sources, fields in ((axes[0], fusion_sources, ("ox", "oy", "oz")),
+                             (axes[1], imu_sources, ("avx", "avy", "avz")),
+                             (axes[2], imu_sources, ("mx", "my", "mz")),
+                             (axes[3], fusion_sources, ("qw", "qx", "qy", "qz")),
+                             (axes[4], imu_sources, ("cgyro", "caccel", "cmag"))):
+            if not any(source_has_fields(grouped[source], *fields) for source in sources):
+                axis.text(0.5, 0.5, "Unavailable in this recording", transform=axis.transAxes,
+                          ha="center", va="center")
+        for axis in axes: scale_flight_axis(axis)
+        finish_flight_axis(axes[0], "Euler attitude", "Angle [deg]")
+        finish_flight_axis(axes[1], "Angular velocity", "Angular velocity [deg/s]")
+        finish_flight_axis(axes[2], "Magnetometer", "Magnetic field [µT]")
+        finish_flight_axis(axes[3], "Orientation quaternion and norm", "Quaternion")
+        finish_flight_axis(axes[4], "IMU calibration status", "Status [0..3]")
         axes[4].set_yticks([0, 1, 2, 3])
         plots.append(("imu", fig))
 
@@ -709,10 +811,11 @@ def create_plots(
                 axes[2].plot(time_s, relative_altitude, label=f"{source}: pressure altitude")
         plot_fields(axes[2], grouped, gps_sources, ("altitude",), origin_ms)
         plot_fields(axes[3], grouped, imu_sources, ("te",), origin_ms)
-        finish_axis(axes[0], "Barometer pressure", "Pressure [Pa]", transitions, 0.0, end_s)
-        finish_axis(axes[1], "Barometer temperature", "Temperature [°C]", transitions, 0.0, end_s)
-        finish_axis(axes[2], "Altitude comparison", "Altitude / relative altitude [m]", transitions, 0.0, end_s)
-        finish_axis(axes[3], "IMU temperature", "Temperature [°C]", transitions, 0.0, end_s)
+        for axis in axes: scale_flight_axis(axis)
+        finish_flight_axis(axes[0], "Barometer pressure", "Pressure [Pa]")
+        finish_flight_axis(axes[1], "Barometer temperature", "Temperature [°C]")
+        finish_flight_axis(axes[2], "Altitude comparison", "Altitude / relative altitude [m]")
+        finish_flight_axis(axes[3], "IMU temperature", "Temperature [°C]")
         plots.append(("environment", fig))
 
     if altitude_estimate_sources:
@@ -728,10 +831,12 @@ def create_plots(
                 axes[3].step(ready_time_s, ready, where="post", label=f"{source}: OLS ready", alpha=0.6)
             if rising.size:
                 axes[3].step(rising_time_s, rising, where="post", label=f"{source}: rising", alpha=0.6)
-        finish_axis(axes[0], "Raw and filtered pressure", "Pressure [Pa]", transitions, 0.0, end_s)
-        finish_axis(axes[1], "Altitude estimator output", "Altitude [m]", transitions, 0.0, end_s)
-        finish_axis(axes[2], "OLS apogee-detector slope", "Slope [m/s]", transitions, 0.0, end_s)
-        finish_axis(axes[3], "OLS apogee-detector state", "Boolean [0/1]", transitions, 0.0, end_s)
+        scale_flight_axis(axes[0], "filtered_pressure_pa")
+        for axis in axes[1:]: scale_flight_axis(axis)
+        finish_flight_axis(axes[0], "Raw and filtered pressure", "Pressure [Pa]")
+        finish_flight_axis(axes[1], "Altitude estimator output", "Altitude [m]")
+        finish_flight_axis(axes[2], "OLS apogee-detector slope", "Slope [m/s]")
+        finish_flight_axis(axes[3], "OLS apogee-detector state", "Boolean [0/1]")
         axes[3].set_yticks([0, 1])
         plots.append(("altitude_estimator", fig))
 
@@ -756,11 +861,14 @@ def create_plots(
         axes[0, 0].grid(True, alpha=0.3)
         axes[0, 0].legend()
         axes[0, 1].plot(time_s, altitude, label="altitude")
-        finish_axis(axes[0, 1], "GPS altitude", "Altitude [m]", transitions, 0.0, end_s)
+        scale_flight_axis(axes[0, 1])
+        finish_flight_axis(axes[0, 1], "GPS altitude", "Altitude [m]")
         plot_fields(axes[1, 0], grouped, [gps_source], ("ground_speed", "hdop"), origin_ms, include_source=False)
-        finish_axis(axes[1, 0], "GPS speed and HDOP", "Reported value", transitions, 0.0, end_s)
+        scale_flight_axis(axes[1, 0])
+        finish_flight_axis(axes[1, 0], "GPS speed and HDOP", "Reported value")
         plot_fields(axes[1, 1], grouped, [gps_source], ("satellites", "fixType"), origin_ms, include_source=False)
-        finish_axis(axes[1, 1], "GPS fix quality", "Count / fix type", transitions, 0.0, end_s)
+        scale_flight_axis(axes[1, 1])
+        finish_flight_axis(axes[1, 1], "GPS fix quality", "Count / fix type")
         plots.append((f"gps_{gps_source}", fig))
 
         fig = plt.figure(figsize=(11, 8), constrained_layout=True)
@@ -1120,6 +1228,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--save-dir", type=Path, help="Save every figure as a PNG in this directory.")
     parser.add_argument("--no-show", action="store_true", help="Do not open interactive plot windows.")
+    parser.add_argument("--full-timeline", action="store_true", help="Show preflight and flight on every time-series plot.")
+    parser.add_argument("--full-y-range", action="store_true", help="Include all raw outliers in automatic Y-axis limits.")
+    parser.add_argument("--extract-config", type=Path, help="Write the last recorded CONFIG snapshot as JSON.")
     parser.add_argument("--dpi", type=int, default=150, help="PNG resolution when --save-dir is used.")
     parser.add_argument(
         "--replay",
@@ -1143,10 +1254,22 @@ def main() -> int:
         return 2
 
     records, malformed = load_records(args.log)
+    configs = [record for record in records if record["is_config"]]
+    if args.extract_config:
+        if not configs:
+            print("No CONFIG snapshot in this log.")
+        else:
+            snapshot = configs[-1]
+            args.extract_config.write_text(
+                json.dumps({"timestamp_ms": snapshot["timestamp_ms"], "config": snapshot["config"]}, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            print(f"Extracted CONFIG to {args.extract_config}")
     datalog, events = split_records(records)
     grouped = group_records(datalog)
     print_report(args.log, records, events, malformed, grouped)
-    plots = create_plots(datalog, events, malformed, grouped)
+    plots = create_plots(datalog, events, malformed, grouped,
+                         full_timeline=args.full_timeline, full_y_range=args.full_y_range)
     if args.replay:
         replay = build_flight_replay(datalog, events, grouped)
         if replay is not None:

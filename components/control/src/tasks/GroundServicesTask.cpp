@@ -71,6 +71,12 @@ static const char *TAG = "GroundServices";
 // Live Data is best-effort operator monitoring; 10 Hz is responsive without
 // creating unnecessary HTTPD and Wi-Fi load on the flight controller.
 static constexpr uint32_t GROUND_SERVICES_LOOP_PERIOD_MS = 100;
+// Arming stops this task and the wifi AP. We use these timeouts to allow the last
+// dashboard poll to complete (it polls very 300ms).
+// Timeout for graceful httpd shutdown
+static constexpr uint32_t SHUTDOWN_POLL_GRACE_MS = 500;
+// Timeout for wifi non-graceful shutdown
+static constexpr uint32_t SHUTDOWN_FLUSH_MS = 150;
 
 #ifndef CONFIG_GROUND_SERVICES_AUTH_TOKEN
 #error "CONFIG_GROUND_SERVICES_AUTH_TOKEN must be configured. It is used as the HMAC shared secret for Ground Services."
@@ -85,7 +91,7 @@ static constexpr size_t STREAM_CHUNK_SIZE = 4096;
 static constexpr size_t LOG_RESPONSE_BUFFER_SIZE = 4096;
 static constexpr size_t MAX_HTTP_CLIENTS = 4;
 static constexpr size_t MAX_WS_CLIENTS = 2;
-static constexpr size_t REGISTERED_URI_HANDLERS = 32;
+static constexpr size_t REGISTERED_URI_HANDLERS = 33;
 static constexpr size_t HTTPD_STACK_SIZE = 5120;
 static constexpr size_t MAX_SYSTEM_TASK_SNAPSHOT_ENTRIES = 32;
 static constexpr size_t LOG_WS_PREFIX_SPACE = 16;
@@ -628,7 +634,10 @@ void GroundServicesTask::onTaskStop()
 {
     // BaseTask calls onTaskStop() only after taskFunction() has returned, so
     // queueWebSocketBroadcast() can no longer race httpd_stop() or mutex teardown.
+    // The HTTP server is a separate task and keeps answering during this wait.
+    vTaskDelay(pdMS_TO_TICKS(SHUTDOWN_POLL_GRACE_MS));
     stopServer();
+    vTaskDelay(pdMS_TO_TICKS(SHUTDOWN_FLUSH_MS));
     if (_softApAcquired) {
         if (_board != nullptr && !_board->stopWifi()) {
             LOG_ERROR(TAG, "Failed to release Ground Services SoftAP");
@@ -768,6 +777,7 @@ void GroundServicesTask::registerHandlers()
     add("/api/logs", HTTP_GET, logsGetHandler);
     add("/api/config/runtime", HTTP_GET, runtimeConfigGetHandler);
     add("/api/config/runtime", HTTP_PUT, runtimeConfigPutHandler);
+    add("/api/config/import", HTTP_POST, runtimeConfigImportHandler);
     add("/api/config/schema", HTTP_GET, runtimeConfigSchemaGetHandler);
     add("/api/config/validation", HTTP_GET, runtimeConfigValidationGetHandler);
     add("/api/config/reset-defaults", HTTP_POST, runtimeConfigResetHandler);
@@ -999,7 +1009,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
 
     char *body = s_responseBuffer;
     snprintf(body, RESPONSE_BUFFER_SIZE,
-        "{\"ok\":true,\"fsm_state\":\"%s\",\"uptime_ms\":%lld,"
+        "{\"ok\":true,\"fsm_state\":\"%s\",\"ready_attempt\":\"%s\",\"uptime_ms\":%lld,"
         "\"app\":{\"project_name\":\"%s\",\"version\":\"%s\",\"date\":\"%s\",\"time\":\"%s\",\"idf_version\":\"%s\"},"
         "\"chip\":{\"model\":\"%s\",\"model_code\":%d,\"cores\":%d,\"revision\":%d,\"features\":%s},"
         "\"flash\":{\"size_bytes\":%lu,\"id\":\"0x%06lx\"},"
@@ -1012,6 +1022,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
         "\"hil\":{\"enabled\":%s,\"mode\":\"%s\"},"
         "\"runtime_config\":{\"schema_version\":%lu,\"config_revision\":%lu,\"config_locked\":%s}}",
         self->_fsm ? rocketStateToString(self->_fsm->getCurrentState()) : "unknown",
+        self->_fsm ? self->_fsm->getReadyAttemptStatus() : "unknown",
         static_cast<long long>(esp_timer_get_time() / 1000),
         app ? app->project_name : "unknown",
         app ? app->version : "unknown",
@@ -1250,7 +1261,7 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
     int written = snprintf(body, body_size,
         "{\"ok\":true,\"fsm_state\":\"%s\",\"calibration\":{\"imu\":%s,\"barometer\":%s,\"barometer_samples\":%d},"
         "\"flight\":{\"height_m\":%.3f,\"vertical_speed_mps\":%.3f,\"is_rising\":%s},"
-        "\"sensors\":{\"imu\":{\"status\":\"%s\","
+        "\"sensors\":{\"imu\":{\"status\":\"%s\",\"fusion_available\":%s,"
         "\"calibration\":{\"system\":%u,\"gyro\":%u,\"accelerometer\":%u,\"magnetometer\":%u},"
         "\"orientation_deg\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
         "\"quaternion\":{\"w\":%.7f,\"x\":%.7f,\"y\":%.7f,\"z\":%.7f},"
@@ -1272,6 +1283,11 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
         static_cast<double>(_rocketModel ? _rocketModel->getHeightGainSpeed() : 0.0f),
         _rocketModel && _rocketModel->getIsRising() ? "true" : "false",
         sensorStatusToString(imuStatus),
+#if AURORA_HIL_ENABLED
+        imuStatus == SensorReadStatus::OK ? "true" : "false",
+#else
+        "false", // Physical BNO055 runs in AMG mode, which has no fusion outputs.
+#endif
         imu.calibration_sys, imu.calibration_gyro, imu.calibration_accel, imu.calibration_mag,
         static_cast<double>(imu.orientation_x), static_cast<double>(imu.orientation_y), static_cast<double>(imu.orientation_z),
         imu.quaternion_w, imu.quaternion_x, imu.quaternion_y, imu.quaternion_z,
@@ -1486,6 +1502,26 @@ esp_err_t GroundServicesTask::runtimeConfigPutHandler(httpd_req_t *req)
     return sendJson(req, "200 OK", s_responseBuffer);
 }
 
+esp_err_t GroundServicesTask::runtimeConfigImportHandler(httpd_req_t *req)
+{
+    if (!authOrSend(req)) { discardBody(req); return ESP_OK; }
+    if (rejectMutationDuringOta(req, fromReq(req))) return ESP_OK;
+    if (runtime_config_is_locked()) {
+        discardBody(req);
+        return sendErrorJson(req, "423 Locked", "configuration is locked for flight");
+    }
+    esp_err_t err = readBody(req, s_responseBuffer, RESPONSE_BUFFER_SIZE);
+    if (err != ESP_OK) return sendErrorJson(req, "400 Bad Request", "invalid config body", err);
+    if (strlen(s_responseBuffer) != req->content_len) return sendErrorJson(req, "400 Bad Request", "invalid config body");
+    RuntimeConfig updated;
+    err = runtime_config_import_from_json(s_responseBuffer, &updated);
+    if (err != ESP_OK) return sendErrorJson(req, "400 Bad Request", "config import validation or save failed", err);
+    if (runtime_config_to_json(&updated, s_responseBuffer, RESPONSE_BUFFER_SIZE) != ESP_OK) {
+        return sendErrorJson(req, "500 Internal Server Error", "runtime_config_to_json failed");
+    }
+    return sendJson(req, "200 OK", s_responseBuffer);
+}
+
 esp_err_t GroundServicesTask::runtimeConfigValidationGetHandler(httpd_req_t *req)
 {
     if (!authOrSend(req)) return ESP_OK;
@@ -1593,6 +1629,12 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     const bool config_unlocked = config_loaded && !cfg.config_locked;
     const bool barometer_ready = self->_rocketModel && self->_rocketModel->isBarometerZeroed();
     const bool imu_ready = self->_rocketModel && self->_rocketModel->isSensorSystemCalibrated();
+    // A non-fusion BNO055 has no calibration to report, so the item passes by
+    // definition. Say so, rather than claiming a calibration that never ran.
+    const bool imu_fusion = self->_rocketModel && self->_rocketModel->isIMUFusionMode();
+    const char *imu_message = !imu_ready ? "IMU calibration is not ready"
+                            : imu_fusion ? "IMU calibration is ready"
+                                         : "Non-fusion mode: no IMU calibration to run, check acceleration magnitude on Live Data";
     const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
 
     bool all_ok = true;
@@ -1604,7 +1646,7 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, config_valid, "runtime_config_valid", "Runtime config valid", "error", config_valid ? "Runtime config validation passed" : reason)) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, config_unlocked, "config_unlocked", "Config not already locked", "error", config_unlocked ? "Configuration can be locked for flight" : "Configuration is already locked")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, barometer_ready, "barometer_baseline", "Barometer baseline available", "error", barometer_ready ? "Barometer baseline is available" : "Barometer baseline is not ready")) return ESP_ERR_NO_MEM;
-    if (!appendChecklistItem(body, body_size, &offset, &all_ok, imu_ready, "imu_calibrated", "IMU calibrated", "error", imu_ready ? "IMU calibration is ready" : "IMU calibration is not ready")) return ESP_ERR_NO_MEM;
+    if (!appendChecklistItem(body, body_size, &offset, &all_ok, imu_ready, "imu_calibrated", "IMU calibrated", "error", imu_message)) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, lora.available, "lora_available", "LoRa telemetry module", "warning",
                              lora.available ? "LoRa module initialized" : "LoRa unavailable; explicit operator override is required")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, true, "recovery_mode", "Recovery mode", "info",
@@ -1966,16 +2008,19 @@ esp_err_t GroundServicesTask::filesListGetHandler(httpd_req_t *req)
     }
 
     auto *files = reinterpret_cast<StorageFileInfo *>(s_responseBuffer);
-    constexpr size_t MAX_LISTED_FILES = 32;
+    constexpr size_t MAX_LISTED_FILES = 128;
+    static_assert(sizeof(StorageFileInfo) * MAX_LISTED_FILES <= RESPONSE_BUFFER_SIZE);
     for (size_t i = 0; i < MAX_LISTED_FILES; ++i) new (&files[i]) StorageFileInfo{};
-    size_t count = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
+    const ssize_t listedCount = self->_rocketModel->storageListFiles(files, MAX_LISTED_FILES);
+    if (listedCount < 0) {
+        return sendErrorJson(req, "503 Service Unavailable", "unable to list files");
+    }
+    size_t count = static_cast<size_t>(listedCount);
     RuntimeConfig config;
     char latestFile[40] = {};
     if (runtime_config_get(&config) == ESP_OK) {
-        const char *latest = self->_rocketModel->storageFileExists(config.storage_logging.flight_filename)
-            ? config.storage_logging.flight_filename
-            : config.storage_logging.last_flight_filename;
-        snprintf(latestFile, sizeof(latestFile), "%s", latest);
+        // LATEST is the most recently prepared flight, even if later aborted.
+        snprintf(latestFile, sizeof(latestFile), "%s", config.storage_logging.last_flight_filename);
     }
     bool latestListed = latestFile[0] == '\0';
     for (size_t i = 0; i < count && !latestListed; ++i) {
@@ -2072,9 +2117,44 @@ esp_err_t GroundServicesTask::fileDeleteHandler(httpd_req_t *req)
     if (!getSafeFileName(req, name, sizeof(name))) {
         return sendErrorJson(req, "400 Bad Request", "invalid file name");
     }
-    if (!self || !self->_rocketModel || !self->_rocketModel->storageDeleteFile(name)) {
+    const size_t nameLength = strlen(name);
+    constexpr char PREFIX[] = "flight_telemetry_";
+    constexpr char SUFFIX[] = ".jsonl";
+    if (nameLength <= sizeof(PREFIX) + sizeof(SUFFIX) - 2 ||
+        strncmp(name, PREFIX, sizeof(PREFIX) - 1) != 0 ||
+        strcmp(name + nameLength - (sizeof(SUFFIX) - 1), SUFFIX) != 0) {
+        return sendErrorJson(req, "400 Bad Request", "only flight telemetry files may be deleted");
+    }
+    for (size_t i = sizeof(PREFIX) - 1; i < nameLength - (sizeof(SUFFIX) - 1); ++i) {
+        if (!std::isdigit(static_cast<unsigned char>(name[i]))) {
+            return sendErrorJson(req, "400 Bad Request", "invalid flight telemetry filename");
+        }
+    }
+    if (!self || !self->_fsm || self->_fsm->getCurrentState() != RocketState::GROUND_SERVICES) {
+        return sendErrorJson(req, "409 Conflict", "file deletion is available only in Ground Services");
+    }
+    // This excludes the narrow race between an HTTP delete and FSM arming.
+    if (!StorageLoggingTask::tryBeginFileOperation()) {
+        return sendErrorJson(req, "409 Conflict", "flight file operation in progress");
+    }
+    if (self->_fsm->getCurrentState() != RocketState::GROUND_SERVICES ||
+        StorageLoggingTask::isRecordingActive()) {
+        StorageLoggingTask::endFileOperation();
+        return sendErrorJson(req, "409 Conflict", "flight file is no longer available for deletion");
+    }
+    const bool deleted = self->_rocketModel && self->_rocketModel->storageDeleteFile(name);
+    if (!deleted) {
+        StorageLoggingTask::endFileOperation();
         return sendErrorJson(req, "404 Not Found", "file not found");
     }
+    RuntimeConfig config;
+    if (runtime_config_get(&config) == ESP_OK &&
+        strcmp(name, config.storage_logging.last_flight_filename) == 0 &&
+        runtime_config_record_flight_files(config.storage_logging.flight_filename, "") != ESP_OK) {
+        StorageLoggingTask::endFileOperation();
+        return sendErrorJson(req, "500 Internal Server Error", "file deleted but latest marker could not be cleared");
+    }
+    StorageLoggingTask::endFileOperation();
     return sendJson(req, "200 OK", "{\"ok\":true}");
 }
 

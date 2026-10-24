@@ -307,7 +307,7 @@ void initializeComponents(std::shared_ptr<BNO055Sensor>& bno055,
     LOG_INFO("Init", "Initializing sensors...");
 
     // Initialize BNO055 (IMU)
-    bno055 = std::make_shared<BNO055Sensor>("BNO055", board.get_i2c_bus(IBoardHardware::Sensor::IMU), board.get_bno055_i2c_address());
+    bno055 = std::make_shared<BNO055Sensor>("BNO055_AMG", board.get_i2c_bus(IBoardHardware::Sensor::IMU), board.get_bno055_i2c_address());
     if (bno055 && bno055->init())
     {
         LOG_INFO("Init", "BNO055 (IMU) initialized");

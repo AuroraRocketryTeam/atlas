@@ -10,6 +10,7 @@ The current HIL system provides:
 - JSON/JSONC rocket configuration with formula support;
 - explicit sensor profiles selected from the CLI;
 - pre-flight stationary calibration before RocketPy `Flight(...)` starts;
+- postflight stationary samples until the FC reports `RECOVERED`;
 - a lockstep TCP protocol between simulator and flight controller;
 - JSON capture files with replay, plots, and run summaries;
 - a local mock Manny/FC TCP server for development without hardware;
@@ -19,7 +20,7 @@ Main files:
 
 | File | Current role |
 |---|---|
-| `hil_rocketpy.py` | Builds RocketPy objects, starts TCP communication, sends calibration samples, runs `Flight(...)`, records capture data, and plots the run. |
+| `hil_rocketpy.py` | Builds RocketPy objects, streams calibration, flight, and landed samples, waits for FC recovery, then saves and plots the run. |
 | `hil_config.py` | Loads JSON/JSONC config, resolves formulas, filters metadata keys, normalizes paths/tuples/pair-lists, applies ordered `_calls`, and resolves sensor profiles. |
 | `hil_communication.py` | Implements TCP framing, packet encode/decode, lockstep mailbox, reset handling, and FC command handling. |
 | `hil_capture.py` | Saves/loads captures, prints summaries, plots telemetry, and replays 3D attitude/reference-frame data. |
@@ -105,6 +106,7 @@ The launcher requires an explicit rocket and sensor profile:
 python hil_rocketpy.py --rocket fred --sensor-profile clean
 python hil_rocketpy.py --rocket fred --sensor-profile noisy
 python hil_rocketpy.py --rocket fred --sensor-profile very_noisy
+python hil_rocketpy.py --rocket fred --sensor-profile RealisticNoise
 ```
 
 Useful options:
@@ -114,6 +116,22 @@ python hil_rocketpy.py --rocket fred --sensor-profile clean --sampling-rate 50
 python hil_rocketpy.py --rocket fred --sensor-profile clean --no-startup-reset
 python hil_rocketpy.py --rocket fred --sensor-profile clean --startup-reset-timeout 30
 ```
+
+The firmware's `HilSimulationTask` accepts fresh readings for both barometers at
+18 Hz in simulated time (`HIL_BAROMETER_RATE_HZ`), for every sensor profile and
+during both calibration and flight. Between updates it retains the previous
+pressure, temperature and timestamp, so altitude processing and HIL calibration
+do not consume a held reading twice. Each accepted barometer reading is queued
+for recording once.
+
+Keep `--sampling-rate 50` with `RealisticNoise`: its coefficients are calibrated
+for noise generation at 50 Hz. The receiver selects individual noisy samples
+without averaging them. On the 20 ms packet grid, accepted barometer readings
+have 40/60 ms spacing, averaging 18 Hz; missed time slots are not replayed.
+This approximates the observed rate, without modelling individual SPI stalls.
+IMU, accelerometer and GPS still update on every packet and are queued for
+recording every second packet (25 Hz by default). Python captures retain the
+full input stream; firmware barometer records contain the accepted samples.
 
 The FC endpoint is configured with environment variables:
 
@@ -409,13 +427,16 @@ queue one simulator sample -> send -> wait for one FC command -> update state ->
 
 This prevents the simulator from running ahead of the FC.
 
-During preflight, `hil_rocketpy.py` also waits on `wait_for_fsm_response()` after
-queueing each sample. That wait is necessary because the producer must know the
-FSM state from the command packet that corresponds to the sample it just sent:
+During preflight and postflight, `hil_rocketpy.py` also waits on
+`wait_for_fsm_response()` after queueing each sample. The producer needs the FSM
+state from the command packet that corresponds to the sample it just sent:
 `INACTIVE`/`CALIBRATING` samples are logged, `GROUND_SERVICES` samples are
-eclipsed, and `READY_FOR_LAUNCH` stops preflight. Without that barrier, the main
-thread could read a stale FSM state while the communication thread is still
-waiting for the FC response.
+eclipsed, `READY_FOR_LAUNCH` stops preflight, and `RECOVERED` stops postflight.
+After RocketPy lands, stationary samples use the final landing position and
+attitude and the same RocketPy sensor noise models as calibration and flight.
+The FC still receives 50 Hz packets and samples the barometer at 18 Hz.
+If `RECOVERED` is not reported within 65 seconds of stationary samples, the
+launcher raises a timeout instead of marking the flight recovered.
 
 ### Simulator input packet
 
@@ -542,6 +563,14 @@ Current plots include:
 - FSM timeline;
 - airbrakes deployment.
 - time eclipse markers on time-series plots.
+
+For FRED at Villafranca, the GPS ground track uses
+`Villafranca_airfield_launch_site.jpg` as a background. The plot uses local
+east/north metres relative to 44.290583° N, 12.027111° E. Its image extent
+`(-1043, 657, -407, 593)` was fitted manually to OpenStreetMap roads and
+buildings and is approximate, not a surveyed georeference. Live and saved FRED
+plots use this image when the capture's launch coordinates match; keep the JPEG
+beside `hil_capture.py` when replaying captures elsewhere.
 
 The 3D replay uses RocketPy state and saved accelerometer payloads to reconstruct:
 

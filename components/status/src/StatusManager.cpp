@@ -69,7 +69,8 @@ void StatusManager::initFlightPhases()
         {RocketState::INACTIVE, {{ART_LED_WHITE, ART_LED_OFF, 0, 0, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
         {RocketState::CALIBRATING, {{ART_LED_YELLOW, ART_LED_OFF, 500, 500, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
         {RocketState::GROUND_SERVICES, {{ART_LED_CYAN, ART_LED_OFF, 0, 0, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
-        {RocketState::READY_FOR_LAUNCH, {{ART_LED_RED, ART_LED_OFF, 250, 250, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
+        // Armed must be audible.
+        {RocketState::READY_FOR_LAUNCH, {{ART_LED_RED, ART_LED_OFF, 250, 250, 0, 0}, BUZZER_OFF, TONE_OFF, false, true}},
         {RocketState::LAUNCH, {{ART_LED_RED, ART_LED_OFF, 0, 0, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
         {RocketState::ACCELERATED_FLIGHT, {{ART_LED_MAGENTA, ART_LED_OFF, 0, 0, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
         {RocketState::BALLISTIC_FLIGHT, {{ART_LED_BLUE, ART_LED_OFF, 0, 0, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
@@ -130,7 +131,8 @@ void StatusManager::setSystemCode(SystemCode code)
 void StatusManager::applyPattern(const StatusPattern &pattern)
 {
     ledController.startPattern(pattern.ledPattern);
-    buzzerController.startPattern(pattern.buzzerPattern, pattern.buzzerTone);
+    if (pattern.buzzerJingleLoop) buzzerController.startJingleLoop();
+    else buzzerController.startPattern(pattern.buzzerPattern, pattern.buzzerTone);
 }
 
 void StatusManager::setFlightPhase(RocketState phase)

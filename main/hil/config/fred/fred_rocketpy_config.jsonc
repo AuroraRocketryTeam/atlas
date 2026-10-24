@@ -6,20 +6,23 @@
     "max_expected_height": 200,
     "_calls": [
       //
-      // [ ISA ]: default, no set_atmospheric_model
+      // [ LAUNCH DATE ]: set before loading a date-dependent atmosphere.
       {
         "method": "set_date",
         "kwargs": {
-          "date": [2025, 5, 9, 12]
+          // Exact launch time in Italy local time.
+          "date": [2026, 10, 25, 14, 30],
+          "timezone": "Europe/Rome"
         }
       }
+      // [ ISA ]: default, no set_atmospheric_model
       //
       // [ ENSEMBLE ]
       // ,{
       //   "method": "set_atmospheric_model",
       //   "kwargs": {
       //     "type": "Ensemble",
-      //     "file": "Villafranca_ensemble_5to11may2020to2026.nc",
+      //     "file": "???.nc",
       //     "dictionary": {
       //       "ensemble": "number",
       //       "time": "valid_time",
@@ -37,14 +40,14 @@
       // }
       //
       //
-      // [ WINDY / GFS FORECAST ]
-      // ,{
-      //   "method": "set_atmospheric_model",
-      //   "kwargs": {
-      //     "type": "Windy",
-      //     "file": "GFS"
-      //   }
-      // },
+      // [ GFS FORECAST ]
+      ,{
+        "method": "set_atmospheric_model",
+        "kwargs": {
+          "type": "Forecast",
+          "file": "GFS"
+        }
+      }
       //
       //
       // [ CUSTOM ATMOSPHERE ]
@@ -79,47 +82,79 @@
     ]
   },
   "SolidMotor": {
-    "thrust_source": "SRAD_thrustcurve_BRICO_45_7mm.csv",
-    "dry_mass": 0.7871568876139587,
-    "dry_inertia": [0.66, 0.66, 1e-05],
-    "nozzle_radius": 0.01371,
-    "throat_radius": 0.0095,
+    // 23 Oct 2026, 8 mm static fire: trimmed to 2.1239-3.6398 s and shifted to t=0.
+    // Duplicate timestamp averaged; negative endpoint readings set to zero.
+    "thrust_source": "thrust_curve8mm_20261023.csv",
+    "dry_mass": 0.61785, // Measured motor hardware; wet mass 0.824 kg.
+    "dry_inertia": [0.00455276, 0.00455276, 0.000222935],
+    "nozzle_radius": 0.0089443, // Nozzle exit diameter 17.89 mm (expansion ratio 5); throat diameter 8 mm.
+    "throat_radius": 0.004,
     "grain_number": 1,
-    "_grain_mass": 0.19694061309132402,
     "grain_outer_radius": 0.0165,
     "grain_initial_inner_radius": 0.0065,
     "grain_initial_height": 0.147,
+    // Fit RocketPy's effective density to the measured grain mass using these grain dimensions.
+    // Material estimate for KNSB + 1% Fe2O3 was 1853.75 kg/m^3.
+    "_grain_mass": 0.20615,
     "grain_density": "= $SolidMotor._grain_mass / (pi * ($SolidMotor.grain_outer_radius^2 - $SolidMotor.grain_initial_inner_radius^2) * $SolidMotor.grain_initial_height)",
-    "grain_separation": 0.003,
-    "grains_center_of_mass_position": 0.125,
-    "center_of_dry_mass_position": 0.09941,
+    "grain_separation": 0.002,
+    "grains_center_of_mass_position": 0.123459, // Grain center in a 0.2320 m long motor; positions run from nozzle to chamber.
+    "center_of_dry_mass_position": 0.0873014,
     "nozzle_position": 0,
-    "burn_time": 0.64,
+    "burn_time": 1.5159, // Matches the cleaned curve; reported as 1.520 s.
     "coordinate_system_orientation": "nozzle_to_combustion_chamber"
   },
+  // To use the 23 Oct 7 mm firing, comment out the 8 mm SolidMotor above and uncomment this block.
+  // The 7 mm sheet lists 0.63515 kg dry and 0.20185 kg grain, but 0.846 kg wet: a 0.009 kg discrepancy.
+  // It gives no motor geometry or inertia; those values below carry over from 8 mm, except the 7 mm throat.
+  // The cleaned CSV spans 1.3800 s; the results image reports 1.389 s.
+  // "SolidMotor": {
+  //   "thrust_source": "thrust_curve7mm_20261023.csv",
+  //   "dry_mass": 0.63515,
+  //   "dry_inertia": [0.00455276, 0.00455276, 0.000222935],
+  //   "nozzle_radius": 0.0089443,
+  //   "throat_radius": 0.0035,
+  //   "grain_number": 1,
+  //   "grain_outer_radius": 0.0165,
+  //   "grain_initial_inner_radius": 0.0065,
+  //   "grain_initial_height": 0.147,
+  //   "_grain_mass": 0.20185,
+  //   "grain_density": "= $SolidMotor._grain_mass / (pi * ($SolidMotor.grain_outer_radius^2 - $SolidMotor.grain_initial_inner_radius^2) * $SolidMotor.grain_initial_height)",
+  //   "grain_separation": 0.002,
+  //   "grains_center_of_mass_position": 0.123459,
+  //   "center_of_dry_mass_position": 0.0873014,
+  //   "nozzle_position": 0,
+  //   "burn_time": 1.38,
+  //   "coordinate_system_orientation": "nozzle_to_combustion_chamber"
+  // },
   "RocketV2": {
+    // FRED2.0 v1.0 geometry from OpenRocket FRED2.0-V1.0.ork via ork_positions.py.
+    // Rocket positions run from nose tip toward tail; motor nozzle exit is at tail.
     "radius": 0.0425,
-    "_dry_mass": 2.595,
+    "_dry_mass": 2.45,
     "_ballast": 0.0,
     "mass": "= $RocketV2._dry_mass + $RocketV2._ballast",
-    "inertia": [1.49, 1.49, 0.01],
-    "power_off_drag": "FRED_v2.0_CD_power_off.csv",
-    "power_on_drag": "FRED_v2.0_CD_power_on.csv",
-    "center_of_mass_without_motor": 0.373,
+    "inertia": [0.159, 0.159, 0.003],
+    "power_off_drag": "cd_mach.csv",
+    "power_on_drag": "cd_mach.csv",
+    "center_of_mass_without_motor": 0.439,
     "coordinate_system_orientation": "nose_to_tail"
   },
   "set_rail_buttons": {
-    "upper_button_position": 0.424,
-    "lower_button_position": 0.625,
+    // Positions are button centers; the two centers are 0.23 m apart.
+    "upper_button_position": 0.4315,
+    "lower_button_position": 0.6615,
     "angular_position": 0
   },
   "add_tail": {
+    // Conical tail in both the OpenRocket source and RocketPy.
     "top_radius": 0.0425,
     "bottom_radius": 0.03,
     "length": 0.043,
-    "position": 0.81
+    "position": 0.8615
   },
   "add_motor": {
+    // Tail end equals the CSV motor_position (0.9045 m): nozzle exit at rocket tail.
     "position": "= $add_tail.position + $add_tail.length"
   },
   "add_nose": {
@@ -132,27 +167,27 @@
     "root_chord": 0.12,
     "tip_chord": 0.03,
     "span": 0.12,
-    "position": 0.686,
-    "cant_angle": 0,
-    "sweep_angle": 30.3
+    // Start of the root chord, measured from the nose tip.
+    "position": 0.7365,
+    "sweep_angle": 45
   },
   "add_parachute": [
     {
+      // Mission Analysis: one Rocketman 4 ft main, Cd 0.97, area 1.168 m^2,
+      // no spill hole, intended to open at apogee. HIL follows the FC command.
       "name": "Main",
       "_trigger": "main",
       "_cd": 0.97,
       "_area": 1.168,
       "cd_s": "= $_cd * $_area",
-      "_lag_se": 0.1,
-      "_lag_rec": 2.0,
-      "lag": "= $_lag_se + $_lag_rec",
-      "noise": [0, 6.5, 0.3]
+      "lag": 1.5
+      // "noise": [0, 6.5, 0.3]
     }
   ],
   "Flight": {
-    "rail_length": 2,
-    "inclination": 75,
-    "heading": 305,
+    "rail_length": 1.5,
+    "inclination": 70,
+    "heading": 160,
     "time_overshoot": false
   },
   "Sensors": {
@@ -273,6 +308,49 @@
           "position_accuracy": 4.0,
           "altitude_accuracy": 4.0
         }
+      },
+
+      "RealisticNoise": {
+        "_inherits": "clean",
+
+        // Empirical noise model calibrated from water-rocket flights.
+        // Reproduces pre-launch measurement variability at 50 Hz.
+        //
+        // The accelerometer model includes some physical disturbances.
+        // Constant bias, random walk and temperature drift are excluded
+        // because they could not be reliably identified.
+        //
+        // If we switch RocketPy to 25 Hz, the corresponding coefficients
+        // for approximately the same per-measurement RMS would be:
+        // Accelerometer noise_density	[0.034, 0.030, 0.040]
+        // Barometer noise_density	0.266
+
+        "Accelerometer": {
+          "name": "Realistic BNO055 Accelerometer",
+
+          // Manny's current ±16 g configuration.
+          "measurement_range": 160.0,
+
+          // Observed logging resolution.
+          "resolution": 0.01,
+
+          // RMS at 50 Hz: approximately [0.170, 0.148, 0.198] m/s².
+          "noise_density": [0.024, 0.021, 0.028],
+          "noise_variance": 1.0
+        },
+
+        "Barometer": {
+          "name": "Realistic MS5611 Barometer",
+
+          "measurement_range": 200000,
+          "resolution": 1.0,
+
+          // RMS at 50 Hz: approximately 1.33 Pa.
+          "noise_density": 0.188,
+          "noise_variance": 1.0
+        }
+
+        // GNSS inherits from clean; no GNSS noise calibration available.
       }
     }
   }

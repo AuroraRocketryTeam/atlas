@@ -14,12 +14,10 @@ struct AltitudeData {
     uint32_t timestamp = 0;
 
     size_t serializeJson(char* buffer, size_t maxLength) const {
-        return snprintf(buffer, maxLength,
-            "{\"source\":\"ALTITUDE\",\"sensorData\":{"
-            "\"filtered_pressure_pa\":%f,\"altitude_m\":%f,\"ols_slope_mps\":%f,"
-            "\"ols_ready\":%s,\"rising\":%s,\"timestamp\":%lu}}\n",
-            filtered_pressure_pa, altitude_m, ols_slope_mps,
-            ols_ready ? "true" : "false", rising ? "true" : "false",
-            static_cast<unsigned long>(timestamp));
+        return std::snprintf(buffer, maxLength,
+            "{\"src\":\"ALTITUDE\",\"t\":%lu,\"pf_pa\":%.8g,\"alt_m\":%.6g,\"vz_mps\":%.6g,"
+            "\"ready\":%s,\"rising\":%s}\n",
+            static_cast<unsigned long>(timestamp), filtered_pressure_pa, altitude_m, ols_slope_mps,
+            ols_ready ? "true" : "false", rising ? "true" : "false");
     }
 };

@@ -210,6 +210,12 @@ and is compiled into the firmware.
 | Serial Monitor | Live device logs (`/ws/logs`) with pause, filter and copy |
 | Files | List, stream-download and delete flight recorder files |
 
+On the Config page, **Export** downloads the configuration values currently
+saved in NVS as JSON. **Import** accepts the same schema version, validates all
+fields, and immediately saves and activates the values. The device keeps its
+flight lock and recorder filenames, increments the revision, and recomputes the
+checksum. Imports are blocked while the configuration is locked for flight.
+
 **Security.** Wi-Fi access and operator authentication are separate:
 
 - Monitoring endpoints are read-only and open to anyone on the SoftAP.
@@ -258,7 +264,11 @@ The *E220 Configuration* test writes this configuration into the module.
 
 ## Flight Recorder
 
-- **Format.** The recorder writes JSON Lines. `PayloadSerializers::toJson` turns each `RocketLogger` entry (sensor samples, estimator state, FSM transitions, events) into one line.
+- **Format.** The recorder writes JSON Lines. Sensor samples are flat objects with `source`, `t` (milliseconds), and compact field names; events and configuration keep their existing objects. Floating fields use per-field `%g` precision to omit trailing zeros. `data_analysis/analyze_flight_log.py` reads both this format and older nested `sensorData` records. For example:
+
+  ```json
+  {"src":"ALTITUDE","t":73614,"pf_pa":102032,"alt_m":-0.164139,"vz_mps":-0.427954,"ready":true,"rising":false}
+  ```
 - **Storage.** Files go to external SPI flash (LittleFS, mounted at `/ext`) through `MirrorStorage`. If an SD card is present, the same data is also written there.
 - **Per-flight files.** Each flight gets its own file (`flight_telemetry_NNNNNN.jsonl`). The file name is reserved and saved to NVS before the config is locked, so a reboot never overwrites a previous flight.
 - **Recording window.** The recorder runs from `LAUNCH` through `LANDING` and stops in `RECOVERED`.
