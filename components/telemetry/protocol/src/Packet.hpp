@@ -3,16 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
-// 108 bytes = Header(7) + Payload(95) + CRC(2) + Padding(4)
-constexpr size_t FIXED_PACKET_SIZE = 108;
-// Maximum raw packet size we assume for transmit buffers (including header and CRC)
-constexpr size_t MAX_PACKET_SIZE = FIXED_PACKET_SIZE;
-constexpr size_t RESERVED_BYTES = 0;
-
 /* 2 bytes for CRC */
 constexpr size_t CRC_SIZE = sizeof(uint16_t);
-/* HEADER size + PAYLOAD size + crc size */
-constexpr size_t MAX_TX_PACKET_SIZE = MAX_PACKET_SIZE - RESERVED_BYTES;
 
 // NOTE: All multi-byte integer fields are encoded in little-endian order on the
 // wire. This matches the common endianness of most microcontrollers used with
@@ -50,8 +42,9 @@ struct PacketHeader
 };
 
 constexpr size_t HEADER_SIZE = sizeof(PacketHeader);
-constexpr size_t LORA_MAX_PAYLOAD_SIZE =
-    MAX_TX_PACKET_SIZE - HEADER_SIZE - CRC_SIZE - 4;
+// What goes on the air is HEADER_SIZE + LORA_MAX_PAYLOAD_SIZE + CRC_SIZE = 104 bytes,
+// the size the ground station and the antenna board both assert on their side.
+constexpr size_t LORA_MAX_PAYLOAD_SIZE = 95;
 
 /**
  * @brief The payload of a packet. This is a fixed-size buffer equal to the
