@@ -1,7 +1,7 @@
 """Run a RocketPy hardware-in-the-loop flight simulation.
 
 This launcher loads a rocket HIL config, builds the RocketPy environment,
-rocket, sensors, and callbacks, streams calibration and flight sensor packets
+rocket, sensors, and callbacks, streams calibration, flight, and landed sensor packets
 to the flight controller over TCP, accepts controller commands for actuators,
 and saves a replayable HIL capture at the end of the run.
 """
@@ -35,6 +35,7 @@ from hil_utils import (
     matrix_like_to_numpy_3x3 as _matrix_like_to_numpy,
     numeric_array as _numeric_config_array,
     rail_body_to_inertial_matrix as _rail_body_to_inertial_matrix,
+    rocketpy_body_to_inertial_matrix as _rocketpy_body_to_inertial_matrix,
     rocketpy_constructor_orientation_from_config as _rocketpy_constructor_orientation_from_config,
     rocketpy_euler313_matrix as _rocketpy_euler313_matrix,
     rotation_matrix_to_rocketpy_quaternion as _rotation_matrix_to_rocketpy_quaternion,
@@ -78,16 +79,16 @@ class CommandState:
             return self.latest_fsm_response_id
 
     def wait_for_fsm_response(self, previous_response_id, command_sim_time_s, timeout_s=5.0):
-        """Wait until the TCP thread receives a newer FC command packet.
+        """Wait for the FC command corresponding to this simulated time.
 
-        This is required during preflight calibration because the producer needs
-        the latest returned FSM state for the sample it just queued. Without this
-        wait, Python could keep sending stationary samples while reading a stale
-        ``CALIBRATING``/``GROUND_SERVICES`` state and capture the wrong interval.
+        RocketPy can leave one packet in flight when Flight(...) returns. Check
+        the echoed time as well as the response count so a stationary sample
+        cannot consume the preceding flight sample's response.
         """
         deadline = time.monotonic() + timeout_s
         with self.fsm_response_condition:
-            while self.latest_fsm_response_id <= previous_response_id:
+            while (self.latest_fsm_response_id <= previous_response_id or
+                   self.latest_fsm_command_sim_time_s + 0.001 < command_sim_time_s):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError(
@@ -487,6 +488,8 @@ PREFLIGHT_FC_DURATION_S = 0.0
 PREFLIGHT_SENT_SAMPLES = 0
 PREFLIGHT_CAPTURED_CALIBRATION_SAMPLES = 0
 PREFLIGHT_ECLIPSED_DURATION_S = 0.0
+# The FC has a 60 s LANDING fallback; allow time for it to enter LANDING at impact.
+POSTFLIGHT_MAX_DURATION_S = 65
 
 
 def compact_hil_time(raw_hil_time_s):
@@ -806,26 +809,20 @@ def _accelerometer_body_to_clean_sensor_matrix():
     )
 
 
-def _stationary_calibration_acceleration_sensor_frame(
+def _stationary_acceleration_sensor_frame(
     *,
     gravity_m_s2,
-    rail_inclination_deg,
-    rail_heading_deg,
+    body_to_inertial,
 ):
-    """Return stationary-pad accelerometer output and initial attitude.
+    """Return stationary accelerometer output for a fixed rocket attitude.
 
-    The rocket is supported by the rail. The physical gravity vector points
-    down, but the accelerometer specific-force vector measured during static
-    calibration points up from earth to sky: ``[0, 0, +g]`` in inertial axes.
+    A supported rocket measures upward specific force ``[0, 0, +g]`` in
+    inertial axes, both on the rail and after landing.
 
-    The calibration payload is produced through this explicit chain:
+    The stationary payload follows this frame chain:
 
         I(+Z support) -> B -> S_clean -> S_out
     """
-    body_to_inertial = _rail_body_to_inertial_matrix(
-        rail_inclination_deg,
-        rail_heading_deg,
-    )
     body_to_clean_sensor = _accelerometer_body_to_clean_sensor_matrix()
     clean_sensor_to_output = _accelerometer_cross_axis_matrix()
 
@@ -844,8 +841,8 @@ def _stationary_calibration_acceleration_sensor_frame(
 
     if reconstructed_inertial[2] <= 0.0:
         raise RuntimeError(
-            "Synthetic calibration accelerometer vector is not pointing upward in "
-            "the inertial frame. Check rail attitude and sensor orientation transforms."
+            "Synthetic stationary accelerometer vector is not pointing upward in "
+            "the inertial frame. Check attitude and sensor orientation transforms."
         )
 
     e0, e1, e2, e3 = _rotation_matrix_to_rocketpy_quaternion(body_to_inertial)
@@ -947,7 +944,7 @@ def _apply_gnss_sensor_pipeline(sensor, latitude_deg, longitude_deg, altitude_m)
     return latitude_deg, longitude_deg, altitude_m
 
 
-def _apply_calibration_sensor_models(
+def _apply_stationary_sensor_models(
     accel_x_m_s2,
     accel_y_m_s2,
     accel_z_m_s2,
@@ -958,13 +955,12 @@ def _apply_calibration_sensor_models(
     altitude_m,
 ):
     """
-    Pass manually generated stationary-pad calibration values through the same
-    selected RocketPy sensor objects used during Flight(...).
+    Pass stationary preflight or postflight values through the selected RocketPy
+    sensor objects used during Flight(...).
     
-    NOTE: We intentionally do not call ``sensor.measure()`` during preflight
-    calibration. Calibration runs before ``Flight(...)`` exists, and avoiding
-    ``measure()`` keeps this synthetic stream from mutating or conflicting with
-    the sensors state that RocketPy will use during the actual flight.
+    ``sensor.measure()`` requires a RocketPy Flight state, which these synthetic
+    samples do not have. Use the sensor objects' own noise, drift and
+    quantization methods, preserving the selected profile and sensor state.
 
     Clean profile:
         the same methods are called, but the clean sensor configuration should
@@ -984,7 +980,7 @@ def _apply_calibration_sensor_models(
         gnss_sensor = selected_sensor_instances["GnssReceiver"]
     except KeyError as exc:
         raise KeyError(
-            "Calibration requires Accelerometer, Barometer, and GnssReceiver profiles"
+            "Stationary HIL samples require Accelerometer, Barometer, and GnssReceiver profiles"
         ) from exc
 
     noisy_accel_x_m_s2, noisy_accel_y_m_s2, noisy_accel_z_m_s2 = _apply_vector_sensor_pipeline(
@@ -1057,10 +1053,11 @@ def run_preflight_calibration(mailbox, rate_hz):
     rail_inclination_deg = float(flight_args["inclination"])
     rail_heading_deg = float(flight_args["heading"])
 
-    calibration_geometry = _stationary_calibration_acceleration_sensor_frame(
+    calibration_geometry = _stationary_acceleration_sensor_frame(
         gravity_m_s2=launch_site_gravity_m_s2,
-        rail_inclination_deg=rail_inclination_deg,
-        rail_heading_deg=rail_heading_deg,
+        body_to_inertial=_rail_body_to_inertial_matrix(
+            rail_inclination_deg, rail_heading_deg
+        ),
     )
 
     stationary_acceleration_sensor_output_m_s2 = calibration_geometry[
@@ -1149,7 +1146,7 @@ def run_preflight_calibration(mailbox, rate_hz):
             sample_longitude_deg,
             sample_altitude_m,
         ) = (
-            _apply_calibration_sensor_models(
+            _apply_stationary_sensor_models(
                 accel_x_m_s2=stationary_accel_x_m_s2,
                 accel_y_m_s2=stationary_accel_y_m_s2,
                 accel_z_m_s2=stationary_accel_z_m_s2,
@@ -1285,6 +1282,92 @@ def run_preflight_calibration(mailbox, rate_hz):
     )
 
 
+def run_postflight_recovery(mailbox, rate_hz):
+    """Keep sending stationary samples after impact until the FC recovers."""
+    global seq
+
+    if last_rocketpy_callback_time_s is None:
+        raise RuntimeError("RocketPy Flight produced no HIL samples")
+
+    sample_period_s = 1.0 / float(rate_hz)
+    last_flight_fc_time_s = PREFLIGHT_FC_DURATION_S + last_rocketpy_callback_time_s
+    fsm_state, _ = command_state.wait_for_fsm_response(-1, last_flight_fc_time_s)
+    if fsm_state == hil_communication.FSM_STATE_RECOVERED:
+        return 0
+
+    conditions = get_launch_site_conditions()
+    landing_x = hil_log["x"][-1]
+    landing_y = hil_log["y"][-1]
+    landing_latitude, landing_longitude = _offset_lat_lon(
+        conditions["latitude"], conditions["longitude"], landing_x, landing_y
+    )
+    landing_attitude = tuple(hil_log[key][-1] for key in ("e0", "e1", "e2", "e3"))
+    stationary_geometry = _stationary_acceleration_sensor_frame(
+        gravity_m_s2=conditions["gravity_m_s2"],
+        body_to_inertial=_rocketpy_body_to_inertial_matrix(*landing_attitude),
+    )
+    stationary_acceleration = stationary_geometry["sensor_output_m_s2"]
+    landing_attitude = stationary_geometry["attitude_quaternion"]
+
+    print(f"[POSTFLIGHT] Sending stationary {selected_sensor_profile_name} samples "
+          f"at {rate_hz} Hz until RECOVERED")
+    for sample_index in range(POSTFLIGHT_MAX_DURATION_S * rate_hz):
+        fc_time_s = last_flight_fc_time_s + (sample_index + 1) * sample_period_s
+        (
+            ax, ay, az, pressure_pa, temperature_k,
+            latitude, longitude, altitude_m,
+        ) = _apply_stationary_sensor_models(
+            accel_x_m_s2=stationary_acceleration[0],
+            accel_y_m_s2=stationary_acceleration[1],
+            accel_z_m_s2=stationary_acceleration[2],
+            pressure_pa=conditions["pressure_pa"],
+            temperature_k=conditions["temperature_k"],
+            latitude_deg=landing_latitude,
+            longitude_deg=landing_longitude,
+            altitude_m=conditions["elevation_m"],
+        )
+        payload = hil_communication.build_sim_input_payload(
+            sequence_number=seq,
+            hil_sim_time_s=fc_time_s,
+            ax_m_s2=ax, ay_m_s2=ay, az_m_s2=az,
+            quaternion_w=landing_attitude[0],
+            quaternion_x=landing_attitude[1],
+            quaternion_y=landing_attitude[2],
+            quaternion_z=landing_attitude[3],
+            pressure_pa=pressure_pa,
+            temperature_k=temperature_k,
+            latitude_deg=latitude,
+            longitude_deg=longitude,
+            altitude_m=altitude_m,
+        )
+        previous_response_id = command_state.get_fsm_response_id()
+        mailbox.put(payload)
+        fsm_state, fsm_name = command_state.wait_for_fsm_response(
+            previous_response_id, fc_time_s
+        )
+
+        append_hil_log_sample(
+            seq_value=seq,
+            hil_sim_time_s=compact_hil_time(fc_time_s),
+            accel_x_m_s2=ax, accel_y_m_s2=ay, accel_z_m_s2=az,
+            pressure_pa=pressure_pa, temperature_k=temperature_k,
+            latitude_deg=latitude, longitude_deg=longitude, altitude_m=altitude_m,
+            x=landing_x, y=landing_y, z=conditions["elevation_m"],
+            e0=landing_attitude[0], e1=landing_attitude[1],
+            e2=landing_attitude[2], e3=landing_attitude[3],
+        )
+        seq += 1
+        if fsm_state == hil_communication.FSM_STATE_RECOVERED:
+            print(f"[POSTFLIGHT] RECOVERED after {(sample_index + 1) * sample_period_s:.2f}s "
+                  f"of stationary samples")
+            return sample_index + 1
+
+    raise TimeoutError(
+        f"FC remained in {fsm_name} after {POSTFLIGHT_MAX_DURATION_S}s "
+        "of stationary postflight samples"
+    )
+
+
 mailbox = hil_communication.OneSlotMailbox()
 handlers_dict = {
     "on_open_drogue": on_open_drogue,
@@ -1370,6 +1453,8 @@ def build_capture_metadata():
         "preflight_sent_samples": PREFLIGHT_SENT_SAMPLES,
         "preflight_captured_calibration_samples": PREFLIGHT_CAPTURED_CALIBRATION_SAMPLES,
         "ground_services_eclipsed_duration_s": PREFLIGHT_ECLIPSED_DURATION_S,
+        "postflight_stationary_samples": postflight_samples,
+        "postflight_stationary_duration_s": postflight_samples / sampling_rate,
         "notes": (
             "HIL payload stream sent to ESP32 flight controller. "
             "A startup reset is sent before calibration unless disabled. "
@@ -1377,6 +1462,8 @@ def build_capture_metadata():
             "covering calibration and Ground Services until READY_FOR_LAUNCH. "
             "Calibration accelerometer/barometer samples reuse the selected RocketPy "
             "sensor objects for noise, drift, bias and quantization. "
+            "After RocketPy impact, stationary samples at the landing location continue "
+            "through the same sensor objects until the FC reports RECOVERED. "
             "The TCP link is closed locally at the end; no final FC reset is sent. "
             "Reference frames: I(+X east,+Y north,+Z up), B(body,+Z nose), "
             "S_clean(orthogonal sensor), S_out(payload after cross-axis mixing)."
@@ -1390,6 +1477,7 @@ def build_capture_metadata():
 # RUN CALIBRATION, FLIGHT, CLEANUP, AND CAPTURE OUTPUT
 # ----------------------------------------------------------------------
 capture_file = create_capture_file(BASE_DIR / "hil_captures")
+postflight_samples = 0
 
 try:
     run_preflight_calibration(
@@ -1417,7 +1505,8 @@ try:
         f"altitude={apogee_event['z']:.2f}m"
     )
 
-    print("Flight... COMPLETED")
+    print("Flight... COMPLETED; waiting for FC recovery")
+    postflight_samples = run_postflight_recovery(mailbox, sampling_rate)
 
 finally:
     # End of Python run: do not send MSG_TYPE_SIM_RESET.

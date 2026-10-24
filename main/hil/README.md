@@ -10,6 +10,7 @@ The current HIL system provides:
 - JSON/JSONC rocket configuration with formula support;
 - explicit sensor profiles selected from the CLI;
 - pre-flight stationary calibration before RocketPy `Flight(...)` starts;
+- postflight stationary samples until the FC reports `RECOVERED`;
 - a lockstep TCP protocol between simulator and flight controller;
 - JSON capture files with replay, plots, and run summaries;
 - a local mock Manny/FC TCP server for development without hardware;
@@ -19,7 +20,7 @@ Main files:
 
 | File | Current role |
 |---|---|
-| `hil_rocketpy.py` | Builds RocketPy objects, starts TCP communication, sends calibration samples, runs `Flight(...)`, records capture data, and plots the run. |
+| `hil_rocketpy.py` | Builds RocketPy objects, streams calibration, flight, and landed samples, waits for FC recovery, then saves and plots the run. |
 | `hil_config.py` | Loads JSON/JSONC config, resolves formulas, filters metadata keys, normalizes paths/tuples/pair-lists, applies ordered `_calls`, and resolves sensor profiles. |
 | `hil_communication.py` | Implements TCP framing, packet encode/decode, lockstep mailbox, reset handling, and FC command handling. |
 | `hil_capture.py` | Saves/loads captures, prints summaries, plots telemetry, and replays 3D attitude/reference-frame data. |
@@ -426,13 +427,16 @@ queue one simulator sample -> send -> wait for one FC command -> update state ->
 
 This prevents the simulator from running ahead of the FC.
 
-During preflight, `hil_rocketpy.py` also waits on `wait_for_fsm_response()` after
-queueing each sample. That wait is necessary because the producer must know the
-FSM state from the command packet that corresponds to the sample it just sent:
+During preflight and postflight, `hil_rocketpy.py` also waits on
+`wait_for_fsm_response()` after queueing each sample. The producer needs the FSM
+state from the command packet that corresponds to the sample it just sent:
 `INACTIVE`/`CALIBRATING` samples are logged, `GROUND_SERVICES` samples are
-eclipsed, and `READY_FOR_LAUNCH` stops preflight. Without that barrier, the main
-thread could read a stale FSM state while the communication thread is still
-waiting for the FC response.
+eclipsed, `READY_FOR_LAUNCH` stops preflight, and `RECOVERED` stops postflight.
+After RocketPy lands, stationary samples use the final landing position and
+attitude and the same RocketPy sensor noise models as calibration and flight.
+The FC still receives 50 Hz packets and samples the barometer at 18 Hz.
+If `RECOVERED` is not reported within 65 seconds of stationary samples, the
+launcher raises a timeout instead of marking the flight recovered.
 
 ### Simulator input packet
 
