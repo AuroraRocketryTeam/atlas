@@ -564,6 +564,14 @@ Current plots include:
 - airbrakes deployment.
 - time eclipse markers on time-series plots.
 
+For FRED at Villafranca, the GPS ground track uses
+`Villafranca_airfield_launch_site.jpg` as a background. The plot uses local
+east/north metres relative to 44.290583° N, 12.027111° E. Its image extent
+`(-1043, 657, -407, 593)` was fitted manually to OpenStreetMap roads and
+buildings and is approximate, not a surveyed georeference. Live and saved FRED
+plots use this image when the capture's launch coordinates match; keep the JPEG
+beside `hil_capture.py` when replaying captures elsewhere.
+
 The 3D replay uses RocketPy state and saved accelerometer payloads to reconstruct:
 
 ```text

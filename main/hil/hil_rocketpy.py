@@ -1516,16 +1516,18 @@ finally:
     if th.is_alive():
         print("[TCP] Warning: communication thread did not stop within timeout")
 
+capture_metadata = build_capture_metadata()
 save_hil_capture(
     filename=capture_file,
     hil_log=hil_log,
     hil_events=hil_events,
-    metadata=build_capture_metadata(),
+    metadata=capture_metadata,
 )
 
 plot_hil_log(
     hil_log,
     hil_events,
+    metadata=capture_metadata,
 )
 
 # Keep RocketPy's built-in trajectory plot available for manual debugging.
