@@ -1,4 +1,5 @@
 #include "RocketFSM.hpp"
+#include <FlightFlags.hpp>
 #include "tasks/RuntimeConfig.hpp"
 #include "esp_system.h"
 #include "esp_task_wdt.h"
@@ -306,6 +307,7 @@ FlightPhase RocketFSM::getCurrentPhase()
     case RocketState::DECELERATION:
     case RocketState::LANDING:
     case RocketState::RECOVERED:
+    case RocketState::EMERGENCY_RECOVERY:
         return FlightPhase::RECOVERY;
 
     default:
@@ -400,6 +402,70 @@ void RocketFSM::deployStabilizationExitRecovery()
     }
 }
 
+/**
+ * Only the barometer is used, and only for how it is changing: after a
+ * restart there is no reference left to say how high the vehicle is. Descending
+ * wins over every other reading.
+ */
+void RocketFSM::runEmergencyRecovery(uint32_t now)
+{
+    PressureSensorData baro;
+    if (_rocketModel->getMS561101BA03Data_1(baro) == SensorReadStatus::OK &&
+        baro.timestamp != _emergencyLastBaroTimestamp)
+    {
+        _emergencyLastBaroTimestamp = baro.timestamp;
+        _descentDetector.addSample(baro.pressure, baro.timestamp);
+    }
+
+    // The transition is queued rather than immediate, so check with this variable.
+    if (_emergencyDeployCommanded) return;
+
+    LOG_EVERY_MS(500, INFO, "RocketFSM", "EMERGENCY_RECOVERY: %.2f m/s, level for %lu ms%s",
+                 _descentDetector.rateMps(),
+                 static_cast<unsigned long>(_descentDetector.levelForMs(now)),
+                 _descentDetector.isStuck() ? ", BAROMETER NOT CHANGING" : "");
+
+    if (_descentDetector.verdict() == DescentDetector::Verdict::Descending)
+    {
+        const uint8_t attempts = FlightFlags::deployAttempts();
+        if (attempts >= EMERGENCY_MAX_DEPLOY_ATTEMPTS)
+        {
+            // In boot loop for some reason, maybe deploying causes a brownout.
+            // Stop after MAX ATTEMPTS.
+            LOG_EVERY_MS(2000, ERROR, "RocketFSM",
+                         "EMERGENCY_RECOVERY: descending, but %u deploy attempts already made.",
+                         attempts);
+            return;
+        }
+
+        LOG_WARNING("RocketFSM", "EMERGENCY_RECOVERY: descending at %.2f m/s, deploying recovery now",
+                    _descentDetector.rateMps());
+
+        // Pyro first, flash second
+        deployApogeeRecovery();
+        FlightFlags::recordDeployAttempt();
+
+        _emergencyDeployCommanded = true;
+        sendEvent(FSMEvent::EMERGENCY_DEPLOYED);
+        return;
+    }
+
+    if (_descentDetector.levelForMs(now) >= EMERGENCY_STAND_DOWN_MS)
+    {
+        if (_descentDetector.isStuck())
+        {
+            // Standing still and reading nothing look identical from here, but a
+            // live sensor holding position still jitters in its last bits. One
+            // that does not is reporting no world at all.
+            LOG_ERROR("RocketFSM", "EMERGENCY_RECOVERY: the barometer never changed by a single count. "
+                                   "Standing down, but treat this reading as unverified");
+        }
+        LOG_WARNING("RocketFSM", "EMERGENCY_RECOVERY: nothing moving for %d ms, standing down to ground services",
+                    EMERGENCY_STAND_DOWN_MS);
+        sendEvent(FSMEvent::EMERGENCY_STAND_DOWN);
+    }
+}
+
 void RocketFSM::setupStateActions()
 {
     LOG_INFO("RocketFSM", "Setting up state actions...");
@@ -467,6 +533,8 @@ void RocketFSM::setupStateActions()
                              // enough accelerationt to transition to LAUNCH.
                              _launchHighSince = 0;
                              LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH");
+                             // Record that a flight is starting
+                             FlightFlags::setLaunched(true);
                          })
         #if AURORA_HIL_ENABLED
         // TODO: do not treat HilSimulationTask as a normal fsm task, start in ONCE from rocketfsm.
@@ -607,6 +675,8 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::RECOVERED]
         ->setEntryAction([this]()
                          {
+                             // Flight has ended.
+                             FlightFlags::setLaunched(false);
 #if AURORA_HIL_ENABLED
                              LOG_INFO("RocketFSM", "Entering RECOVERED; rebooting after the final HIL response");
 #else
@@ -623,6 +693,24 @@ void RocketFSM::setupStateActions()
         // .addTask(TaskConfig(TaskType::STORAGE, "Storage_Recovered", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Recovered", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Recovered", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
+
+    // EMERGENCY_RECOVERY: Only sensor task for barometer.
+    _stateActions[RocketState::EMERGENCY_RECOVERY] = std::make_unique<StateAction>(RocketState::EMERGENCY_RECOVERY);
+    _stateActions[RocketState::EMERGENCY_RECOVERY]
+        ->setEntryAction([this]()
+                         {
+                             LOG_WARNING("RocketFSM", "Entering EMERGENCY_RECOVERY: booted with a flight in progress");
+                             _descentDetector.configure(EMERGENCY_DESCENT_THRESHOLD_MPS, EMERGENCY_WINDOW_MS);
+                             _emergencyLastBaroTimestamp = 0;
+                             _emergencyDeployCommanded = false;
+                         })
+        #if AURORA_HIL_ENABLED
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Emergency", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        #else
+        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Emergency", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
+        #endif
+        ;
+
     LOG_INFO("RocketFSM", "State actions setup complete");
 }
 
@@ -686,8 +774,21 @@ void RocketFSM::setupTransitions()
         RocketState::RECOVERED,
         FSMEvent::LANDING_COMPLETE));
 
+    _transitionManager->addTransition(Transition(
+        RocketState::INACTIVE,
+        RocketState::EMERGENCY_RECOVERY,
+        FSMEvent::EMERGENCY_RECOVERY_START));
+    _transitionManager->addTransition(Transition(
+        RocketState::EMERGENCY_RECOVERY,
+        RocketState::STABILIZATION,
+        FSMEvent::EMERGENCY_DEPLOYED));
+    _transitionManager->addTransition(Transition(
+        RocketState::EMERGENCY_RECOVERY,
+        RocketState::GROUND_SERVICES,
+        FSMEvent::EMERGENCY_STAND_DOWN));
+
     // Emergency abort transition from any state to INACTIVE
-    for (int state = static_cast<int>(RocketState::INACTIVE); state <= static_cast<int>(RocketState::RECOVERED); ++state)
+    for (int state = static_cast<int>(RocketState::INACTIVE); state <= static_cast<int>(RocketState::EMERGENCY_RECOVERY); ++state)
     {
         _transitionManager->addTransition(Transition(
             static_cast<RocketState>(state),
@@ -947,7 +1048,19 @@ void RocketFSM::checkTransitions()
     switch (_currentState)
     {
     case RocketState::INACTIVE:
-        sendEvent(FSMEvent::START_CALIBRATION);
+        if (FlightFlags::isLaunched())
+        {
+            LOG_WARNING("RocketFSM", "Launched flag raised: last reboot was mid flight!");
+            sendEvent(FSMEvent::EMERGENCY_RECOVERY_START);
+        }
+        else
+        {
+            sendEvent(FSMEvent::START_CALIBRATION);
+        }
+        break;
+
+    case RocketState::EMERGENCY_RECOVERY:
+        runEmergencyRecovery(Utils::millis());
         break;
 
     case RocketState::GROUND_SERVICES:

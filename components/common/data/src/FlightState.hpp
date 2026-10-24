@@ -33,7 +33,9 @@ enum class RocketState
     STABILIZATION, // Drogue chute deployment and stabilization
     DECELERATION,  // Main chute deployment phase
     LANDING,       // Final descent and landing
-    RECOVERED      // Mission complete, rocket recovered
+    RECOVERED,     // Mission complete, rocket recovered
+
+    EMERGENCY_RECOVERY // Booted with a flight in progress
 };
 
 /**
@@ -82,7 +84,12 @@ enum class FSMEvent
 
     // System events
     FORCE_TRANSITION, // Manual override transition
-    EMERGENCY_ABORT   // Emergency abort sequence
+    EMERGENCY_ABORT,  // Emergency abort sequence
+
+    // Restart in flight
+    EMERGENCY_RECOVERY_START, // Booted with the launched flag still raised
+    EMERGENCY_DEPLOYED,       // Deployed, resume nominal sequence
+    EMERGENCY_STAND_DOWN      // False alarm, return to ground services
 };
 
 /**
@@ -160,6 +167,8 @@ inline const char* rocketStateToString(RocketState state) {
             return "LANDING";
         case RocketState::RECOVERED:
             return "RECOVERED";
+        case RocketState::EMERGENCY_RECOVERY:
+            return "EMERGENCY_RECOVERY";
         default:
             return "UNKNOWN STATE (missing rocketStateToString function's case implementation)";
     }

@@ -14,6 +14,7 @@
 #include <RocketModel.hpp>
 #include <IBoardHardware.hpp>
 #include "tasks/FlightParametersConfig.hpp"
+#include "DescentDetector.hpp"
 
 class IGroundTestRunner;
 
@@ -154,4 +155,10 @@ private:
     uint8_t _burnoutConfirmationSamples = 0;
     uint32_t _landingStableSince = 0;
     uint32_t _landingLastVelocityTimestamp = 0;
+
+    // Restarted in flight, this detector uses raw values from the barometer.
+    DescentDetector _descentDetector;
+    uint32_t _emergencyLastBaroTimestamp = 0;
+    bool _emergencyDeployCommanded = false;
+    void runEmergencyRecovery(uint32_t now);
 };

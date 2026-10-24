@@ -79,6 +79,7 @@ void StatusManager::initFlightPhases()
         {RocketState::DECELERATION, {{ART_LED_CYAN, ART_LED_OFF, 150, 150, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
         {RocketState::LANDING, {{ART_LED_GREEN, ART_LED_OFF, 500, 500, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
         {RocketState::RECOVERED, {{ART_LED_GREEN, ART_LED_OFF, 0, 0, 0, 0}, BUZZER_OFF, TONE_OFF, false}},
+        {RocketState::EMERGENCY_RECOVERY, {{ART_LED_RED, ART_LED_OFF, 250, 250, 0, 0}, BUZZER_INTERMITTENT, TONE_ALERT, false}},
     };
 }
 

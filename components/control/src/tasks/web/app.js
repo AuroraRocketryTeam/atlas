@@ -625,6 +625,16 @@ async function pollStatus() {
   // Do not replace document.getElementById('info').innerHTML here.
 }
 
+function launchedBanner(launched) {
+  if (!launched) return '';
+  return `
+    <div class="launched-banner">
+      <strong>LAUNCHED flag is set</strong>
+      <span>The board was armed and never reached RECOVERED. The FSM was started in EMERGENCY_RECOVERY.</span>
+      <button class="warning-action clear-launched">Clear launched flag</button>
+    </div>`;
+}
+
 async function loadInfo() {
   const [s, checklist] = await Promise.all([
     publicApi('/api/status'),
@@ -649,6 +659,7 @@ async function loadInfo() {
   const runtime = s.runtime_config || {};
   const featurePills = (chip.features || []).map(f => `<span>${esc(f)}</span>`).join('');
   document.getElementById('info').innerHTML = `
+    ${launchedBanner(s.launched)}
     <section class="hero">
       <div>
         <h2>${esc(chip.model)} flight computer</h2>
@@ -1363,6 +1374,7 @@ function renderLive(s) {
   });
   if (document.activeElement && document.activeElement.closest('.attitude-alignment')) return;
   document.getElementById('liveContent').innerHTML = `
+    ${launchedBanner(flight.launched)}
     <div class="metrics">
       <div><span>Height</span><strong>${Number(flight.height_m || 0).toFixed(2)} m</strong></div>
       <div><span>Vertical speed</span><strong>${Number(flight.vertical_speed_mps || 0).toFixed(2)} m/s</strong></div>
@@ -1703,6 +1715,18 @@ async function resetConfig() {
   if (s.ok) loadConfig();
 }
 
+async function clearLaunchedFlag() {
+  const prompt = 'This resets the flag that says a flight is still in progress.\n\n' +
+    'The flag will be cleared to proceed with normal operations.\n\nType CLEAR_LAUNCHED to confirm.';
+  if (window.prompt(prompt) !== 'CLEAR_LAUNCHED') return;
+  const s = await api('/api/fsm/clear-launched', {
+    method: 'POST',
+    headers: { 'X-Confirm': 'CLEAR_LAUNCHED' },
+    body: JSON.stringify({ confirm: 'CLEAR_LAUNCHED' })
+  });
+  showActionStatus(s);
+}
+
 async function unlockConfig() {
   const prompt = 'This clears only the RuntimeConfig lock bit after recovery/inspection.\nThe saved mission configuration remains in NVS and is not reset or erased.\n\nType UNLOCK_AFTER_RECOVERY to unlock editing.';
   if (window.prompt(prompt) !== 'UNLOCK_AFTER_RECOVERY') return;
@@ -1949,6 +1973,11 @@ drop.addEventListener('drop', event => {
 document.getElementById('upload').addEventListener('click', uploadFirmware);
 document.getElementById('refreshFiles').addEventListener('click', loadFiles);
 document.getElementById('deleteAllFiles').addEventListener('click', deleteAllStoredFiles);
+['liveContent', 'info'].forEach(id => {
+  document.getElementById(id).addEventListener('click', event => {
+    if (event.target.classList.contains('clear-launched')) clearLaunchedFlag();
+  });
+});
 document.getElementById('filesContent').addEventListener('click', event => {
   const download = event.target.closest('[data-file-download]');
   if (download) downloadStoredFile(download.dataset.fileDownload);

@@ -93,6 +93,7 @@ private:
     static esp_err_t runtimeConfigValidationGetHandler(httpd_req_t *req);
     static esp_err_t runtimeConfigResetHandler(httpd_req_t *req);
     static esp_err_t runtimeConfigUnlockHandler(httpd_req_t *req);
+    static esp_err_t clearLaunchedFlagPostHandler(httpd_req_t *req);
     static esp_err_t prelaunchChecklistGetHandler(httpd_req_t *req);
     static esp_err_t sdkconfigGetHandler(httpd_req_t *req);
     static esp_err_t readyForLaunchPostHandler(httpd_req_t *req);

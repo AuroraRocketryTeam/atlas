@@ -48,6 +48,7 @@
 // Controllers and filters
 #include <LEDController.hpp>
 #include <BuzzerController.hpp>
+#include <FlightFlags.hpp>
 #include <StatusManager.hpp>
 
 // Main system
@@ -235,12 +236,18 @@ static void createAndStartFSM()
     rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board, testRoutine);
     rocketFSM->init();
 
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    // These pauses exist to make a normal boot readable on the console. A board
+    // that restarted in mid air is racing its own descent, so it skips them.
+    const bool flightInProgress = FlightFlags::isLaunched();
+    if (flightInProgress)
+        LOG_WARNING("Main", "Launched flag raised. FSM will start in EMERGENCY_RECOVERY.");
+    else
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Start FSM tasks
     LOG_INFO("Main", "Starting Flight State Machine...");
     statusManager.setSystemCode(FSM_STARTED);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    if (!flightInProgress) vTaskDelay(1000 / portTICK_PERIOD_MS);
     rocketFSM->start();
 }
 

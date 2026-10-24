@@ -27,6 +27,7 @@ enum BuzzerPattern
     BUZZER_TRIPLE_BEEP, // Three short beeps
     BUZZER_SOS,         // SOS pattern (... --- ...)
     BUZZER_WARNING,     // Alternating high/low tone
+    BUZZER_INTERMITTENT, // Even on/off beeping, 50% duty
     BUZZER_COUNTDOWN,   // Descending tones
     BUZZER_SUCCESS,     // Rising tone sequence
     BUZZER_ERROR        // Error pattern

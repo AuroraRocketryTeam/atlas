@@ -32,6 +32,8 @@
  */
 #include "GroundServicesTask.hpp"
 
+#include <FlightFlags.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -91,7 +93,7 @@ static constexpr size_t STREAM_CHUNK_SIZE = 4096;
 static constexpr size_t LOG_RESPONSE_BUFFER_SIZE = 4096;
 static constexpr size_t MAX_HTTP_CLIENTS = 4;
 static constexpr size_t MAX_WS_CLIENTS = 2;
-static constexpr size_t REGISTERED_URI_HANDLERS = 33;
+static constexpr size_t REGISTERED_URI_HANDLERS = 34;
 static constexpr size_t HTTPD_STACK_SIZE = 5120;
 static constexpr size_t MAX_SYSTEM_TASK_SNAPSHOT_ENTRIES = 32;
 static constexpr size_t LOG_WS_PREFIX_SPACE = 16;
@@ -786,6 +788,7 @@ void GroundServicesTask::registerHandlers()
     add("/api/prelaunch/checklist", HTTP_GET, prelaunchChecklistGetHandler);
     // add("/api/fsm/start-calibration", HTTP_POST, startCalibrationPostHandler);
     add("/api/fsm/ready-for-launch", HTTP_POST, readyForLaunchPostHandler);
+    add("/api/fsm/clear-launched", HTTP_POST, clearLaunchedFlagPostHandler);
     add("/api/tests", HTTP_GET, testsListGetHandler);
     add("/api/tests/status", HTTP_GET, testsStatusGetHandler);
     add("/api/tests/start", HTTP_POST, testsStartPostHandler);
@@ -1009,7 +1012,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
 
     char *body = s_responseBuffer;
     snprintf(body, RESPONSE_BUFFER_SIZE,
-        "{\"ok\":true,\"fsm_state\":\"%s\",\"ready_attempt\":\"%s\",\"uptime_ms\":%lld,"
+        "{\"ok\":true,\"fsm_state\":\"%s\",\"ready_attempt\":\"%s\",\"launched\":%s,\"uptime_ms\":%lld,"
         "\"app\":{\"project_name\":\"%s\",\"version\":\"%s\",\"date\":\"%s\",\"time\":\"%s\",\"idf_version\":\"%s\"},"
         "\"chip\":{\"model\":\"%s\",\"model_code\":%d,\"cores\":%d,\"revision\":%d,\"features\":%s},"
         "\"flash\":{\"size_bytes\":%lu,\"id\":\"0x%06lx\"},"
@@ -1023,6 +1026,7 @@ esp_err_t GroundServicesTask::statusGetHandler(httpd_req_t *req)
         "\"runtime_config\":{\"schema_version\":%lu,\"config_revision\":%lu,\"config_locked\":%s}}",
         self->_fsm ? rocketStateToString(self->_fsm->getCurrentState()) : "unknown",
         self->_fsm ? self->_fsm->getReadyAttemptStatus() : "unknown",
+        FlightFlags::isLaunched() ? "true" : "false",
         static_cast<long long>(esp_timer_get_time() / 1000),
         app ? app->project_name : "unknown",
         app ? app->version : "unknown",
@@ -1260,7 +1264,7 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
 
     int written = snprintf(body, body_size,
         "{\"ok\":true,\"fsm_state\":\"%s\",\"calibration\":{\"imu\":%s,\"barometer\":%s,\"barometer_samples\":%d},"
-        "\"flight\":{\"height_m\":%.3f,\"vertical_speed_mps\":%.3f,\"is_rising\":%s},"
+        "\"flight\":{\"height_m\":%.3f,\"vertical_speed_mps\":%.3f,\"is_rising\":%s,\"launched\":%s},"
         "\"sensors\":{\"imu\":{\"status\":\"%s\",\"fusion_available\":%s,"
         "\"calibration\":{\"system\":%u,\"gyro\":%u,\"accelerometer\":%u,\"magnetometer\":%u},"
         "\"orientation_deg\":{\"x\":%.5f,\"y\":%.5f,\"z\":%.5f},"
@@ -1282,6 +1286,7 @@ size_t GroundServicesTask::buildLiveDataJson(char *body, size_t body_size) const
         static_cast<double>(_rocketModel ? _rocketModel->getCurrentHeight() : 0.0f),
         static_cast<double>(_rocketModel ? _rocketModel->getHeightGainSpeed() : 0.0f),
         _rocketModel && _rocketModel->getIsRising() ? "true" : "false",
+        FlightFlags::isLaunched() ? "true" : "false",
         sensorStatusToString(imuStatus),
 #if AURORA_HIL_ENABLED
         imuStatus == SensorReadStatus::OK ? "true" : "false",
@@ -1555,6 +1560,38 @@ esp_err_t GroundServicesTask::runtimeConfigResetHandler(httpd_req_t *req)
     if (runtime_config_get(&cfg) != ESP_OK) return sendErrorJson(req, "500 Internal Server Error", "runtime_config_get failed");
     if (runtime_config_to_json(&cfg, s_responseBuffer, RESPONSE_BUFFER_SIZE) != ESP_OK) return sendErrorJson(req, "500 Internal Server Error", "runtime_config_to_json failed");
     return sendJson(req, "200 OK", s_responseBuffer);
+}
+
+/**
+ * @brief Clear the launched flag manually
+ */
+esp_err_t GroundServicesTask::clearLaunchedFlagPostHandler(httpd_req_t *req)
+{
+    if (!authOrSend(req)) { discardBody(req); return ESP_OK; }
+    auto *self = fromReq(req);
+    if (rejectMutationDuringOta(req, self)) return ESP_OK;
+    if (!headerEquals(req, "X-Confirm", "CLEAR_LAUNCHED")) {
+        discardBody(req);
+        return sendErrorJson(req, "400 Bad Request", "missing X-Confirm: CLEAR_LAUNCHED header");
+    }
+
+    esp_err_t body_err = readBody(req, s_responseBuffer, RESPONSE_BUFFER_SIZE);
+    if (body_err != ESP_OK) return sendErrorJson(req, "400 Bad Request", "invalid body", body_err);
+    if (strstr(s_responseBuffer, "CLEAR_LAUNCHED") == nullptr) {
+        return sendErrorJson(req, "400 Bad Request", "body must contain CLEAR_LAUNCHED");
+    }
+    if (self == nullptr || self->_fsm == nullptr || self->_fsm->getCurrentState() != RocketState::GROUND_SERVICES) {
+        return sendErrorJson(req, "409 Conflict", "clearing the launched flag is only available in GROUND_SERVICES");
+    }
+    if (!FlightFlags::isLaunched()) {
+        return sendErrorJson(req, "409 Conflict", "the launched flag is already down");
+    }
+    if (!FlightFlags::setLaunched(false)) {
+        return sendErrorJson(req, "500 Internal Server Error", "could not write the launched flag");
+    }
+
+    LOG_WARNING(TAG, "Launched flag cleared by operator");
+    return sendJson(req, "200 OK", "{\"ok\":true,\"launched\":false}");
 }
 
 esp_err_t GroundServicesTask::runtimeConfigUnlockHandler(httpd_req_t *req)

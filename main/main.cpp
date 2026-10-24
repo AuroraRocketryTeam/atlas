@@ -45,6 +45,7 @@
 // Controllers and filters
 #include <LEDController.hpp>
 #include <BuzzerController.hpp>
+#include <FlightFlags.hpp>
 #include <StatusManager.hpp>
 
 // Main system
@@ -214,7 +215,11 @@ void setupFlight()
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
     rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board, testRoutine);
     rocketFSM->init();
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    const bool flightInProgress = FlightFlags::isLaunched();
+    if (flightInProgress)
+        LOG_WARNING("Main", "Launched flag raised!");
+    else
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Wait for arming pin to be enabled before starting FSM
     statusManager.setFlightPhase(RocketState::INACTIVE);
@@ -227,7 +232,7 @@ void setupFlight()
     // Start FSM tasks
     LOG_INFO("Main", "Starting Flight State Machine...");
     statusManager.setSystemCode(FSM_STARTED);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    if (!flightInProgress) vTaskDelay(1000 / portTICK_PERIOD_MS);
     rocketFSM->start();
     statusManager.setSystemCode(FLIGHT_MODE);
     confirmOtaImageIfPending();

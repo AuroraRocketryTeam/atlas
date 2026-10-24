@@ -276,6 +276,13 @@ void BuzzerController::playPatternInternal(BuzzerPattern pattern, BuzzerTone bas
         break;
     }
 
+    case BUZZER_INTERMITTENT:
+    {
+        BuzzerSequence seq[] = {{TONE_HIGH, 300, 300}};
+        playSequence(seq, 1, true);
+        break;
+    }
+
     case BUZZER_WARNING:
     {
         BuzzerSequence seq[] = {

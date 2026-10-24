@@ -61,6 +61,21 @@ button.warning-action {
   border-color: var(--amber);
 }
 button.warning-action:hover { border-color: #805615; }
+.launched-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 2px solid var(--red);
+  border-left-width: 8px;
+  border-radius: 8px;
+  background: #fdf0f0;
+}
+.launched-banner strong { color: var(--red); font-size: 1.05rem; }
+.launched-banner span { flex: 1 1 320px; color: var(--ink); }
+
 .hidden { display: none !important; }
 
 .sidebar {
