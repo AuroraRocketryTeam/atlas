@@ -1,5 +1,7 @@
 #include <BNO055Sensor.hpp>
 #include <utils.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 static constexpr uint32_t BNO055_LOOKUP_MAX_ATTEMPTS = 5;
 static constexpr uint32_t BNO055_LOOKUP_TIMEOUT_MS = 1000;
@@ -16,15 +18,9 @@ BNO055Sensor::BNO055Sensor(const char *sensorName, I2CBus* bus, uint8_t address)
 
 bool BNO055Sensor::init()
 {
-    int attempts = 0;
-    uint32_t start = Utils::millis();
-    bool initialized = false;
-    
-    while (attempts++ < BNO055_LOOKUP_MAX_ATTEMPTS) {
-        if (_bno_interface.init()) {
-            if (!_bno_interface.set_operation_mode(BNO055_TARGET_OPERATION_MODE)) {
-                return false;
-            }
+    for (uint32_t attempt = 1; attempt <= BNO055_LOOKUP_MAX_ATTEMPTS; attempt++) {
+        if (_bno_interface.init() &&
+            _bno_interface.set_operation_mode(BNO055_TARGET_OPERATION_MODE)) {
             _operationMode = BNO055_TARGET_OPERATION_MODE;
 
             if (isFusionMode()) {
@@ -34,25 +30,26 @@ bool BNO055Sensor::init()
                 LOG_INFO("BNO055", "Calibration skipped: device is in a non-fusion mode.");
             }
 
-            initialized = true;
-            break;
-        } else {
-            return false;
+            if (attempt > 1) {
+                LOG_INFO("BNO055", "Initialized on attempt %lu", static_cast<unsigned long>(attempt));
+            }
+            this->setInitialized(true);
+            return true;
         }
-        
-        uint32_t end = Utils::millis();
-        while (end - start < BNO055_LOOKUP_TIMEOUT_MS) {
-            end = Utils::millis();
+
+        LOG_WARNING("BNO055", "Init attempt %lu of %lu failed",
+                    static_cast<unsigned long>(attempt),
+                    static_cast<unsigned long>(BNO055_LOOKUP_MAX_ATTEMPTS));
+
+        // The device takes about 650 ms after a power on reset before it answers
+        if (attempt < BNO055_LOOKUP_MAX_ATTEMPTS) {
+            vTaskDelay(pdMS_TO_TICKS(BNO055_LOOKUP_TIMEOUT_MS));
         }
-        start = Utils::millis();
     }
-    
-    if (!initialized) {
-        return false;
-    }
-    
-    this->setInitialized(true);
-    return true;
+
+    LOG_ERROR("BNO055", "Not responding after %lu attempts, giving up",
+              static_cast<unsigned long>(BNO055_LOOKUP_MAX_ATTEMPTS));
+    return false;
 }
 
 
