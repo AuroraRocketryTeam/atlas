@@ -107,7 +107,27 @@ python hil_rocketpy.py --rocket fred --sensor-profile clean
 python hil_rocketpy.py --rocket fred --sensor-profile noisy
 python hil_rocketpy.py --rocket fred --sensor-profile very_noisy
 python hil_rocketpy.py --rocket fred --sensor-profile RealisticNoise
+python hil_rocketpy.py --rocket fred_ami --sensor-profile RealisticNoise
 ```
+
+The FRED and FRED_AMI configs currently use the same offline ICON-D2 forecast
+for 14:30 Rome time (13:30 UTC). To fetch a new forecast while online, run:
+
+```bash
+python data_analysis/export_fred_icon_d2_atmosphere.py --output main/hil/config/weather/forecast_now.jsonc
+python data_analysis/export_fred_icon_d2_atmosphere.py --launch-time 14:30 --output main/hil/config/weather/forecast_1430.jsonc
+python data_analysis/export_fred_icon_d2_atmosphere.py --launch-time 17:00 --output main/hil/config/weather/forecast_1700.jsonc
+```
+
+Without `--launch-time`, the exporter uses the current minute in Rome. `HH:MM`
+uses today's Rome date; use `YYYY-MM-DDTHH:MM` for another date. It interpolates
+the surrounding ICON-D2 hourly records, including wind vectors. Replace the
+entire `Environment._calls` array in the chosen FRED config with the generated
+array before connecting to Manny's Wi-Fi, so `set_date` matches the atmosphere.
+The matching `.source.json` file in `config/weather/` stores the raw
+Open-Meteo response and request URL. Choose a new output filename when
+refreshing a forecast; the exporter does not overwrite existing files.
+Both configs use a 70° rail inclination.
 
 Useful options:
 
@@ -564,13 +584,14 @@ Current plots include:
 - airbrakes deployment.
 - time eclipse markers on time-series plots.
 
-For FRED at Villafranca, the GPS ground track uses
-`Villafranca_airfield_launch_site.jpg` as a background. The plot uses local
-east/north metres relative to 44.290583° N, 12.027111° E. Its image extent
-`(-1043, 657, -407, 593)` was fitted manually to OpenStreetMap roads and
-buildings and is approximate, not a surveyed georeference. Live and saved FRED
-plots use this image when the capture's launch coordinates match; keep the JPEG
-beside `hil_capture.py` when replaying captures elsewhere.
+For FRED and FRED_AMI at Villafranca, the GPS ground track uses
+`Villafranca_satellite.jpg` as a background. The Mission Analysis image extent
+`(-1043.10, 657.12, -407.15, 593.24)` is relative to the earlier launch point
+(44.290583° N, 12.027111° E).
+The plot shifts that extent to the 25 Oct launch point (44.2901999° N,
+12.0278684° E) for new captures. This is approximate, not a surveyed
+georeference. Keep the JPEG beside `hil_capture.py` when replaying captures
+elsewhere.
 
 The 3D replay uses RocketPy state and saved accelerometer payloads to reconstruct:
 

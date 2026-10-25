@@ -1,90 +1,187 @@
 {
   "Environment": {
-    "latitude": 44.290583,
-    "longitude": 12.027111,
+    "latitude": 44.2901999,
+    "longitude": 12.0278684,
     "elevation": 18,
-    "max_expected_height": 200,
-    "_calls": [
-      //
-      // [ LAUNCH DATE ]: set before loading a date-dependent atmosphere.
+    "max_expected_height": 318, // 300 m above the 18 m launch elevation.
+    "_calls":
+    // Open-Meteo ICON-D2 fetched 2026-10-25T09:59:42.179090+00:00; launch 2026-10-25T14:30:00+01:00 (2026-10-25T13:30 UTC).
+    // Hourly records 13:00 and 14:00 UTC; time interpolation 0.50 (wind vectors).
+    // Requested site: 44.2901999 N, 12.0278684 E; pad 18 m ASL.
+    // Model grid: 44.285194 N, 12.02127 E; elevation 13.0 m. Raw response: forecast_1430.source.json.
+    // Heights are metres ASL; pressure Pa, temperature K, east/north wind m/s; rounded to 6 decimals.
+    // Replace Environment._calls with this array so the date and atmosphere stay paired.
+    [
       {
         "method": "set_date",
         "kwargs": {
-          // Exact launch time in Italy local time.
-          "date": [2026, 10, 25, 14, 30],
+          "date": [
+            2026,
+            10,
+            25,
+            14,
+            30
+          ],
           "timezone": "Europe/Rome"
         }
-      }
-      // [ ISA ]: default, no set_atmospheric_model
-      //
-      // [ ENSEMBLE ]
-      // ,{
-      //   "method": "set_atmospheric_model",
-      //   "kwargs": {
-      //     "type": "Ensemble",
-      //     "file": "???.nc",
-      //     "dictionary": {
-      //       "ensemble": "number",
-      //       "time": "valid_time",
-      //       "latitude": "latitude",
-      //       "longitude": "longitude",
-      //       "level": "pressure_level",
-      //       "temperature": "t",
-      //       "surface_geopotential_height": null,
-      //       "geopotential_height": null,
-      //       "geopotential": "z",
-      //       "u_wind": "u",
-      //       "v_wind": "v"
-      //     }
-      //   }
-      // }
-      //
-      //
-      // [ GFS FORECAST ]
-      ,{
+      },
+      {
         "method": "set_atmospheric_model",
         "kwargs": {
-          "type": "Forecast",
-          "file": "GFS"
+          "type": "custom_atmosphere",
+          "pressure": [
+            [
+              18.0,
+              101205.0
+            ],
+            [
+              114.5,
+              100000
+            ],
+            [
+              328.5,
+              97500
+            ],
+            [
+              546.5,
+              95000
+            ],
+            [
+              769.19,
+              92500
+            ],
+            [
+              996.83,
+              90000
+            ],
+            [
+              1468.0,
+              85000
+            ]
+          ],
+          "temperature": [
+            [
+              18.0,
+              290.55
+            ],
+            [
+              114.5,
+              288.9
+            ],
+            [
+              328.5,
+              286.75
+            ],
+            [
+              546.5,
+              285.65
+            ],
+            [
+              769.19,
+              283.9
+            ],
+            [
+              996.83,
+              282.15
+            ],
+            [
+              1468.0,
+              278.65
+            ]
+          ],
+          "wind_u": [
+            [
+              18.0,
+              -0.201309
+            ],
+            [
+              28.0,
+              -0.201309
+            ],
+            [
+              98.0,
+              -0.201309
+            ],
+            [
+              138.0,
+              -0.201309
+            ],
+            [
+              198.0,
+              -0.201309
+            ],
+            [
+              328.5,
+              -0.209697
+            ],
+            [
+              546.5,
+              2.418595
+            ],
+            [
+              769.19,
+              3.459319
+            ],
+            [
+              996.83,
+              4.500026
+            ],
+            [
+              1468.0,
+              6.586057
+            ]
+          ],
+          "wind_v": [
+            [
+              18.0,
+              -0.848454
+            ],
+            [
+              28.0,
+              -0.848454
+            ],
+            [
+              98.0,
+              -0.898454
+            ],
+            [
+              138.0,
+              -0.898454
+            ],
+            [
+              198.0,
+              -0.898454
+            ],
+            [
+              328.5,
+              -0.880889
+            ],
+            [
+              546.5,
+              0.539698
+            ],
+            [
+              769.19,
+              0.650111
+            ],
+            [
+              996.83,
+              0.727832
+            ],
+            [
+              1468.0,
+              0.946805
+            ]
+          ]
         }
       }
-      //
-      //
-      // [ CUSTOM ATMOSPHERE ]
-      // ,{
-      //   "method": "set_atmospheric_model",
-      //   "kwargs": {
-      //     "type": "custom_atmosphere",
-      //     "_wind_magnitude_ground_m_s": 8.7,
-      //     "_wind_heading_deg": 315,
-      //     "_wind_u_ground": "= $_wind_magnitude_ground_m_s * sin(radians($_wind_heading_deg))",
-      //     "_wind_v_ground": "= $_wind_magnitude_ground_m_s * cos(radians($_wind_heading_deg))",
-      //     "wind_u": [
-      //       [0,   "= 1.00 * $_wind_u_ground"],
-      //       [50,  "= 1.05 * $_wind_u_ground"],
-      //       [100, "= 1.10 * $_wind_u_ground"],
-      //       [150, "= 1.15 * $_wind_u_ground"],
-      //       [200, "= 1.20 * $_wind_u_ground"],
-      //       [250, "= 1.25 * $_wind_u_ground"],
-      //       [300, "= 1.30 * $_wind_u_ground"]
-      //     ],
-      //     "wind_v": [
-      //       [0,   "= 1.00 * $_wind_v_ground"],
-      //       [50,  "= 1.05 * $_wind_v_ground"],
-      //       [100, "= 1.10 * $_wind_v_ground"],
-      //       [150, "= 1.15 * $_wind_v_ground"],
-      //       [200, "= 1.20 * $_wind_v_ground"],
-      //       [250, "= 1.25 * $_wind_v_ground"],
-      //       [300, "= 1.30 * $_wind_v_ground"]
-      //     ]
-      //   }
-      // }
     ]
   },
   "SolidMotor": {
-    // 23 Oct 2026, 8 mm static fire: trimmed to 2.1239-3.6398 s and shifted to t=0.
-    // Duplicate timestamp averaged; negative endpoint readings set to zero.
-    "thrust_source": "thrust_curve8mm_20261023.csv",
+    // 25 Oct Mission Analysis input: 23 Oct 8 mm static fire, 224.81 N*s.
+    // Propulsion window shifted to zero, negative readings clipped, curve closed at zero.
+    // A zero-thrust t=0 row precedes the official first sample at 0.0039 s.
+    "thrust_source": "thrust_curve8mm_20261025.csv",
     "dry_mass": 0.61785, // Measured motor hardware; wet mass 0.824 kg.
     "dry_inertia": [0.00455276, 0.00455276, 0.000222935],
     "nozzle_radius": 0.0089443, // Nozzle exit diameter 17.89 mm (expansion ratio 5); throat diameter 8 mm.
@@ -93,51 +190,27 @@
     "grain_outer_radius": 0.0165,
     "grain_initial_inner_radius": 0.0065,
     "grain_initial_height": 0.147,
-    // Fit RocketPy's effective density to the measured grain mass using these grain dimensions.
-    // Material estimate for KNSB + 1% Fe2O3 was 1853.75 kg/m^3.
+    // Measured grain mass is 206.15 g. Density uses its listed design-volume estimate
     "_grain_mass": 0.20615,
-    "grain_density": "= $SolidMotor._grain_mass / (pi * ($SolidMotor.grain_outer_radius^2 - $SolidMotor.grain_initial_inner_radius^2) * $SolidMotor.grain_initial_height)",
+    "grain_density": 1940.8,
     "grain_separation": 0.002,
     "grains_center_of_mass_position": 0.123459, // Grain center in a 0.2320 m long motor; positions run from nozzle to chamber.
     "center_of_dry_mass_position": 0.0873014,
     "nozzle_position": 0,
-    "burn_time": 1.5159, // Matches the cleaned curve; reported as 1.520 s.
+    "burn_time": 1.5198,
     "coordinate_system_orientation": "nozzle_to_combustion_chamber"
   },
-  // To use the 23 Oct 7 mm firing, comment out the 8 mm SolidMotor above and uncomment this block.
-  // The 7 mm sheet lists 0.63515 kg dry and 0.20185 kg grain, but 0.846 kg wet: a 0.009 kg discrepancy.
-  // It gives no motor geometry or inertia; those values below carry over from 8 mm, except the 7 mm throat.
-  // The cleaned CSV spans 1.3800 s; the results image reports 1.389 s.
-  // "SolidMotor": {
-  //   "thrust_source": "thrust_curve7mm_20261023.csv",
-  //   "dry_mass": 0.63515,
-  //   "dry_inertia": [0.00455276, 0.00455276, 0.000222935],
-  //   "nozzle_radius": 0.0089443,
-  //   "throat_radius": 0.0035,
-  //   "grain_number": 1,
-  //   "grain_outer_radius": 0.0165,
-  //   "grain_initial_inner_radius": 0.0065,
-  //   "grain_initial_height": 0.147,
-  //   "_grain_mass": 0.20185,
-  //   "grain_density": "= $SolidMotor._grain_mass / (pi * ($SolidMotor.grain_outer_radius^2 - $SolidMotor.grain_initial_inner_radius^2) * $SolidMotor.grain_initial_height)",
-  //   "grain_separation": 0.002,
-  //   "grains_center_of_mass_position": 0.123459,
-  //   "center_of_dry_mass_position": 0.0873014,
-  //   "nozzle_position": 0,
-  //   "burn_time": 1.38,
-  //   "coordinate_system_orientation": "nozzle_to_combustion_chamber"
-  // },
   "RocketV2": {
-    // FRED2.0 v1.0 geometry from OpenRocket FRED2.0-V1.0.ork via ork_positions.py.
-    // Rocket positions run from nose tip toward tail; motor nozzle exit is at tail.
+    // FRED2.0 v1.1 without AMI: 24 Oct measured dry mass, 25 Oct Mission Analysis geometry.
+    // Dry mass excludes motor hardware; positions run from nose tip toward tail.
     "radius": 0.0425,
-    "_dry_mass": 2.45,
+    "_dry_mass": 2.164,
     "_ballast": 0.0,
     "mass": "= $RocketV2._dry_mass + $RocketV2._ballast",
-    "inertia": [0.159, 0.159, 0.003],
+    "inertia": [0.129, 0.129, 0.002],
     "power_off_drag": "cd_mach.csv",
     "power_on_drag": "cd_mach.csv",
-    "center_of_mass_without_motor": 0.439,
+    "center_of_mass_without_motor": 0.434,
     "coordinate_system_orientation": "nose_to_tail"
   },
   "set_rail_buttons": {
@@ -173,21 +246,20 @@
   },
   "add_parachute": [
     {
-      // Mission Analysis: one Rocketman 4 ft main, Cd 0.97, area 1.168 m^2,
-      // no spill hole, intended to open at apogee. HIL follows the FC command.
+      // Mission Analysis: one Rocketman 4 ft main, CdS 1.13296 m^2, 1 s opening lag.
       "name": "Main",
       "_trigger": "main",
       "_cd": 0.97,
       "_area": 1.168,
       "cd_s": "= $_cd * $_area",
-      "lag": 1.5
+      "lag": 1.0
       // "noise": [0, 6.5, 0.3]
     }
   ],
   "Flight": {
     "rail_length": 1.5,
     "inclination": 70,
-    "heading": 160,
+    "heading": 180,
     "time_overshoot": false
   },
   "Sensors": {

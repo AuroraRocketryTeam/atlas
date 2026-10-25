@@ -71,10 +71,11 @@ from hil_utils import (
 # ----------------------------------------------------------------------
 
 G0 = 9.80665
-FRED_SITE_IMAGE = Path(__file__).with_name("Villafranca_airfield_launch_site.jpg")
+FRED_SITE_IMAGE = Path(__file__).with_name("Villafranca_satellite.jpg")
 FRED_SITE_ORIGIN = (44.290583, 12.027111)  # latitude, longitude of (0, 0)
-# Manually fitted to OpenStreetMap roads/buildings; approximate, not survey-grade.
-FRED_SITE_EXTENT_M = (-1043, 657, -407, 593)  # west, east, south, north
+FRED_LAUNCH_SITES = {FRED_SITE_ORIGIN, (44.2901999, 12.0278684)}
+# Mission Analysis extent for the Esri tile image; verify with local control points.
+FRED_SITE_EXTENT_M = (-1043.10, 657.12, -407.15, 593.24)  # west, east, south, north
 
 # Keep this local so hil_capture.py can plot saved captures without importing
 # hil_communication.py. These names mirror RocketState / hil_communication.
@@ -1582,18 +1583,18 @@ def plot_hil_log(
     longitude_deg = _as_array(hil_log, "longitude_deg")
     altitude_m = _as_array(hil_log, "altitude_m")
 
-    is_fred_capture = metadata.get("rocket") == "fred"
+    is_fred_capture = metadata.get("rocket") in {"fred", "fred_ami"}
+    launch_site = (metadata.get("environment_latitude"), metadata.get("environment_longitude"))
     fred_site_map = (
         is_fred_capture
-        and metadata.get("environment_latitude") == FRED_SITE_ORIGIN[0]
-        and metadata.get("environment_longitude") == FRED_SITE_ORIGIN[1]
+        and launch_site in FRED_LAUNCH_SITES
     )
     if is_fred_capture and not fred_site_map:
         print("[PLOT] Villafranca map skipped: capture launch coordinates differ from its calibrated origin")
     gps_x, gps_y = _lat_lon_to_local_meters(
         latitude_deg,
         longitude_deg,
-        FRED_SITE_ORIGIN if fred_site_map else None,
+        launch_site if fred_site_map else None,
     )
 
     accel_x_g = accel_x_m_s2 / G0
@@ -1720,7 +1721,16 @@ def plot_hil_log(
     fig_track, ax_track = plt.subplots(figsize=(8, 8))
     map_image_available = fred_site_map and FRED_SITE_IMAGE.is_file()
     if map_image_available:
-        ax_track.imshow(plt.imread(FRED_SITE_IMAGE), extent=FRED_SITE_EXTENT_M, origin="upper")
+        # The JPEG extent is calibrated to the old pad; express it relative to this capture's pad.
+        map_x, map_y = _lat_lon_to_local_meters(
+            np.array([FRED_SITE_ORIGIN[0]]), np.array([FRED_SITE_ORIGIN[1]]), launch_site
+        )
+        west, east, south, north = FRED_SITE_EXTENT_M
+        ax_track.imshow(
+            plt.imread(FRED_SITE_IMAGE),
+            extent=(west + map_x[0], east + map_x[0], south + map_y[0], north + map_y[0]),
+            origin="upper",
+        )
     elif fred_site_map:
         print(f"[PLOT] Villafranca map image not found: {FRED_SITE_IMAGE}")
     track_line, = ax_track.plot(gps_x, gps_y, label="GPS ground track")
