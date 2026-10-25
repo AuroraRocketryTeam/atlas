@@ -18,7 +18,7 @@ ResponseStatusContainer E220LoRaTransmitter::init()
 
     auto res = transmitter.begin();
     auto description = res ? "LoRa module initialized successfully." : "Failed to initialize LoRa module.";
-    return ResponseStatusContainer(res, description);
+    return res ? ResponseStatusContainer::ok(description) : ResponseStatusContainer::error(description);
 }
 
 ResponseStatusContainer E220LoRaTransmitter::init(Configuration config)
@@ -100,7 +100,7 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
     std::vector<uint8_t> byteArray = convertToByteArray(data);
     if (byteArray.empty())
     {
-        return ResponseStatusContainer(ERR_E220_UNKNOWN, "Couldn't convert data to byte array. Wrong data type or empty buffer.");
+        return ResponseStatusContainer::error("Couldn't convert data to byte array. Wrong data type or empty buffer.");
     }
 
     std::vector<uint8_t> compressedData = compressData(byteArray);
@@ -140,6 +140,7 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
 
         packet.calculateCRC();
         // Per debug: Stampa tutto il pacchetto in esadecimale
+        // TODO: usare logging appropriato
         #ifdef __DEBUG__
         packet.printPacket();
         #endif
@@ -151,14 +152,14 @@ ResponseStatusContainer E220LoRaTransmitter::transmit(TransmitDataType data)
 
         if (rc.code != E220_SUCCESS)
         {
-            return ResponseStatusContainer(rc.code, rc.getResponseDescription());
+            return ResponseStatusContainer::error(rc.getResponseDescription());
         }
         packet.header.chunkIndex++;
         // Sposta l'offset al prossimo chunk
         offset += payloadSize;
     }
 
-    return ResponseStatusContainer(E220_SUCCESS, "Data sent successfully.");
+    return ResponseStatusContainer::ok("Data sent successfully.");
 }
 
 bool E220LoRaTransmitter::receive(CommandPacket* packet)
@@ -196,14 +197,20 @@ ResponseStatusContainer E220LoRaTransmitter::configure(Configuration configurati
                                _auxPin, _m0Pin, _m1Pin,
                                UART_BPS_RATE_9600, SERIAL_8N1);
         configurator.begin();
+        configurator.setMode(MODE_3_CONFIGURATION);
         auto response = configurator.setConfiguration(configuration, WRITE_CFG_PWR_DWN_SAVE);
-        _serial->end(); // release the port before the caller reinits it at 115200
-        return ResponseStatusContainer(response.code, response.getResponseDescription());
+        // Leaving mode 3 loads the written configuration
+        vTaskDelay(pdMS_TO_TICKS(500));
+        configurator.setMode(MODE_0_NORMAL);
+        _serial->end();
+        return response.code == E220_SUCCESS ? ResponseStatusContainer::ok(response.getResponseDescription())
+                                             : ResponseStatusContainer::error(response.getResponseDescription());
     }
 
     // Fallback for objects constructed without explicit pins (bpsRate stays whatever it is).
     auto response = transmitter.setConfiguration(configuration, WRITE_CFG_PWR_DWN_SAVE);
-    return ResponseStatusContainer(response.code, response.getResponseDescription());
+    return response.code == E220_SUCCESS ? ResponseStatusContainer::ok(response.getResponseDescription())
+                                         : ResponseStatusContainer::error(response.getResponseDescription());
 }
 
 ResponseStructContainer E220LoRaTransmitter::getConfiguration()

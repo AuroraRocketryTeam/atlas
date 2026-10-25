@@ -1,9 +1,7 @@
-set(MAIN_SRCS)
+set(MAIN_SRCS "app_entry.cpp" "main.cpp")
 
-if(CONFIG_AURORA_HIL_SIMULATION)
+if(AURORA_HIL_ENABLED)
     list(APPEND MAIN_SRCS "main_hil.cpp")
-else()
-    list(APPEND MAIN_SRCS "main.cpp")
 endif()
 
 # register the component to the build system.
@@ -12,6 +10,9 @@ idf_component_register(
     INCLUDE_DIRS "."
     PRIV_REQUIRES
         nvs_flash
+        spi_flash
+        esp_hw_support
+        app_update
         esp_driver_usb_serial_jtag
         global
         data
@@ -29,7 +30,6 @@ idf_component_register(
         I2C
         SPI
         protocol
-        radio_espnow
         radio_lora
         tests
         # Third-party
@@ -37,6 +37,15 @@ idf_component_register(
         RadioLib-master
     REQUIRES espressif__arduino-esp32
 )
+
+target_compile_definitions(${COMPONENT_LIB} PRIVATE
+    AURORA_HIL_ENABLED=$<BOOL:${AURORA_HIL_ENABLED}>)
+
+# The serializer is header-only and instantiated by these two entry points.
+# Keep their object files dependent on its implementation headers even if
+# generated compiler depfiles are unavailable.
+set_source_files_properties(main.cpp main_hil.cpp PROPERTIES OBJECT_DEPENDS
+    "${CMAKE_CURRENT_LIST_DIR}/../components/logger/serializations/src/PayloadSerializer.hpp;${CMAKE_CURRENT_LIST_DIR}/../components/logger/rocket_logger/src/LogPayload.hpp")
 
 
 # Note: by default, all the components are compiled, but if we want just some ("data" in this case):

@@ -10,20 +10,24 @@
 #include "IStorage.hpp"
 #include "RocketModel.hpp"
 #include "IStateMachine.hpp"
+#include "config.h"
 
 #include "SensorTask.hpp"
 #include "AirbrakesTask.hpp"
 #include "StorageLoggingTask.hpp"
 #include "GpsTask.hpp"
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
 #include "HilSimulationTask.hpp"
 #endif
 
 #include "TelemetryTask.hpp"
 #include "AltitudeTask.hpp"
-#include <EspNowTransmitter.hpp>
-#include <E220LoRaTransmitter.hpp>
+#include "GroundServicesTask.hpp"
+#include <TelemetryLink.hpp>
+#include <IBoardHardware.hpp>
+
+class IGroundTestRunner;
 
 /**
  * @brief Class to manage tasks in the system.
@@ -41,7 +45,9 @@ public:
     TaskManager(std::shared_ptr<RocketModel> rocketModel,
             std::shared_ptr<SD> sd,
             std::shared_ptr<RocketLogger> logger,
-            IStateMachine* fsm = nullptr);
+            IBoardHardware* board,
+            IStateMachine* fsm = nullptr,
+            std::shared_ptr<IGroundTestRunner> testRunner = nullptr);
     
     /**
      * @brief Destroy the Task Manager object
@@ -93,18 +99,34 @@ public:
     bool isTaskRunning(TaskType type) const;
 
     /**
-     * @brief Get the stack usage of a task
-     * 
-     * @param type The type of task to check
-     * @return uint32_t The stack usage of the task
+     * @brief Get the minimum stack remaining for a task since it started.
      */
-    uint32_t getTaskStackUsage(TaskType type) const;
+    uint32_t getTaskStackHighWaterMark(TaskType type) const;
+
+    /**
+     * @brief Log stack high-water marks for currently running managed tasks.
+     */
+    void logActiveTaskStackHealth() const;
+
+    /**
+     * @brief Copy stack high-water marks for currently running managed tasks.
+     */
+    size_t getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const;
     
     /**
      * @brief Print the status of all tasks
      * 
      */
     void printTaskStatus() const;
+
+    /**
+     * @brief Prepare flight-recorder state while RuntimeConfig is still editable
+     * @return true if successful, false otherwise
+     */
+    bool prepareStorageLogging();
+    bool prepareFlightLog();
+    bool activateFlightLog();
+    void markFlightLogComplete();
 
 private:
     // Map of task type to task instance
@@ -116,8 +138,9 @@ private:
 
     std::shared_ptr<SD> _sd;
     // Telemetry
-    std::shared_ptr<EspNowTransmitter> _espNowTransmitter;
-    std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
+    std::shared_ptr<TelemetryLink> _loraTransmitter = nullptr;
 
     IStateMachine* _fsm;
+    IBoardHardware* _board;
+    std::shared_ptr<IGroundTestRunner> _testRunner;
 };

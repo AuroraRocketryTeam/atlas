@@ -5,8 +5,13 @@
 
 file(GLOB SRCS "src/*.cpp" "src/*.c")
 
+# PRIV_REQUIRES so that children don't include it as well
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "src"
     REQUIRES nlohmann_json espressif__arduino-esp32 esp_driver_usb_serial_jtag
+    PRIV_REQUIRES nvs_flash
 )
+
+target_compile_definitions(${COMPONENT_LIB} PUBLIC
+    AURORA_HIL_ENABLED=$<BOOL:${AURORA_HIL_ENABLED}>)

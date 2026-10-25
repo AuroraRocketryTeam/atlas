@@ -20,7 +20,8 @@ enum class TaskType
     GPS,
     ALTITUDE,
     LOGGING,
-    AIRBRAKES
+    AIRBRAKES,
+    GROUND_SERVICES
 };
 
 /**
@@ -59,6 +60,8 @@ struct TaskConfig
     TaskPriority priority;
     TaskCore coreId;
     bool shouldRun;
+    // TODO: add task frequency. e.g. 20 Hz, 50 Hz, 100 Hz. The code will automatically 
+    // take this value for the vTaskDelay() / vTaskDelayUntil() function.
 
     /**
      * @brief Construct a new Task Config object
@@ -97,6 +100,7 @@ inline const char* taskTypeToString(TaskType type) {
         case TaskType::ALTITUDE:        return "ALTITUDE";
         case TaskType::LOGGING:         return "LOGGING";
         case TaskType::AIRBRAKES:       return "AIRBRAKES";
+        case TaskType::GROUND_SERVICES: return "GROUND_SERVICES";
     }
     return "UNKNOWN_TASK";
 }

@@ -1,51 +1,26 @@
-// TODO: LoRa E220 init uses Arduino Serial in this library.
-// Will be replaced with ESP-IDF UART (uart_driver_install / uart_write_bytes).
-
 #include "TaskManager.hpp"
+#include "esp_system.h"
 #include <config.h>
 #include <board.h>
+#include <array>
 
 TaskManager::TaskManager(std::shared_ptr<RocketModel> rocketModel,
                          std::shared_ptr<SD> sd,
                          std::shared_ptr<RocketLogger> logger,
-                         IStateMachine* fsm) :
+                         IBoardHardware* board,
+                         IStateMachine* fsm,
+                         std::shared_ptr<IGroundTestRunner> testRunner) :
                          _rocketModel(rocketModel),
                          _logger(logger),
                          _sd(sd),
-                         _fsm(fsm)
+                         _fsm(fsm),
+                         _board(board),
+                         _testRunner(testRunner)
 {
     LOG_INFO("TaskMgr", "Initialized with model");
 
-    // Initialize ESP-NOW transmitter
-    uint8_t peerMac[] = ESPNOW_PEER_MAC;
-    _espNowTransmitter = std::make_shared<EspNowTransmitter>(peerMac, ESPNOW_CHANNEL);
-
-    // Initialize transmitter
-    ResponseStatusContainer initResult = _espNowTransmitter->init();
-    if (initResult.getCode() != 0)
-    {
-        LOG_ERROR("TaskMgr", "Failed to initialize ESP-NOW: %s", initResult.getDescription().c_str());
-    }
-    else
-    {
-        LOG_INFO("TaskMgr", "ESP-NOW transmitter initialized successfully");
-    }
-
-
-    // Initialize and configure LoRa transmitter
-    // Serial1 is used by GPS, so LoRa uses Serial2
-    _loraTransmitter = std::make_shared<E220LoRaTransmitter>(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN, MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
-
-    auto loraInit = _loraTransmitter->init(E220LoRaTransmitter::defaultConfiguration());
-    if (loraInit.getCode() == E220_SUCCESS)
-    {
-        LOG_INFO("TaskMgr", "LoRa E220 initialized and configured successfully");
-    }
-    else
-    {
-        LOG_ERROR("TaskMgr", "LoRa E220 init failed: %s", loraInit.getDescription().c_str());
-        _loraTransmitter = nullptr; // disable LoRa if init failed
-    }
+    // Handles both choosing the link and checking its availability.
+    _loraTransmitter = createTelemetryLink();
 }
 
 TaskManager::~TaskManager()
@@ -73,12 +48,15 @@ void TaskManager::initializeTasks()
     } else LOG_INFO("TaskManager", "GPS unavailable. Skipping GPS task");
     _tasks[TaskType::STORAGE] = std::make_unique<StorageLoggingTask>(
         _rocketModel,
-        _logger);
+        _logger,
+        _fsm);
 
-#if CONFIG_AURORA_HIL_SIMULATION
+#if AURORA_HIL_ENABLED
         _tasks[TaskType::HIL_SIMULATION] = std::make_unique<HilSimulationTask>(
         _rocketModel,
-        _logger);
+        _logger,
+        _board,
+        _fsm);
 #endif
         
     _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
@@ -86,21 +64,28 @@ void TaskManager::initializeTasks()
         _logger);
     
 
-    // Create TelemetryTask with ESP-NOW and LoRa transmitters
+    // Create TelemetryTask with the LoRa transmitter
     // We should probably change this, such that the transmitted data aligns better with the ones saved in the sd!!!
-    auto telemetryTask = std::make_unique<TelemetryTask>(
-        _rocketModel,
-        _espNowTransmitter,
-        TELEMETRY_INTERVAL_MS,
-        _fsm);
     if (_loraTransmitter)
     {
+        auto telemetryTask = std::make_unique<TelemetryTask>(
+            _rocketModel,
+            _fsm);
         telemetryTask->setLoRaTransmitter(_loraTransmitter);
+        _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
     }
-    _tasks[TaskType::TELEMETRY] = std::move(telemetryTask);
+    else LOG_INFO("TaskManager", "Telemetry link unavailable. Skipping telemetry task");
 
     _tasks[TaskType::ALTITUDE] = std::make_unique<AltitudeTask>(
-        _rocketModel);
+        _rocketModel,
+        _logger);
+
+    _tasks[TaskType::GROUND_SERVICES] = std::make_unique<GroundServicesTask>(
+        _rocketModel,
+        _logger,
+        _board,
+        _fsm,
+        _testRunner);
 
     LOG_INFO("TaskManager", "Created %d task instances", _tasks.size());
 }
@@ -108,14 +93,16 @@ void TaskManager::initializeTasks()
 bool TaskManager::startTask(TaskType type, const TaskConfig &config)
 {
     LOG_INFO("TaskManager", "Starting task type %d with config: %s",
-             static_cast<int>(type), config.name);
+            static_cast<int>(type), config.name);
 
-    // Check if task exists
+    // If we don't find a task of the requested type
+    // the hardware is not available on this board,
+    // so return true.
     auto it = _tasks.find(type);
     if (it == _tasks.end())
     {
-        LOG_ERROR("TaskManager", "ERROR: Task type %d not found", static_cast<int>(type));
-        return false;
+        LOG_WARNING("TaskManager", "Task %s not available on this board, skipped", config.name);
+        return true;
     }
 
     // Check if already running
@@ -126,7 +113,7 @@ bool TaskManager::startTask(TaskType type, const TaskConfig &config)
     }
 
     // Check available memory before starting
-    uint32_t freeHeap = ESP.getFreeHeap();
+    uint32_t freeHeap = esp_get_free_heap_size();
     if (freeHeap < config.stackSize + 1024)
     { // Reserve 1KB buffer
         LOG_ERROR("TaskManager", "ERROR: Insufficient memory. Free: %u, Need: %u",
@@ -152,7 +139,7 @@ void TaskManager::stopTask(TaskType type)
 {
     if (_tasks.find(type) == _tasks.end())
     {
-        LOG_WARNING("TaskManager", "Task type %d not found", static_cast<int>(type));
+        LOG_WARNING("TaskManager", "Not stopping task type %d: not found", static_cast<int>(type));
         return;
     }
 
@@ -163,7 +150,7 @@ void TaskManager::stopTask(TaskType type)
 
         // Record pre-stop status
         LOG_DEBUG("TaskManager", "Pre-stop: %s isRunning=%d, StackHWM=%u, FreeHeap=%u",
-                  task->getName(), task->isRunning(), task->getStackHighWaterMark(), ESP.getFreeHeap());
+                  task->getName(), task->isRunning(), task->getStackHighWaterMark(), esp_get_free_heap_size());
 
         // Request cooperative stop - BaseTask::stop() now handles waiting
         task->stop();
@@ -175,7 +162,7 @@ void TaskManager::stopTask(TaskType type)
         }
         else
         {
-            LOG_INFO("TaskManager", "Task %s stopped - FreeHeap=%u", task->getName(), ESP.getFreeHeap());
+            LOG_INFO("TaskManager", "Task %s stopped - FreeHeap=%u", task->getName(), esp_get_free_heap_size());
         }
     }
 }
@@ -206,7 +193,7 @@ void TaskManager::stopAllTasks()
     // Minimal settle delay since BaseTask::stop() already waits
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    LOG_INFO("TaskManager", "All tasks stopped - FreeHeap: %u bytes", ESP.getFreeHeap());
+    LOG_INFO("TaskManager", "All tasks stopped - FreeHeap: %u bytes", esp_get_free_heap_size());
 }
 
 bool TaskManager::isTaskRunning(TaskType type) const
@@ -215,7 +202,7 @@ bool TaskManager::isTaskRunning(TaskType type) const
     return (it != _tasks.end()) && it->second->isRunning();
 }
 
-uint32_t TaskManager::getTaskStackUsage(TaskType type) const
+uint32_t TaskManager::getTaskStackHighWaterMark(TaskType type) const
 {
     auto it = _tasks.find(type);
     if (it != _tasks.end())
@@ -225,10 +212,36 @@ uint32_t TaskManager::getTaskStackUsage(TaskType type) const
     return 0;
 }
 
+void TaskManager::logActiveTaskStackHealth() const
+{
+    std::array<TaskStackHealth, MAX_MANAGED_TASK_HEALTH_ENTRIES> tasks = {};
+    const size_t taskCount = getActiveTaskStackHealth(tasks.data(), tasks.size());
+    for (size_t index = 0; index < taskCount; ++index)
+    {
+        LOG_EVERY_MS(5000, INFO, "TaskManager", "Task stack: [%s] %s remaining=%u bytes",
+                 tasks[index].type, tasks[index].name, tasks[index].high_water_mark_bytes);
+    }
+}
+
+size_t TaskManager::getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const
+{
+    if (out == nullptr || capacity == 0) return 0;
+
+    size_t count = 0;
+    for (const auto &[type, task] : _tasks)
+    {
+        if (!task || !task->isRunning()) continue;
+        if (count == capacity) break;
+
+        out[count++] = {taskTypeToString(type), task->getName(), task->getStackHighWaterMark()};
+    }
+    return count;
+}
+
 void TaskManager::printTaskStatus() const
 {
     LOG_INFO("TaskManager", "\n=== TASK STATUS ===");
-    LOG_INFO("TaskManager", "Free heap: %u bytes", ESP.getFreeHeap());
+    LOG_INFO("TaskManager", "Free heap: %u bytes", esp_get_free_heap_size());
     LOG_INFO("TaskManager", "Task Status:");
 
     for (const auto &[type, task] : _tasks)
@@ -243,6 +256,34 @@ void TaskManager::printTaskStatus() const
         }
     }
     LOG_INFO("TaskManager", "=================");
+}
+
+bool TaskManager::prepareStorageLogging()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    if (it == _tasks.end() || !it->second) return false;
+    return static_cast<StorageLoggingTask *>(it->second.get())->prepareTelemetryFilename();
+}
+
+bool TaskManager::prepareFlightLog()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    return it != _tasks.end() && it->second && it->second->isRunning() &&
+           static_cast<StorageLoggingTask *>(it->second.get())->prepareFlightLog();
+}
+
+bool TaskManager::activateFlightLog()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    return it != _tasks.end() && it->second && it->second->isRunning() &&
+           static_cast<StorageLoggingTask *>(it->second.get())->activateFlightLog();
+}
+
+void TaskManager::markFlightLogComplete()
+{
+    auto it = _tasks.find(TaskType::STORAGE);
+    if (it != _tasks.end() && it->second)
+        static_cast<StorageLoggingTask *>(it->second.get())->markFlightComplete();
 }
 
 int TaskManager::getRunningTaskCount()

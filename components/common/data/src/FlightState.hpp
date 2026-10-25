@@ -20,6 +20,7 @@ enum class RocketState
 
     // Pre-flight phase
     CALIBRATING,      // Sensor calibration and system checks
+    GROUND_SERVICES, // Local web dashboard, diagnostics, runtime config, and OTA
     READY_FOR_LAUNCH, // Armed and waiting for launch detection
 
     // Flight phase
@@ -32,7 +33,9 @@ enum class RocketState
     STABILIZATION, // Drogue chute deployment and stabilization
     DECELERATION,  // Main chute deployment phase
     LANDING,       // Final descent and landing
-    RECOVERED      // Mission complete, rocket recovered
+    RECOVERED,     // Mission complete, rocket recovered
+
+    EMERGENCY_RECOVERY // Booted with a flight in progress
 };
 
 /**
@@ -61,6 +64,8 @@ enum class FSMEvent
 
     // Pre-flight events
     START_CALIBRATION,    // Begin sensor calibration process
+    START_GROUND_SERVICES, // Bring up ground services after calibration
+    START_READY_FOR_LAUNCH, // Operator confirms launch readiness from ground services
     CALIBRATION_COMPLETE, // Calibration finished successfully
 
     // Launch events
@@ -79,7 +84,12 @@ enum class FSMEvent
 
     // System events
     FORCE_TRANSITION, // Manual override transition
-    EMERGENCY_ABORT   // Emergency abort sequence
+    EMERGENCY_ABORT,  // Emergency abort sequence
+
+    // Restart in flight
+    EMERGENCY_RECOVERY_START, // Booted with the launched flag still raised
+    EMERGENCY_DEPLOYED,       // Deployed, resume nominal sequence
+    EMERGENCY_STAND_DOWN      // False alarm, return to ground services
 };
 
 /**
@@ -135,6 +145,8 @@ inline const char* rocketStateToString(RocketState state) {
     switch (state) {
         case RocketState::INACTIVE:
             return "INACTIVE";
+        case RocketState::GROUND_SERVICES:
+            return "GROUND_SERVICES";
         case RocketState::CALIBRATING:
             return "CALIBRATING";
         case RocketState::READY_FOR_LAUNCH:
@@ -155,6 +167,8 @@ inline const char* rocketStateToString(RocketState state) {
             return "LANDING";
         case RocketState::RECOVERED:
             return "RECOVERED";
+        case RocketState::EMERGENCY_RECOVERY:
+            return "EMERGENCY_RECOVERY";
         default:
             return "UNKNOWN STATE (missing rocketStateToString function's case implementation)";
     }

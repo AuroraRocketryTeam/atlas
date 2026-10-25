@@ -1,4 +1,5 @@
 #include "BNO055SensorInterface.hpp"
+#include "SerialLogger.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <cstring>
@@ -64,6 +65,15 @@ bool BNO055SensorInterface::init()
     }
 
     vTaskDelay(pdMS_TO_TICKS(50));
+
+    // The Bosch API switches to CONFIGMODE and page 1 for this setting, then
+    // restores the operation mode. Restore page 0 explicitly for burst reads.
+    const auto rangeResult = bno055_set_accel_range(BNO055_ACCEL_RANGE_16G);
+    const auto pageResult = bno055_write_page_id(BNO055_PAGE_ZERO);
+    if (rangeResult != BNO055_SUCCESS || pageResult != BNO055_SUCCESS) {
+        LOG_ERROR("BNO055", "Failed to configure accelerometer range to +/-16g");
+        return false;
+    }
 
     return true;
 }

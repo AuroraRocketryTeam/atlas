@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Development build profile. ON compiles and starts the HIL simulator; OFF
+# omits all HIL code from the flight firmware. Edit this value, then build.
+set(AURORA_HIL_ENABLED OFF)
+
 # Each entry must point directly to a component folder (one that has a CMakeLists.txt)
 set(EXTRA_COMPONENT_DIRS
     # common
@@ -19,7 +23,6 @@ set(EXTRA_COMPONENT_DIRS
 
     # telemetry
     ${CMAKE_SOURCE_DIR}/components/telemetry/protocol
-    ${CMAKE_SOURCE_DIR}/components/telemetry/radio_espnow
     ${CMAKE_SOURCE_DIR}/components/telemetry/radio_lora
 
     # logger
@@ -56,11 +59,20 @@ if(NOT EXISTS "${CMAKE_BINARY_DIR}/Kconfig")
     file(WRITE "${CMAKE_BINARY_DIR}/Kconfig" "# Auto-generated placeholder for project Kconfig\n")
 endif()
 
+set(SDKCONFIG_DEFAULTS "${CMAKE_SOURCE_DIR}/sdkconfig.defaults")
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # This registers all the components in the specified directory, so IT IS IMPORTANT to put all the EXTRA_COMPONENT_DIRS before this
 # Note: if two components have the same name the highest priority one will override the other: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/build-system.html#multiple-components-with-the-same-name
 project(atlas)
+
+# esp-modbus 2.1.3 (pulled in transitively by arduino-esp32) trips
+# -Werror=stringop-truncation on GCC 14.x. Downgrade it to a warning for that component only.
+idf_component_get_property(modbus_lib espressif__esp-modbus COMPONENT_LIB)
+if(modbus_lib)
+    target_compile_options(${modbus_lib} PRIVATE -Wno-error=stringop-truncation)
+endif()
 
 # Relax -Werror for implicit-function-declaration — needed for Arduino-ESP32 3.x
 idf_build_set_property(COMPILE_OPTIONS "-Wno-error=implicit-function-declaration" APPEND)

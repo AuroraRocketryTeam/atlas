@@ -1,7 +1,14 @@
 #include "BuzzerController.hpp"
+#include "SerialLogger.hpp"
+#include <driver/ledc.h>
 
-BuzzerController::BuzzerController(gpio_num_t buzzerPin)
-    : buzzerPin(buzzerPin), buzzerTaskHandle(nullptr)
+static constexpr ledc_mode_t      LEDC_MODE            = LEDC_LOW_SPEED_MODE;
+static constexpr ledc_timer_bit_t TONE_DUTY_RESOLUTION = LEDC_TIMER_10_BIT;
+// maximum volume is half of the range (10 bit), which is 512.
+static constexpr uint32_t         TONE_DUTY_HALF       = 512;
+
+BuzzerController::BuzzerController(gpio_num_t buzzerPin, ledc_timer_t timer, ledc_channel_t channel)
+    : buzzerPin(buzzerPin), timer(timer), channel(channel), buzzerTaskHandle(nullptr)
 {
 }
 
@@ -12,12 +19,36 @@ BuzzerController::~BuzzerController()
 
 void BuzzerController::init()
 {
-    // Configure buzzer pin if valid
-    if (buzzerPin > 0)
+    if (buzzerPin <= 0) return;
+
+    ledc_timer_config_t timerConfig = {};
+    timerConfig.speed_mode      = LEDC_MODE;
+    timerConfig.duty_resolution = TONE_DUTY_RESOLUTION;
+    timerConfig.timer_num       = timer;
+    timerConfig.freq_hz         = TONE_MID;
+    timerConfig.clk_cfg         = LEDC_AUTO_CLK;
+    if (ledc_timer_config(&timerConfig) != ESP_OK)
     {
-        // pinMode(buzzerPin, OUTPUT);
-        stopTone();
+        LOG_ERROR("Buzzer", "LEDC timer config failed");
+        return;
     }
+
+    ledc_channel_config_t channelConfig = {};
+    channelConfig.gpio_num   = buzzerPin;
+    channelConfig.speed_mode = LEDC_MODE;
+    channelConfig.channel    = channel;
+    channelConfig.intr_type  = LEDC_INTR_DISABLE;
+    channelConfig.timer_sel  = timer;
+    channelConfig.duty       = 0;
+    channelConfig.hpoint     = 0;
+    if (ledc_channel_config(&channelConfig) != ESP_OK)
+    {
+        LOG_ERROR("Buzzer", "LEDC channel config failed");
+        return;
+    }
+
+    initialized = true;
+    stopTone();
 }
 
 void BuzzerController::startPattern(BuzzerPattern pattern, BuzzerTone baseTone)
@@ -70,18 +101,86 @@ void BuzzerController::stopPattern()
 
 void BuzzerController::playToneFreq(uint16_t frequency)
 {
-    if (buzzerPin == 0 || frequency == 0)
-        return;
+    if (!initialized || frequency == 0) return;
 
-    //::tone(buzzerPin, frequency);
+    // The note is the frequency of the timer
+    ledc_set_freq(LEDC_MODE, timer, frequency);
+    ledc_set_duty(LEDC_MODE, channel, TONE_DUTY_HALF);
+    ledc_update_duty(LEDC_MODE, channel);
 }
 
 void BuzzerController::stopTone()
 {
-    if (buzzerPin > 0)
+    if (!initialized) return;
+
+    ledc_set_duty(LEDC_MODE, channel, 0);
+    ledc_update_duty(LEDC_MODE, channel);
+}
+
+static const MelodyNote JINGLE[] = {
+    {Note::E4, 415}, {Note::E4, 415}, {Note::GS4, 197}, {Note::FS4, 197}, {Note::E4, 415},
+    {Note::GS4, 415}, {Note::GS4, 415}, {Note::B4, 197}, {Note::A4, 197}, {Note::GS4, 415},
+    {Note::A4, 415}, {Note::A4, 415}, {Note::C5, 197}, {Note::B4, 197}, {Note::A4, 415},
+};
+
+void BuzzerController::playMelodyNotes(const MelodyNote *notes, uint8_t count, uint16_t gapMs)
+{
+    for (uint8_t i = 0; i < count; i++)
     {
-        //::noTone(buzzerPin);
+        // A rest is a note with no frequency
+        if (notes[i].frequency > 0) playToneFreq(notes[i].frequency);
+        else stopTone();
+
+        vTaskDelay(pdMS_TO_TICKS(notes[i].duration));
+        stopTone();
+
+        if (gapMs > 0) vTaskDelay(pdMS_TO_TICKS(gapMs));
     }
+}
+
+void BuzzerController::playMelody(const MelodyNote *notes, uint8_t count, uint16_t gapMs)
+{
+    if (!initialized || notes == nullptr) return;
+
+    stopPattern();
+    playMelodyNotes(notes, count, gapMs);
+}
+
+void BuzzerController::playJingle()
+{
+    playMelody(JINGLE, sizeof(JINGLE) / sizeof(JINGLE[0]));
+}
+
+void BuzzerController::melodyTaskFunction(void *param)
+{
+    BuzzerController *self = static_cast<BuzzerController *>(param);
+
+    while (true)
+    {
+        self->playMelodyNotes(self->_loopNotes, self->_loopCount, self->_loopGapMs);
+        self->stopTone();
+        vTaskDelay(pdMS_TO_TICKS(self->_loopPauseMs));
+    }
+}
+
+void BuzzerController::startMelodyLoop(const MelodyNote *notes, uint8_t count, uint16_t gapMs, uint16_t pauseMs)
+{
+    if (!initialized || notes == nullptr || count == 0) return;
+
+    stopPattern();
+
+    _loopNotes = notes;
+    _loopCount = count;
+    _loopGapMs = gapMs;
+    _loopPauseMs = pauseMs;
+
+    // Low priority
+    xTaskCreatePinnedToCore(melodyTaskFunction, "BuzzerMelody", 2048, this, 1, &buzzerTaskHandle, 1);
+}
+
+void BuzzerController::startJingleLoop(uint16_t pauseMs)
+{
+    startMelodyLoop(JINGLE, sizeof(JINGLE) / sizeof(JINGLE[0]), 20, pauseMs);
 }
 
 void BuzzerController::playTone(BuzzerTone frequency, uint16_t duration)
@@ -174,6 +273,13 @@ void BuzzerController::playPatternInternal(BuzzerPattern pattern, BuzzerTone bas
             {baseTone, 200, 200},
             {baseTone, 200, 0}};
         playSequence(seq, 9);
+        break;
+    }
+
+    case BUZZER_INTERMITTENT:
+    {
+        BuzzerSequence seq[] = {{TONE_HIGH, 300, 300}};
+        playSequence(seq, 1, true);
         break;
     }
 

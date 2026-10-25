@@ -1,5 +1,14 @@
 #include <BNO055Sensor.hpp>
 #include <utils.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+static constexpr uint32_t BNO055_LOOKUP_MAX_ATTEMPTS = 5;
+static constexpr uint32_t BNO055_LOOKUP_TIMEOUT_MS = 1000;
+
+// Mode the device is left in once init() succeeds. AMG keeps the +/-16 g
+// accelerometer range, which any fusion mode would force back to +/-4 g.
+static constexpr uint8_t BNO055_TARGET_OPERATION_MODE = BNO055_OPERATION_MODE_AMG;
 
 BNO055Sensor::BNO055Sensor(const char *sensorName, I2CBus* bus, uint8_t address)
     : ISensor(sensorName), _bno_interface(bus, address)
@@ -9,38 +18,38 @@ BNO055Sensor::BNO055Sensor(const char *sensorName, I2CBus* bus, uint8_t address)
 
 bool BNO055Sensor::init()
 {
-    int attempts = 0;
-    uint32_t start = Utils::millis();
-    bool initialized = false;
-    
-    while (attempts++ < SENSOR_LOOKUP_MAX_ATTEMPTS) {
-        if (_bno_interface.init()) {
-            // Auto-load calibration from NVS
-            loadCalibrationFromNVS();
+    for (uint32_t attempt = 1; attempt <= BNO055_LOOKUP_MAX_ATTEMPTS; attempt++) {
+        if (_bno_interface.init() &&
+            _bno_interface.set_operation_mode(BNO055_TARGET_OPERATION_MODE)) {
+            _operationMode = BNO055_TARGET_OPERATION_MODE;
 
-            if (_bno_interface.set_operation_mode(BNO055_OPERATION_MODE_NDOF /* BNO055_OPERATION_MODE_NDOF BNO055_OPERATION_MODE_ACCONLY */ )) {
-                initialized = true;
-                break;
+            if (isFusionMode()) {
+                loadCalibrationFromNVS();
             } else {
-                return false;
+                // Non fusion modes do not apply offsets
+                LOG_INFO("BNO055", "Calibration skipped: device is in a non-fusion mode.");
             }
-        } else {
-            return false;
+
+            if (attempt > 1) {
+                LOG_INFO("BNO055", "Initialized on attempt %lu", static_cast<unsigned long>(attempt));
+            }
+            this->setInitialized(true);
+            return true;
         }
-        
-        uint32_t end = Utils::millis();
-        while (end - start < SENSOR_LOOKUP_TIMEOUT) {
-            end = Utils::millis();
+
+        LOG_WARNING("BNO055", "Init attempt %lu of %lu failed",
+                    static_cast<unsigned long>(attempt),
+                    static_cast<unsigned long>(BNO055_LOOKUP_MAX_ATTEMPTS));
+
+        // The device takes about 650 ms after a power on reset before it answers
+        if (attempt < BNO055_LOOKUP_MAX_ATTEMPTS) {
+            vTaskDelay(pdMS_TO_TICKS(BNO055_LOOKUP_TIMEOUT_MS));
         }
-        start = Utils::millis();
     }
-    
-    if (!initialized) {
-        return false;
-    }
-    
-    this->setInitialized(true);
-    return true;
+
+    LOG_ERROR("BNO055", "Not responding after %lu attempts, giving up",
+              static_cast<unsigned long>(BNO055_LOOKUP_MAX_ATTEMPTS));
+    return false;
 }
 
 
@@ -63,20 +72,17 @@ bool BNO055Sensor::updateData()
     _data.calibration_accel = _burst_data.calib_accel;
     _data.calibration_mag = _burst_data.calib_mag;
 
-    // Map orientation (Euler angles)
-    _data.orientation_x = _burst_data.euler[0];
-    _data.orientation_y = _burst_data.euler[1];
-    _data.orientation_z = _burst_data.euler[2];
+    // AMG has no fusion output. Keep placeholders for live telemetry consumers.
+    _data.validGroups = IMUData::VALIDITY_SENSOR_CALIBRATION | IMUData::VALIDITY_ANGULAR_VELOCITY |
+                        IMUData::VALIDITY_ACCELERATION | IMUData::VALIDITY_MAGNETOMETER | IMUData::VALIDITY_TEMPERATURE;
+    _data.orientation_x = _data.orientation_y = _data.orientation_z = 0.0f;
 
     // Map angular velocity (gyroscope)
     _data.angular_velocity_x = _burst_data.gyro[0];
     _data.angular_velocity_y = _burst_data.gyro[1];
     _data.angular_velocity_z = _burst_data.gyro[2];
 
-    // Map linear acceleration
-    _data.linear_acceleration_x = _burst_data.lin_accel[0];
-    _data.linear_acceleration_y = _burst_data.lin_accel[1];
-    _data.linear_acceleration_z = _burst_data.lin_accel[2];
+    _data.linear_acceleration_x = _data.linear_acceleration_y = _data.linear_acceleration_z = 0.0f;
 
     // Map magnetometer data
     _data.magnetometer_x = _burst_data.mag[0];
@@ -88,19 +94,13 @@ bool BNO055Sensor::updateData()
     _data.acceleration_y = _burst_data.accel[1];
     _data.acceleration_z = _burst_data.accel[2];
 
-    // Map gravity vector
-    _data.gravity_x = _burst_data.gravity[0];
-    _data.gravity_y = _burst_data.gravity[1];
-    _data.gravity_z = _burst_data.gravity[2];
+    _data.gravity_x = _data.gravity_y = _data.gravity_z = 0.0f;
 
     // Map temperature
     _data.temperature = _burst_data.temp;
 
-    // Map quaternion data (order from get_burst_data parsing is W, X, Y, Z)
-    _data.quaternion_w = _burst_data.quaternion[0];
-    _data.quaternion_x = _burst_data.quaternion[1];
-    _data.quaternion_y = _burst_data.quaternion[2];
-    _data.quaternion_z = _burst_data.quaternion[3];
+    _data.quaternion_w = 1.0;
+    _data.quaternion_x = _data.quaternion_y = _data.quaternion_z = 0.0;
 
     // Update timestamp and validation flag
     _data.timestamp = Utils::millis();
@@ -125,9 +125,19 @@ IMUData BNO055Sensor::getData() {
     return _data;
 }
 
+bool BNO055Sensor::isFusionMode() const {
+    return _operationMode >= BNO055_OPERATION_MODE_IMUPLUS;
+}
+
 bool BNO055Sensor::isFullyCalibrated() {
     if (!this->isInitialized()) {
         return false;
+    }
+
+    // If we're not in a fusion mode calibrating is done manually
+    // via live data.
+    if (!isFusionMode()) {
+        return true;
     }
 
     // If the calibration was restored from NVS, we can assume it's fully calibrated
@@ -138,7 +148,10 @@ bool BNO055Sensor::isFullyCalibrated() {
         return true; 
     }
     
-    return _bno_interface.check_calibration() == 3;
+    // System calibration describes fusion and cannot reach 3 in AMG mode.
+    return _bno_interface.check_calibration_accel() == 3 &&
+           _bno_interface.check_calibration_gyro() == 3 &&
+           _bno_interface.check_calibration_mag() == 3;
 }
 
 bool BNO055Sensor::saveCalibrationToNVS() {

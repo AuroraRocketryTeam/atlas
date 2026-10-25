@@ -33,7 +33,7 @@ void BNO055Printer::displayAccelleration() {
 
 void BNO055Printer::displayGyroscope() {
     printXYZMap("angular_velocity");
-    Serial.println(" rad/s");
+    Serial.println(" deg/s");
     Serial.println("");
 }
 

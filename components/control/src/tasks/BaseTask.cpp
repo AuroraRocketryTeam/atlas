@@ -16,7 +16,8 @@ BaseTask::~BaseTask()
 
 bool BaseTask::start(const TaskConfig &config)
 {
-    LOG_INFO("BaseTask", "Successfully started task: %s", taskName);
+    const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    LOG_INFO("BaseTask", "Starting task: %s", taskName);
     if (running)
         return false;
 
@@ -58,7 +59,14 @@ bool BaseTask::start(const TaskConfig &config)
 
     // Creation failed: revert running flag
     running = false;
-    LOG_ERROR("BaseTask", "Failed to create task %s", taskName);
+    LOG_ERROR("BaseTask", "Failed to create %s: result=%ld stack=%lu, internal free=%u largest=%u, PSRAM free=%u largest=%u",
+              taskName,
+              static_cast<long>(result),
+              static_cast<unsigned long>(config.stackSize),
+              static_cast<unsigned>(heap_caps_get_free_size(internalCaps)),
+              static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
+              static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
+              static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
     return false;
 }
 

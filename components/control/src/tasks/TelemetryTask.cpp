@@ -1,14 +1,23 @@
 #include "TelemetryTask.hpp"
+#include "esp_system.h"
+#include <cstdio>
 #include <utils.h>
-#ifdef CONFIG_TELEMETRY_USB_MIRROR
-#  include "driver/usb_serial_jtag.h"
-#endif
+#include "RuntimeConfig.hpp"
+
+static constexpr uint32_t TELEMETRY_SENSOR_LOG_PERIOD_MS = 5000;
 
 constexpr float TROPOSPHERE_HEIGHT = 11000.f; // Troposphere height [m]
 constexpr float a = 0.0065f;                  // Troposphere temperature gradient [deg/m]
 constexpr float R = 287.05f;                  // Air gas constant [J/Kg/K]
 #define n (GRAVITY / (R * a))
 #define nInv ((R * a) / GRAVITY)
+
+namespace {
+std::atomic_bool s_loraAvailable{false};
+std::atomic_uint32_t s_loraSuccessfulMessages{0};
+std::atomic_uint32_t s_loraFailedMessages{0};
+std::atomic_uint32_t s_loraLastSuccessMs{0};
+}
 
 float relAltitude_tele(float pressure, float pressureRef = 101325.0f,
                        float temperatureRef = 288.15f)
@@ -18,40 +27,51 @@ float relAltitude_tele(float pressure, float pressureRef = 101325.0f,
 
 
 TelemetryTask::TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
-                             std::shared_ptr<EspNowTransmitter> espNowTransmitter,
-                             uint32_t intervalMs,
                              IStateMachine* fsm)
     : BaseTask("TelemetryTask"),
       _rocketModel(rocketModel),
-      _transmitter(espNowTransmitter),
       _fsm(fsm),
-      _transmitIntervalMs(intervalMs),
       _lastTransmitTime(0),
       _lastAckCommandId(0),
       _messagesCreated(0),
-      _packetsSent(0),
       _transmitErrors(0)
 {
-    LOG_INFO("Telemetry", "Created with transmit interval: %lu ms", _transmitIntervalMs);
     LOG_INFO("Telemetry", "Telemetry packet size: %d bytes", sizeof(TelemetryPacket));
 }
 
 void TelemetryTask::onTaskStart()
 {
     LOG_INFO("Telemetry", "Task started with stack: %u bytes", config.stackSize);
-    LOG_INFO("Telemetry", "Transmitter: %s", _transmitter ? "OK" : "NULL");
+    LOG_INFO("Telemetry", "LoRa transmitter: %s", _loraTransmitter ? "OK" : "NULL");
     _lastTransmitTime = Utils::millis();
+    s_loraAvailable.store(_loraTransmitter != nullptr, std::memory_order_release);
+    s_loraSuccessfulMessages.store(0, std::memory_order_relaxed);
+    s_loraFailedMessages.store(0, std::memory_order_relaxed);
+    s_loraLastSuccessMs.store(0, std::memory_order_relaxed);
+}
+
+void TelemetryTask::setLoRaTransmitter(std::shared_ptr<TelemetryLink> transmitter)
+{
+    _loraTransmitter = std::move(transmitter);
+    s_loraAvailable.store(_loraTransmitter != nullptr, std::memory_order_release);
 }
 
 void TelemetryTask::onTaskStop()
 {
-    LOG_INFO("Telemetry", "Task stopped - Stats: messages=%lu, packets=%lu, errors=%lu",
-             _messagesCreated, _packetsSent, _transmitErrors);
+    LOG_INFO("Telemetry", "Task stopped - Stats: messages=%lu, errors=%lu",
+             _messagesCreated, _transmitErrors);
 }
 
 void TelemetryTask::taskFunction()
 {
-    uint32_t loopCount = 0;
+    RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+    uint32_t transmitIntervalMs = runtimeConfig.telemetry.period_ms;
+    uint32_t pollingIntervalMs = transmitIntervalMs / 10 < 10
+        ? 10
+        : transmitIntervalMs / 10;
+    TickType_t pollingPeriod = pdMS_TO_TICKS(pollingIntervalMs);
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", static_cast<unsigned long>(transmitIntervalMs));
 
     while (running)
     {
@@ -61,15 +81,30 @@ void TelemetryTask::taskFunction()
         if (!running)
             break;
 
+        if (runtime_config_get_flight_revision() != runtimeConfig.config_revision) {
+            const RuntimeConfig updatedConfig = runtime_config_get_flight_snapshot();
+            if (updatedConfig.telemetry.period_ms != transmitIntervalMs) {
+                transmitIntervalMs = updatedConfig.telemetry.period_ms;
+                pollingIntervalMs = transmitIntervalMs / 10 < 10
+                    ? 10
+                    : transmitIntervalMs / 10;
+                pollingPeriod = pdMS_TO_TICKS(pollingIntervalMs);
+                lastWakeTime = xTaskGetTickCount();
+                LOG_INFO("Telemetry", "Applied RuntimeConfig telemetry period: %lu ms",
+                         static_cast<unsigned long>(transmitIntervalMs));
+            }
+            runtimeConfig = updatedConfig;
+        }
+
         uint32_t now = Utils::millis();
 
         // Check if it's time to transmit
-        if (now - _lastTransmitTime >= _transmitIntervalMs)
+        if (now - _lastTransmitTime >= transmitIntervalMs)
         {
             _lastTransmitTime = now;
 
-            // Poll LoRa RX before building the packet so any received command
-            // is reflected in last_ack_command_id within the same TX cycle.
+            // Read what the last transmission brought back before building the
+            // packet, so a command is acknowledged within the same cycle.
             if (_loraTransmitter && running)
                 pollLoRaRx();
 
@@ -81,72 +116,42 @@ void TelemetryTask::taskFunction()
                 std::vector<uint8_t> message(sizeof(TelemetryPacket));
                 memcpy(message.data(), &packet, sizeof(TelemetryPacket));
 
-                LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
-
-                // Transmit via ESP-NOW
-                if (transmitMessage(message))
-                {
-                    _messagesCreated++;
-                    LOG_INFO("Telemetry", "Packet %lu transmitted via ESP-NOW", _messagesCreated);
-                }
-                else
-                {
-                    _transmitErrors++;
-                    LOG_WARNING("Telemetry", "Failed to transmit packet via ESP-NOW (errors: %lu)", _transmitErrors);
-                }
+                // LOG_DEBUG("Telemetry", "Packet size: %d bytes", message.size());
+                ++_messagesCreated;
 
                 // Transmit via LoRa
                 if (_loraTransmitter && running)
                 {
                     auto result = _loraTransmitter->transmit(message);
-                    if (result.getCode() == E220_SUCCESS)
+                    if (result.isOk())
                     {
-                        LOG_INFO("Telemetry", "Packet %lu transmitted via LoRa", _messagesCreated);
+                        s_loraSuccessfulMessages.fetch_add(1, std::memory_order_relaxed);
+                        s_loraLastSuccessMs.store(now, std::memory_order_release);
+                        LOG_EVERY_MS(5000, INFO, "Telemetry", "Packet %lu transmitted via LoRa", _messagesCreated);
                     }
                     else
                     {
+                        _transmitErrors++;
+                        s_loraFailedMessages.fetch_add(1, std::memory_order_relaxed);
                         LOG_WARNING("Telemetry", "LoRa transmit failed: %s", result.getDescription().c_str());
                     }
                 }
                 else
                 {
-                    LOG_WARNING("Telemetry", "LoRa transmitter not available, skipping LoRa transmission");
+                    LOG_EVERY_MS(10000, WARNING, "Telemetry", "LoRa transmitter not available, skipping LoRa transmission");
                 }
-
-#ifdef CONFIG_TELEMETRY_USB_MIRROR
-                if (message.size() <= 255)
-                {
-                    const uint8_t frame[3] = {0xAA, 0x55, static_cast<uint8_t>(message.size())};
-                    usb_serial_jtag_write_bytes(frame, sizeof(frame), portMAX_DELAY);
-                    usb_serial_jtag_write_bytes(message.data(), message.size(), portMAX_DELAY);
-                }
-#endif
             }
         }
 
-        // Log stats periodically
-        if (loopCount % 10 == 0 && loopCount > 0)
-        {
-            uint32_t txSent, txFailed;
-            if (_transmitter)
-            {
-                _transmitter->getStats(txSent, txFailed);
-                LOG_INFO("Telemetry", "Stats: msgs=%lu, pkts=%lu, tx_ok=%lu, tx_fail=%lu, heap=%u",
-                         _messagesCreated, _packetsSent, txSent, txFailed, ESP.getFreeHeap());
-            }
-        }
+        const LoRaTelemetryStatus lora = getLoRaStatus();
+        LOG_EVERY_MS(5000, INFO, "Telemetry",
+                     "Stats: msgs=%lu, errors=%lu, lora_ok=%lu, lora_fail=%lu, heap=%u",
+                     _messagesCreated, _transmitErrors,
+                     lora.successful_messages, lora.failed_messages, esp_get_free_heap_size());
 
-        loopCount++;
-
-        // Check running flag frequently during delay (50ms chunks)
-        uint32_t delayRemaining = _transmitIntervalMs / 10; // Split into 10 chunks
-        if (delayRemaining < 10)
-            delayRemaining = 10;
-
-        for (uint32_t i = 0; i < 10 && running; i++)
-        {
-            vTaskDelay(pdMS_TO_TICKS(delayRemaining));
-        }
+        // Wake ten times per transmit interval (minimum 10 ms) so shutdown
+        // reacts promptly without adding the preceding work time to the schedule.
+        vTaskDelayUntil(&lastWakeTime, pollingPeriod);
     }
 }
 
@@ -175,12 +180,19 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.imu.accel_x = outBnoData.acceleration_x;
             packet.imu.accel_y = outBnoData.acceleration_y;
             packet.imu.accel_z = outBnoData.acceleration_z;
-            LOG_DEBUG("Telemetry", "ACC_X: %.2f, ACC_Y: %.2f, ACC_Z: %.2f", packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z);
-            packet.imu.gyro_x = outBnoData.orientation_x;
-            packet.imu.gyro_y = outBnoData.orientation_y;
-            packet.imu.gyro_z = outBnoData.orientation_z;
-        } else {
-            LOG_WARNING("Telemetry", "BNO055 data not available");
+            packet.imu.orientation_x = outBnoData.orientation_x;
+            packet.imu.orientation_y = outBnoData.orientation_y;
+            packet.imu.orientation_z = outBnoData.orientation_z;
+            packet.imu.linear_accel_x = outBnoData.linear_acceleration_x;
+            packet.imu.linear_accel_y = outBnoData.linear_acceleration_y;
+            packet.imu.linear_accel_z = outBnoData.linear_acceleration_z;
+            packet.imu.gyro_x = outBnoData.angular_velocity_x;
+            packet.imu.gyro_y = outBnoData.angular_velocity_y;
+            packet.imu.gyro_z = outBnoData.angular_velocity_z;
+            packet.imu.calib_sys = outBnoData.calibration_sys;
+            packet.imu.calib_gyro = outBnoData.calibration_gyro;
+            packet.imu.calib_accel = outBnoData.calibration_accel;
+            packet.imu.calib_mag = outBnoData.calibration_mag;
         }
 
         PressureSensorData outMs56Data1;
@@ -191,8 +203,6 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.baro_altitude = relAltitude_tele(outMs56Data1.pressure,
                                                     _rocketModel->getLaunchpadBasePressure(),
                                                     _rocketModel->getLaunchpadBaseTemperature());
-        } else {
-            LOG_WARNING("Telemetry", "Barometer 1 data not available");
         }
 
         PressureSensorData outMs56Data2;
@@ -200,8 +210,6 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
         if (baro2Status == SensorReadStatus::OK) {
             packet.baro2.pressure = outMs56Data2.pressure;
             packet.baro2.temperature = outMs56Data2.temperature;
-        } else {
-            LOG_WARNING("Telemetry", "Barometer 2 data not available");
         }
 
         GPSData gpsData;
@@ -210,14 +218,13 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.gps.latitude = gpsData.latitude;
             packet.gps.longitude = gpsData.longitude;
             packet.gps.altitude = gpsData.altitude;
-            LOG_DEBUG("Telemetry", "GPS ALT: %.2f LAT: %.6f LON: %.6f",
-                      packet.gps.altitude, packet.gps.latitude, packet.gps.longitude);
-        } else {
-            LOG_WARNING("Telemetry", "GPS data not available");
         }
 
         packet.velocity = _rocketModel->getHeightGainSpeed();
-        LOG_INFO("Telemetry", "Done collecting sensor data!");
+
+        // Single periodic readout of everything this packet carries. A sensor
+        // that failed to read is reported as "n/a" rather than as a zeroed value.
+        logSensorValues(packet, bnoStatus, baro1Status, baro2Status, gpsStatus);
     }
     catch (const std::exception &e)
     {
@@ -228,55 +235,52 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
     return true;
 }
 
-bool TelemetryTask::transmitMessage(const std::vector<uint8_t> &message)
+void TelemetryTask::logSensorValues(const TelemetryPacket &packet,
+                                    SensorReadStatus imuStatus,
+                                    SensorReadStatus baro1Status,
+                                    SensorReadStatus baro2Status,
+                                    SensorReadStatus gpsStatus) const
 {
-    if (!_transmitter || message.empty())
-    {
-        return false;
+    const bool imuOk = imuStatus == SensorReadStatus::OK;
+    const bool baro1Ok = baro1Status == SensorReadStatus::OK;
+    const bool baro2Ok = baro2Status == SensorReadStatus::OK;
+    const bool gpsOk = gpsStatus == SensorReadStatus::OK;
+
+    char imuText[160] = "n/a";
+    char baro1Text[64] = "n/a";
+    char baro2Text[64] = "n/a";
+    char gpsText[64] = "n/a";
+
+    if (imuOk) {
+        snprintf(imuText, sizeof(imuText),
+                 "a=%.2f/%.2f/%.2f att=%.1f/%.1f/%.1f lin=%.2f/%.2f/%.2f gyro=%.1f/%.1f/%.1f deg/s calib=%u%u%u%u",
+                 packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z,
+                 packet.imu.orientation_x, packet.imu.orientation_y, packet.imu.orientation_z,
+                 packet.imu.linear_accel_x, packet.imu.linear_accel_y, packet.imu.linear_accel_z,
+                 packet.imu.gyro_x, packet.imu.gyro_y, packet.imu.gyro_z,
+                 packet.imu.calib_sys, packet.imu.calib_gyro, packet.imu.calib_accel, packet.imu.calib_mag);
+    }
+    if (baro1Ok) {
+        snprintf(baro1Text, sizeof(baro1Text), "%.1fPa %.2fC alt=%.2fm",
+                 packet.baro1.pressure, packet.baro1.temperature, packet.baro_altitude);
+    }
+    if (baro2Ok) {
+        snprintf(baro2Text, sizeof(baro2Text), "%.1fPa %.2fC",
+                 packet.baro2.pressure, packet.baro2.temperature);
+    }
+    if (gpsOk) {
+        snprintf(gpsText, sizeof(gpsText), "%.6f,%.6f %.2fm",
+                 packet.gps.latitude, packet.gps.longitude, packet.gps.altitude);
     }
 
-    // Divide message into packets
-    std::vector<Packet> packets = PacketManager::divideMessage(message.data(), message.size());
-
-    if (packets.empty())
-    {
-        LOG_ERROR("Telemetry", "Failed to divide message into packets");
-        return false;
-    }
-
-    LOG_DEBUG("Telemetry", "Transmitting %d packets", packets.size());
-
-    // Send each packet
-    bool allSuccess = true;
-    for (size_t i = 0; i < packets.size() && running; i++)
-    {
-        ResponseStatusContainer result = _transmitter->transmit(packets[i]);
-
-        if (result.getCode() == 0)
-        {
-            _packetsSent++;
-        }
-        else
-        {
-            LOG_WARNING("Telemetry", "Packet %d/%d failed: %s",
-                        i + 1, packets.size(), result.getDescription().c_str());
-            allSuccess = false;
-            // Continue sending remaining packets even if one fails
-        }
-
-        // Small delay between packets to avoid overwhelming receiver
-        if (i < packets.size() - 1 && running)
-        {
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-    }
-
-    return allSuccess;
+    LOG_EVERY_MS(TELEMETRY_SENSOR_LOG_PERIOD_MS, INFO, "Telemetry",
+                 "Sensors | IMU %s | Baro1 %s | Baro2 %s | GPS %s | v=%.2fm/s",
+                 imuText, baro1Text, baro2Text, gpsText, packet.velocity);
 }
 
 void TelemetryTask::pollLoRaRx()
 {
-    LOG_DEBUG("Telemetry", "Polling LoRa RX for commands");
+    // LOG_DEBUG("Telemetry", "Polling LoRa RX for commands");
     CommandPacket cmd;
     while (_loraTransmitter->receive(&cmd))
     {
@@ -309,9 +313,18 @@ void TelemetryTask::handleCommand(CommandId id)
     }
 }
 
-void TelemetryTask::getStats(uint32_t &messages, uint32_t &packets, uint32_t &errors) const
+void TelemetryTask::getStats(uint32_t &messages, uint32_t &errors) const
 {
     messages = _messagesCreated;
-    packets = _packetsSent;
     errors = _transmitErrors;
+}
+
+LoRaTelemetryStatus TelemetryTask::getLoRaStatus()
+{
+    return {
+        s_loraAvailable.load(std::memory_order_acquire),
+        s_loraSuccessfulMessages.load(std::memory_order_relaxed),
+        s_loraFailedMessages.load(std::memory_order_relaxed),
+        s_loraLastSuccessMs.load(std::memory_order_acquire),
+    };
 }

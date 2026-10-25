@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -32,9 +33,19 @@ public:
     void setSerializer(SerializeFunction serializeFn);
     
     /**
-     * @brief Thread-safe count of buffered log entries.
+     * @brief Thread-safe count of buffered log entries (events + sensor data).
      */
     int getLogCount() const;
+
+    /**
+     * @brief Thread-safe count of buffered system events (INFO/WARNING/ERROR).
+     */
+    int getEventCount() const;
+
+    /** 
+     * @brief Total records overwritten or rejected because the queue was full.
+     */
+    uint32_t getDroppedCount() const;
 
     /**
      * @brief Log an informational message.
@@ -42,6 +53,7 @@ public:
      * @param message The informational message to log.
      */
     void logInfo(const std::string& message);
+    void logInfo(const char* source, const char* message);
 
     /**
      * @brief Log a warning message.
@@ -49,6 +61,7 @@ public:
      * @param message The warning message to log.
      */
     void logWarning(const std::string& message);
+    void logWarning(const char* source, const char* message);
 
     /**
      * @brief Log an error message.
@@ -56,6 +69,7 @@ public:
      * @param message The error message to log.
      */
     void logError(const std::string& message);
+    void logError(const char* source, const char* message);
 
     /**
      * @brief Log sensor data.
@@ -64,6 +78,9 @@ public:
      */
     void logSensorData(const LogPayload& payload);
 
+    // Recovery cuts off new samples before the recorder drains and closes.
+    void stopSensorLogging() { _sensorLoggingEnabled.store(false); }
+
     /**
      * @brief Clear all logged sensor data.
      * 
@@ -71,21 +88,35 @@ public:
     void clearData();
 
 /**
-     * @brief Consumes logs from the queue until the provided byte buffer is full.
+     * @brief Consumes logs from the queues until the provided byte buffer is full.
+     *
+     * Pending system events are serialized before sensor data, so records are
+     * not strictly in timestamp order inside a batch.
      *
      * @param outBuffer Pointer to the static/pre-allocated array.
      * @param bufferCapacity Maximum bytes the buffer can hold.
      * @return size_t The total number of bytes written to outBuffer.
      */
     size_t consumeBatch(uint8_t* outBuffer, size_t bufferCapacity);
+
+    // READY preparation writes each event before removing it, so a failed
+    // flash write cannot erase the only RAM copy of an early FSM transition.
+    size_t peekNextEvent(uint8_t* outBuffer, size_t bufferCapacity) const;
+    bool discardNextEvent();
     
     private:
-    static constexpr size_t MAX_QUEUE_LENGTH = 300;
+    // Sensor data is high-rate and drops its oldest entry when full. System
+    // events (FSM transitions, apogee, deployments) live in their own queue so
+    // a sensor-data backlog can never evict them before they reach storage.
     QueueHandle_t _logQueue;
+    QueueHandle_t _eventQueue;
+    std::atomic_uint32_t _dropped{0};
+    std::atomic_bool _sensorLoggingEnabled{true};
 
     // Store the function pointer instead of an object pointer
     SerializeFunction _serializeFn = nullptr;
     
-    // Internal helper to push to queue
+    // Internal helpers to push to queue
     void pushToQueue(const LogPayload& payload);
+    void pushEvent(const SystemLog& event);
 };

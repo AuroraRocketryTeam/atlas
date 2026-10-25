@@ -21,12 +21,12 @@ void GpsTask::taskFunction()
         GPSData gpsData;
         SensorReadStatus gpsStatus = _rocketModel->getGPSData(gpsData);
         if (gpsStatus != SensorReadStatus::OK) {
-            LOG_WARNING("GpsTask", "Failed to get GPS data");
+            LOG_EVERY_MS(2000, WARNING, "GpsTask", "Failed to get GPS data");
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
-        
-        LOG_INFO("GpsTask", "Got GPS data");
+
+        LOG_EVERY_MS(5000, INFO, "GpsTask", "Got GPS data");
         
         if (_logger) {
             // Only log GPS data every 10 loops (every ~2 seconds) to reduce memory pressure

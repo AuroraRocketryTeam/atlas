@@ -10,8 +10,13 @@
 #include <SD-master.hpp>
 #include <memory>
 #include <map>
+#include <atomic>
 #include <RocketModel.hpp>
 #include <IBoardHardware.hpp>
+#include "tasks/FlightParametersConfig.hpp"
+#include "DescentDetector.hpp"
+
+class IGroundTestRunner;
 
 /**
  * @brief Enumeration for the different rocket states.
@@ -30,7 +35,8 @@ public:
     RocketFSM(std::shared_ptr<RocketModel> rocketModel,
               std::shared_ptr<SD> sd,
               std::shared_ptr<RocketLogger> logger,
-              IBoardHardware* board
+              IBoardHardware* board,
+              std::shared_ptr<IGroundTestRunner> testRunner = nullptr
             );
     
     /**
@@ -53,6 +59,7 @@ public:
      * @return true if the event was processed successfully, false otherwise
      */
     bool sendEvent(FSMEvent event, RocketState targetState = RocketState::INACTIVE, void *eventData = nullptr) override;
+    const char *getReadyAttemptStatus() const override;
 
     /**
      * @brief Get the current state of the FSM
@@ -67,6 +74,7 @@ public:
      * @return FlightPhase The current flight phase
      */
     FlightPhase getCurrentPhase() override;
+    size_t getActiveTaskStackHealth(TaskStackHealth *out, size_t capacity) const override;
 
     /**
      * @brief Force a transition to a new state
@@ -84,11 +92,12 @@ public:
 
     // Utility methods
     const char* getStateString(RocketState state) const;
+    void logActiveTaskStackHealth() const;
 
 private:
     void setupStateActions();
     void setupTransitions();
-    void transitionTo(RocketState newState);
+    bool transitionTo(RocketState newState);
     void processEvent(const FSMEventData &eventData);
     void checkTransitions();
 
@@ -112,10 +121,18 @@ private:
     unsigned long _stateStartTime;
     volatile bool _isRunning;
     volatile bool _isTransitioning;
+    // SCHEDULED is the last value the dashboard can ever observe
+    enum class ReadyAttemptStatus : uint8_t {
+        IDLE, PENDING, SCHEDULED, READY, QUEUE_FAILED, INVALID_STATE, FILE_BUSY,
+        FILENAME_FAILED, CONFIG_LOCK_FAILED, FILE_PREP_FAILED,
+        FILE_ACTIVATION_FAILED, TRANSITION_FAILED, CONFIG_UNLOCK_FAILED
+    };
+    std::atomic<ReadyAttemptStatus> _readyAttemptStatus{ReadyAttemptStatus::IDLE};
 
     // Shared data
     std::shared_ptr<RocketModel> _rocketModel;
     std::shared_ptr<RocketLogger> _logger;
+    std::shared_ptr<IGroundTestRunner> _testRunner;
 
     std::shared_ptr<SD> _sd;
     IBoardHardware* _board;
@@ -131,4 +148,17 @@ private:
 
     // Important timers and tresholds
     unsigned long _launchDetectionTime = 0;
+    // Start of the current run of high acceleration samples
+    uint32_t _launchHighSince = 0;
+    float _acceleratedPeakVelocityMps = 0.0f;
+    uint32_t _acceleratedLastVelocityTimestamp = 0;
+    uint8_t _burnoutConfirmationSamples = 0;
+    uint32_t _landingStableSince = 0;
+    uint32_t _landingLastVelocityTimestamp = 0;
+
+    // Restarted in flight, this detector uses raw values from the barometer.
+    DescentDetector _descentDetector;
+    uint32_t _emergencyLastBaroTimestamp = 0;
+    bool _emergencyDeployCommanded = false;
+    void runEmergencyRecovery(uint32_t now);
 };

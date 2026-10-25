@@ -5,6 +5,7 @@
 #include <freertos/semphr.h>
 #include <Arduino.h>
 #include <memory>
+#include <atomic>
 #include <BNO055Sensor.hpp>
 #include <LIS3DHTRSensor.hpp>
 #include <MS561101BA03.hpp>
@@ -144,6 +145,12 @@ public:
      * @brief Check GPS availability
      */
     bool hasGPS() { return _gps != nullptr; }
+    bool hasBNO055() const { return _bno != nullptr; }
+    bool hasLIS3DHTR() const { return _lis3dh != nullptr; }
+    bool hasMS561101BA03_1() const { return _ms56_1 != nullptr; }
+    bool hasMS561101BA03_2() const { return _ms56_2 != nullptr; }
+    bool isExternalFlashInitialized() const;
+    bool isSdInitialized() const;
 
     
     
@@ -156,6 +163,8 @@ public:
      * @brief Thread-safe helper to check if a file exists in storage.
      */
     bool storageFileExists(const char* filename, uint32_t timeoutMs = 200);
+    // Separates "file absent" from "storage mutex unavailable" before creating a flight log.
+    bool storageFileExistsChecked(const char* filename, bool& exists, uint32_t timeoutMs = 200);
 
     /**
      * @brief Thread-safe helper to reset the read cursor of a file in storage.
@@ -182,22 +191,10 @@ public:
      */
     bool storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs = 200);
 
-#if CONFIG_AURORA_HIL_SIMULATION
-    // Simulation
-     /**
-     * @brief Setter of simulation reset flag.
-     *
-     * @param bool the reset flag value.
-     */
-    void setResetSimulationFlag(bool value);
-
-     /**
-     * @brief Getter of simulation reset flag.
-     *
-     * @return bool the reset flag value.
-     */
-    bool getResetSimulationFlag();
-#endif
+    ssize_t storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs = 200);
+    bool storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
+                              size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs = 200);
+    bool storageDeleteFile(const char* filename, uint32_t timeoutMs = 200);
 
     /**
      * @brief Set the simulated BNO055 sensor data
@@ -260,12 +257,14 @@ public:
      */
     float getHeightGainSpeed();
 
+    uint32_t getHeightGainSpeedTimestamp();
+
     /**
      * @brief Set the current estimated velocity
      *
      * @param heightGainSpeed The current estimated velocity
      */
-    void setHeightGainSpeed(float heightGainSpeed);
+    void setHeightGainSpeed(float heightGainSpeed, uint32_t timestamp);
 
     /**
      * @brief Get the Current Estimated Height
@@ -320,20 +319,32 @@ public:
     void resetCommand();
 
     /**
-     * @brief Reset the rocket model state.
-     *
-     */
-    void reset();
-
-    /**
      * @brief Get the BNO055 sensor instance.
      */
     std::shared_ptr<BNO055Sensor> getBNO055Sensor();
 
     /**
-     * @brief Check if the IMU is fully calibrated (Status == 3)
+     * @brief Check if the IMU is fully calibrated OR is in a non-fusion mode
      */
     bool isSensorSystemCalibrated();
+
+    /**
+     * @brief Check whether the BNO055 runs one of the fusion modes.
+     */
+    bool isIMUFusionMode();
+
+    /**
+     * @brief Set how many samples the barometer/temperature zeroing needs.
+     *
+     * Called once before calibration starts (the values come from
+     * RuntimeConfig, which this component cannot include). Until then the
+     * compiled defaults apply. Ignores zero targets, which would make
+     * zeroing complete on the first sample.
+     *
+     * @param barometerSamples Samples averaged for the base pressure
+     * @param temperatureSamples Samples averaged for the base temperature
+     */
+    void setCalibrationSampleTargets(size_t barometerSamples, size_t temperatureSamples);
 
     /**
      * @brief Feed a pressure reading into the zeroing algorithm
@@ -379,22 +390,25 @@ private:
     std::shared_ptr<MS561101BA03> _ms56_1;
     std::shared_ptr<MS561101BA03> _ms56_2;
     std::shared_ptr<GPS> _gps;
+    std::shared_ptr<SD> _sd;
+    std::shared_ptr<Flash> _flash;
 
     // Critical mutexes
-    SemaphoreHandle_t _imuMutex;
-    SemaphoreHandle_t _baro1Mutex;
-    SemaphoreHandle_t _baro2Mutex;
-    SemaphoreHandle_t _gpsMutex;
-    SemaphoreHandle_t _stateMutex;
+    SemaphoreHandle_t _imuMutex = nullptr;
+    SemaphoreHandle_t _baro1Mutex = nullptr;
+    SemaphoreHandle_t _baro2Mutex = nullptr;
+    SemaphoreHandle_t _gpsMutex = nullptr;
+    SemaphoreHandle_t _stateMutex = nullptr;
 
     adc_oneshot_unit_handle_t _adc1_handle;
     int _batteryAdc;
     float _batteryVoltage, _batteryPercentage;
 
-    // Flight state variables
-    bool _isRising;
-    float _heightGainSpeed;
-    float _currentHeight;
+    // Flight state variables (atomic to avoid caching issues)
+    std::atomic<bool> _isRising;
+    std::atomic<float> _heightGainSpeed;
+    std::atomic<uint32_t> _heightGainSpeedTimestamp;
+    std::atomic<float> _currentHeight;
 
     IMUData _bnoData;
     AccelerometerSensorData _lis3dhData;
@@ -409,22 +423,20 @@ private:
     bool _ms561101ba03Data_2_Valid = false;
     bool _gpsDataValid = false;
 
-#if CONFIG_AURORA_HIL_SIMULATION
-    bool _reset_simulation;
-#endif
-
     SemaphoreHandle_t _storageMutex;
     std::shared_ptr<IStorage> _storage;
     Command _cmd;
 
     // Calibration and Zeroing variables
+    static constexpr size_t DEFAULT_CALIBRATION_SAMPLES = 100;
+    size_t _requiredBarometerSamples = DEFAULT_CALIBRATION_SAMPLES;
+    size_t _requiredTemperatureSamples = DEFAULT_CALIBRATION_SAMPLES;
+
     std::vector<float> _barometerSamples;
     float _launchpadBasePressure = 0.0f;
     bool _barometerZeroed = false;
-    static constexpr size_t REQUIRED_BARO_SAMPLES = 100;
 
     std::vector<float> _temperatureSamples;
     float _launchpadBaseTemperature = 0.0f;
     bool _temperatureZeroed = false;
-    static constexpr size_t REQUIRED_TEMPERATURE_SAMPLES = 100;
 };

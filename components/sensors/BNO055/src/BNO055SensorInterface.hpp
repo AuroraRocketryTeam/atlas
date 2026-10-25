@@ -14,7 +14,7 @@ extern "C" {
 struct BNO055_BurstData {
         float accel[3];
         float mag[3];
-        float gyro[3]; 
+        float gyro[3]; // deg/s
         float euler[3]; 
         float quaternion[4];
         float lin_accel[3];

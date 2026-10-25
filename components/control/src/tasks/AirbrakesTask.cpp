@@ -1,15 +1,13 @@
 #include "AirbrakesTask.hpp"
+#include "RuntimeConfig.hpp"
 #include "esp_task_wdt.h"
 
 static const char* TAG = "Airbrakes";
 
 namespace
 {
-    static constexpr float AIRBRAKES_OPEN_ALTITUDE_M  = 1000.0f;
-    static constexpr float AIRBRAKES_CLOSE_ALTITUDE_M = 2000.0f;
-
+    // Maximum control-command rate. Raise this only after validating actuator response.
     static constexpr uint32_t TASK_PERIOD_MS = 50;
-    static constexpr float TASK_PERIOD_SEC   = TASK_PERIOD_MS / 1000.0f;
 
     /*
      * Deployment command is normalized:
@@ -24,9 +22,6 @@ namespace
      *   0.5f -> full 0 to 1 movement in 2 seconds
      *   2.0f -> full 0 to 1 movement in 0.5 seconds
      */
-    static constexpr float AIRBRAKES_OPEN_RATE_PER_SEC  = 0.5f;
-    static constexpr float AIRBRAKES_CLOSE_RATE_PER_SEC = 1.0f;
-
     enum class AirbrakesState
     {
         WAITING_TO_OPEN,
@@ -90,13 +85,21 @@ void AirbrakesTask::onTaskStop()
 
 void AirbrakesTask::taskFunction()
 {
+    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
     AirbrakesState airbrakesState = AirbrakesState::WAITING_TO_OPEN;
+    const TickType_t taskPeriod = pdMS_TO_TICKS(TASK_PERIOD_MS);
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    TickType_t lastControlTime = lastWakeTime - taskPeriod;
 
     float targetDeployment = 0.0f;
 
     while (running)
     {
         esp_task_wdt_reset();
+
+        const TickType_t controlTime = xTaskGetTickCount();
+        const TickType_t elapsedTicks = controlTime - lastControlTime;
+        lastControlTime = controlTime;
 
         float altitude = 0.0f;
         float currentLevel = 0.0f;
@@ -115,7 +118,7 @@ void AirbrakesTask::taskFunction()
             {
                 targetDeployment = 0.0f;
 
-                if (altitude >= AIRBRAKES_OPEN_ALTITUDE_M)
+                if (altitude >= runtimeConfig.airbrakes.open_altitude_m)
                 {
                     LOG_INFO(TAG, "opening airbrakes");
 
@@ -130,7 +133,7 @@ void AirbrakesTask::taskFunction()
             {
                 targetDeployment = 1.0f;
 
-                if (altitude >= AIRBRAKES_CLOSE_ALTITUDE_M)
+                if (altitude >= runtimeConfig.airbrakes.close_altitude_m)
                 {
                     LOG_INFO(TAG, "closing airbrakes");
 
@@ -153,10 +156,13 @@ void AirbrakesTask::taskFunction()
         /* ===== SLEW-RATE LIMIT COMMAND ===== */
         const float ratePerSec =
             targetDeployment > currentLevel
-                ? AIRBRAKES_OPEN_RATE_PER_SEC
-                : AIRBRAKES_CLOSE_RATE_PER_SEC;
+                ? runtimeConfig.airbrakes.open_rate_per_s
+                : runtimeConfig.airbrakes.close_rate_per_s;
 
-        const float maxStep = ratePerSec * TASK_PERIOD_SEC;
+        // Never replay missed periods as a burst of actuator commands. A delayed
+        // cycle may slow the response, but cannot exceed the configured slew rate.
+        const TickType_t limitedElapsedTicks = elapsedTicks > taskPeriod ? taskPeriod : elapsedTicks;
+        const float maxStep = ratePerSec * static_cast<float>(limitedElapsedTicks) / configTICK_RATE_HZ;
 
         const float newDeployment = moveTowards(
             currentLevel,
@@ -181,6 +187,11 @@ void AirbrakesTask::taskFunction()
          *          static_cast<int>(airbrakesState));
          */
 
-        vTaskDelay(pdMS_TO_TICKS(TASK_PERIOD_MS));
+        // Re-anchor after a missed period so vTaskDelayUntil() cannot run catch-up
+        // iterations back-to-back and spam identical control commands.
+        if (elapsedTicks >= taskPeriod * 2) {
+            lastWakeTime = controlTime;
+        }
+        vTaskDelayUntil(&lastWakeTime, taskPeriod);
     }
 }

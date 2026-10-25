@@ -1,12 +1,9 @@
 #pragma once
 
+#include "sdkconfig.h"
 #include <cstdint>
 
 #define __DEBUG__
-
-#define SUFFICIENT_SENSOR_CALIBRATION 2
-#define SENSOR_LOOKUP_MAX_ATTEMPTS 5
-#define SENSOR_LOOKUP_TIMEOUT 1000
 
 #define MS56_I2C_ADDR_1 0x77
 #define MS56_I2C_ADDR_2 0x76
@@ -38,27 +35,22 @@
 
 #define SERIAL_BAUD_RATE 115200 // Serial baud rate
 
-// Number of log entries to batch before writing to SD card
-#define BATCH_SIZE 30
-
-// Maximum log entries before forcing a clear (emergency protection)
-#define MAX_LOG_ENTRIES 20
-
 /* Flight parameters configuration */
 #define LIFTOFF_ACCELERATION_THRESHOLD GRAVITY * 3.0f // Threshold for the detection of liftoff when relative_acceleration is > 2G in any direction (relative_acceleration = acceleration - gravity)
 #define LIFTOFF_TIMEOUT_MS 250    // Threshold for the detection of liftoff
 #define APOGEE_LOCKOUT_MS 5000 // Time after launch during which apogee detection is disabled to avoid false positives during initial phase
 #define DROGUE_APOGEE_TIMEOUT 0 // Threshold for opening the drogue parachute after apogee is detected
 #define MAIN_ALTITUDE_THRESHOLD 50.0f // Altitude threshold for the deployment of the main parachute (in meters)
-#define TOUCHDOWN_VELOCITY_THRESHOLD 2.0f // Vertical velocity threshold for touchdown detection (in m/s)
+// #define TOUCHDOWN_VELOCITY_THRESHOLD 2.0f // Vertical velocity threshold for touchdown detection (in m/s)
 #define LAUNCH_TO_BALLISTIC_THRESHOLD 4000 // Time threshold for transition from LAUNCH to BALLISTIC_FLIGHT if apogee is not detected
 #define LAUNCH_TO_APOGEE_THRESHOLD 6700 //24850 + 2150 = 27000, Time threshold for transition from LAUNCH to APOGEE if apogee is not detected but the rocket is no more rising
 
-/* ESP-NOW Telemetry Configuration */
-// MAC address of the peer receiver (ESP32 that will relay to LoRa)
-// Replace with your actual receiver MAC address
-#define ESPNOW_PEER_MAC { 0x34, 0xCD, 0xB0, 0x3C, 0x54, 0xB4 }
-#define ESPNOW_CHANNEL 1 // WiFi channel (1-13)
+#define EMERGENCY_DESCENT_THRESHOLD_MPS 2.0f // Vertical speed to determine movement
+#define EMERGENCY_WINDOW_MS 400              // Window size
+#define EMERGENCY_STAND_DOWN_MS 5000         // No changes for this duration mean false alarm
+#define EMERGENCY_MAX_DEPLOY_ATTEMPTS 3      // Max retries, if stuck in boot loop, before exiting
+
+/* Telemetry Configuration */
 #define TELEMETRY_INTERVAL_MS 500
 #define TOUCHDOWN_ALTITUDE_THRESHOLD 15.0f // Altitude threshold for touchdown detection (in meters)
 
@@ -66,9 +58,6 @@
 #define MIN_ACCECTABLE_VELOCITY -1000
 #define MAX_ACCECTABLE_VELOCITY 1000
 
-// Kalman Constants
-#define NUM_CALIBRATION_SAMPLES 200
-#define STD_THRESHOLD 0.1f
 #define SEA_LEVEL 63.0f  // Your launch site altitude above sea level (meters)
 
 // Sea level pressure reference for barometric altitude calculation
@@ -79,16 +68,15 @@
 // Example: At 63m reading 1010.28 hPa -> sea level pressure = 1017.5 hPa
 #define SEA_LEVEL_PRESSURE_HPA 1017.5f  // Local sea level pressure in hPa
 
-#define H_BIAS_PRESSURE_SENSOR 2.0f
-#define GPS_BIAS 3.0f
+// #define H_BIAS_PRESSURE_SENSOR 2.0f
+// #define GPS_BIAS 3.0f
 
-// Barometer noise filtering
-// ALTITUDE_FILTER_WINDOW: Size of median filter window for pressure/altitude smoothing
-// Smaller = faster response but more noise (1 = no filtering)
-// Larger = smoother but more lag (recommended: 3-7)
-// At 10Hz sampling: window=5 adds 50ms lag
-#define ALTITUDE_FILTER_WINDOW 11
-#define APOGEE_DETECTION_WINDOW_SIZE 35
+// Barometer filter and apogee-window defaults are owned by AltitudeConfig
+// (RuntimeConfig / NVS) so they can be tuned from the ground dashboard.
+// Legacy defines kept commented for reference; values below are the
+// main-stabilization tuning, now carried by runtime_config_set_defaults().
+// #define ALTITUDE_FILTER_WINDOW 11
+// #define APOGEE_DETECTION_WINDOW_SIZE 25
 
 #define STATE_INDEX_ALTITUDE 0
 #define STATE_INDEX_VELOCITY 1
@@ -102,20 +90,13 @@
 #define GPS_MIN_FIX 3                  // Minimum fix type for valid GPS data (2 = 2D fix, 3 = 3D fix)
 #define GPS_FIX_LOOKUP_INTERVAL_MS 500 // Interval between GPS fix status checks during initialization
 
-// IMU Calibration
-#define IMU_MINIMUM_CALIBRATION 3 // Minimum calibration level for IMU sensors (0-3)
-
 #define GRAVITY 9.80665f
 
 
 
-// Telemetry configuration
-constexpr uint8_t RECEIVER_MAC_ADDRESS[] = { 0x34, 0xCD, 0xB0, 0x3D, 0x97, 0xFC };  // MAC dell'ESP32 ricevente: // 34:CD:B0:3D:97:FC
-
-
 enum class RecoveryMode
 {
-    MainOnly,
-    DrogueAndMain,
+    OneParachuteMode,
+    TwoParachuteMode,
 };
-#define AURORA_RECOVERY_MODE RecoveryMode::MainOnly
+#define AURORA_RECOVERY_MODE RecoveryMode::OneParachuteMode

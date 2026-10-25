@@ -1,6 +1,11 @@
 #include "TestRoutine.hpp"
+#include "esp_flash.h"
+#include "esp_heap_caps.h"
+#include "soc/rtc.h"
 
+#include <array>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <algorithm>
 #include <cctype>
@@ -10,6 +15,7 @@
 #include <driver/i2c_master.h>
 #include <driver/gpio.h>
 #include <esp_system.h>
+#include <cstdio>
 
 #include <config.h>
 #include <board.h>
@@ -31,26 +37,248 @@ TestRoutine::TestRoutine(IBoardHardware& board,
       _flash(flash),
       _statusManager(statusManager),
       _ledController(ledController),
-      _buzzerController(buzzerController)
-{}
-
-// ── String helpers ────────────────────────────────────────────────────────────
-
-static void trimString(std::string& s)
+      _buzzerController(buzzerController),
+      _webMutex(xSemaphoreCreateMutex()),
+      _webTask(nullptr),
+      _pendingVerdict(GroundTestVerdict::FAILED),
+      _lastInputVerdict(GroundTestVerdict::FAILED),
+      _hasPendingVerdict(false)
 {
-    auto notSpace = [](unsigned char c) { return !std::isspace(c); };
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), notSpace));
-    s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
+    snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "idle");
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "idle");
 }
 
-static void toUpperString(std::string& s)
+static const GroundTestDescriptor GROUND_TESTS[] = {
+    {1,  "Power",     "Power and LEDs",          "Blink status LEDs and ask the operator to confirm visual behavior.", false, ""},
+    {2,  "Sensors",   "Sensor Readout",          "Read IMU, barometers, and accelerometer through the real RocketModel.", false, ""},
+    {5,  "Sensors",   "I2C Scan",                "Probe the I2C bus and report known/unknown devices on serial logs.", false, ""},
+    {14, "Sensors",   "IMU Calibration to NVS",  "Run BNO055 calibration and save offsets to internal NVS.", false, ""},
+    {3,  "Actuators", "Actuators and Buzzer",    "Energize drogue/main outputs and buzzer for operator verification.", true, "ARM_ACTUATORS"},
+    {15, "Actuators", "Buzzer Jingle",           "Play the armed jingle through the buzzer.", false, ""},
+    {7,  "Telemetry", "LoRa Telemetry Send",     "Initialize E220 LoRa and transmit three test packets.", false, ""},
+    {8,  "Telemetry", "E220 Connector GPIO",     "Pulse E220 connector pins in a visible sequence.", false, ""},
+    {10, "Telemetry", "LoRa Command Receive",    "Wait up to 30 seconds for a command from the ground station.", false, ""},
+    {6,  "Telemetry", "Configure E220",          "Write the default E220 radio configuration.", true, "CONFIGURE_E220"},
+    {4,  "Storage",   "SD Card",                 "Write and read a test file on the SD card when available.", false, ""},
+    {9,  "Storage",   "External Flash",          "Initialize external flash, write/read/append, then clear test data.", true, "TEST_FLASH"},
+    {12, "Storage",   "Dump Flash Telemetry (legacy - use Files)", "Print JSONL telemetry from external flash to serial output.", false, ""},
+    {13, "Storage",   "Format Flash",            "Format the external flash memory. Data will be lost.", true, "FORMAT_FLASH"},
+};
+
+size_t TestRoutine::getGroundTestCount() const
 {
-    for (char& c : s)
-        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return sizeof(GROUND_TESTS) / sizeof(GROUND_TESTS[0]);
+}
+
+const GroundTestDescriptor* TestRoutine::getGroundTest(size_t index) const
+{
+    if (index >= getGroundTestCount()) return nullptr;
+    return &GROUND_TESTS[index];
+}
+
+const GroundTestDescriptor* TestRoutine::findGroundTest(int id) const
+{
+    for (size_t i = 0; i < getGroundTestCount(); ++i) {
+        if (GROUND_TESTS[i].id == id) return &GROUND_TESTS[i];
+    }
+    return nullptr;
+}
+
+void TestRoutine::getGroundTestStatus(GroundTestStatus* out) const
+{
+    if (out == nullptr) return;
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    *out = _webStatus;
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+}
+
+void TestRoutine::setWebStatus(const char* state, const char* message)
+{
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", state ? state : "");
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", message ? message : "");
+    _webStatus.waiting_for_verdict = false;
+    _webStatus.prompt[0] = '\0';
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+}
+
+void TestRoutine::setWebPrompt(const char* prompt)
+{
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    _webStatus.waiting_for_verdict = true;
+    snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "waiting");
+    snprintf(_webStatus.prompt, sizeof(_webStatus.prompt), "%s", prompt ? prompt : "");
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "waiting for operator verdict");
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+}
+
+bool TestRoutine::isWebTestContext() const
+{
+    return _webTask != nullptr && xTaskGetCurrentTaskHandle() == _webTask;
+}
+
+bool TestRoutine::startGroundTest(int id, char* error, size_t error_size)
+{
+    const GroundTestDescriptor* descriptor = findGroundTest(id);
+    if (descriptor == nullptr) {
+        if (error && error_size > 0) snprintf(error, error_size, "%s", "unknown test id");
+        return false;
+    }
+
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    if (_webStatus.running) {
+        if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+        if (error && error_size > 0) snprintf(error, error_size, "%s", "a test is already running");
+        return false;
+    }
+
+    _webStatus = GroundTestStatus{};
+    _webStatus.running = true;
+    _webStatus.active_id = id;
+    _webStatus.started_ms = Utils::millis();
+    snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "starting");
+    snprintf(_webStatus.active_name, sizeof(_webStatus.active_name), "%s", descriptor->name);
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "starting test");
+    _hasPendingVerdict = false;
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+
+    if (xTaskCreate(webTestTaskEntry, "ground_test", 4096, this, 5, &_webTask) != pdPASS) {
+        if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+        _webStatus.running = false;
+        snprintf(_webStatus.state, sizeof(_webStatus.state), "%s", "failed");
+        snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "failed to create test task");
+        if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+        _webTask = nullptr;
+        if (error && error_size > 0) snprintf(error, error_size, "%s", "failed to create test task");
+        return false;
+    }
+
+    return true;
+}
+
+bool TestRoutine::submitGroundTestVerdict(GroundTestVerdict verdict, char* error, size_t error_size)
+{
+    if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+    if (!_webStatus.running || !_webStatus.waiting_for_verdict) {
+        if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+        if (error && error_size > 0) snprintf(error, error_size, "%s", "no test is waiting for a verdict");
+        return false;
+    }
+    _pendingVerdict = verdict;
+    _hasPendingVerdict = true;
+    snprintf(_webStatus.message, sizeof(_webStatus.message), "%s", "operator verdict received");
+    if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+    return true;
+}
+
+void TestRoutine::webTestTaskEntry(void* arg)
+{
+    auto* self = static_cast<TestRoutine*>(arg);
+    int id = 0;
+    if (self->_webMutex != nullptr) xSemaphoreTake(self->_webMutex, portMAX_DELAY);
+    id = self->_webStatus.active_id;
+    if (self->_webMutex != nullptr) xSemaphoreGive(self->_webMutex);
+
+    bool passed = false;
+    do {
+        self->setWebStatus("running", "test running");
+        self->_lastInputVerdict = GroundTestVerdict::FAILED;
+        passed = self->runSingleTestById(id);
+
+        if (!passed && self->_lastInputVerdict == GroundTestVerdict::RETRY) {
+            self->setWebStatus("retrying", "retrying test");
+            vTaskDelay(pdMS_TO_TICKS(250));
+        }
+    } while (!passed && self->_lastInputVerdict == GroundTestVerdict::RETRY);
+
+    if (self->_webMutex != nullptr) xSemaphoreTake(self->_webMutex, portMAX_DELAY);
+    self->_webStatus.running = false;
+    self->_webStatus.waiting_for_verdict = false;
+    self->_webStatus.last_passed = passed;
+    self->_webStatus.finished_ms = Utils::millis();
+    if (passed) {
+        snprintf(self->_webStatus.state, sizeof(self->_webStatus.state), "%s", "passed");
+        snprintf(self->_webStatus.message, sizeof(self->_webStatus.message), "%s", "test passed");
+    } else if (self->_lastInputVerdict == GroundTestVerdict::EXIT) {
+        snprintf(self->_webStatus.state, sizeof(self->_webStatus.state), "%s", "exited");
+        snprintf(self->_webStatus.message, sizeof(self->_webStatus.message), "%s", "test exited");
+    } else {
+        snprintf(self->_webStatus.state, sizeof(self->_webStatus.state), "%s", "failed");
+        snprintf(self->_webStatus.message, sizeof(self->_webStatus.message), "%s", "test failed");
+    }
+    self->_webStatus.prompt[0] = '\0';
+    self->_webTask = nullptr;
+    if (self->_webMutex != nullptr) xSemaphoreGive(self->_webMutex);
+
+    vTaskDelete(nullptr);
+}
+
+bool TestRoutine::runSingleTestById(int id)
+{
+    switch (id)
+    {
+    case 1:  return testPowerAndLEDs();
+    case 2:  return testSensors();
+    case 3:  return testActuators();
+    case 4:  return testSDCard();
+    case 5:  return testI2CScan();
+    case 6:  return configureE220();
+    case 7:  return testTelemetry();
+    case 8:  return testE220Connector();
+    case 9:  return testFlashMemory();
+    case 10: return testTelemetryCommand();
+    case 12: return dumpFlashJsonFiles();
+    case 13: return clearFlashMemory();
+    case 14: return calibrateAndSaveIMU();
+    case 15: return testBuzzerJingle();
+    default: return false;
+    }
 }
 
 bool TestRoutine::waitForUserInput(const char* message)
 {
+    if (isWebTestContext()) {
+        setWebPrompt(message);
+
+        while (true) {
+            GroundTestVerdict verdict = GroundTestVerdict::FAILED;
+            bool hasVerdict = false;
+
+            if (_webMutex != nullptr) xSemaphoreTake(_webMutex, portMAX_DELAY);
+            if (_hasPendingVerdict) {
+                verdict = _pendingVerdict;
+                _hasPendingVerdict = false;
+                hasVerdict = true;
+                _webStatus.waiting_for_verdict = false;
+            }
+            if (_webMutex != nullptr) xSemaphoreGive(_webMutex);
+
+            if (hasVerdict) {
+                _lastInputVerdict = verdict;
+                if (verdict == GroundTestVerdict::PASSED) {
+                    _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+                    return true;
+                }
+                if (verdict == GroundTestVerdict::REBOOT) {
+                    LOG_WARNING("Test", "Web operator requested reboot");
+                    esp_restart();
+                }
+                if (verdict == GroundTestVerdict::RETRY) {
+                    _statusManager.playBlockingPattern(TEST_FAILURE, 1000);
+                    return false;
+                }
+                if (verdict == GroundTestVerdict::EXIT) {
+                    LOG_INFO("Test", "Web operator exited test");
+                    return false;
+                }
+                _statusManager.playBlockingPattern(TEST_FAILURE, 1000);
+                return false;
+            }
+
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+
     printf("%s\n(Shortcuts: 'P' = Passed, 'F' = Failed, 'R' = Reboot)\n", message);
     _statusManager.setSystemCode(WAITING_INPUT);
 
@@ -59,8 +287,8 @@ bool TestRoutine::waitForUserInput(const char* message)
         char buffer[64] = {0};
         Utils::readLine(buffer, sizeof(buffer));
         std::string input(buffer);
-        trimString(input);
-        toUpperString(input);
+        Utils::trimString(input);
+        Utils::toUpperString(input);
 
         if (input == "PASSED" || input == "P")
         {
@@ -85,8 +313,8 @@ bool TestRoutine::waitForUserInput(const char* message)
                 LOG_INFO("Test", "No confirmation - continuing normal operation.");
                 continue;
             }
-            trimString(confirm);
-            toUpperString(confirm);
+            Utils::trimString(confirm);
+            Utils::toUpperString(confirm);
 
             if (confirm == "REBOOT" || confirm == "R") {
                 LOG_WARNING("Test", "Rebooting system...");
@@ -100,25 +328,6 @@ bool TestRoutine::waitForUserInput(const char* message)
             LOG_WARNING("Test", "Unrecognized input. Please type P, F, or R.");
         }
         vTaskDelay(pdMS_TO_TICKS(100));
-    }
-}
-
-void TestRoutine::showTestPattern(int testNumber)
-{
-    switch (testNumber)
-    {
-    case 1:  _statusManager.playBlockingPattern(TEST_POWER,     1000); break;
-    case 2:  _statusManager.playBlockingPattern(TEST_SENSORS,   1000); break;
-    case 3:  _statusManager.playBlockingPattern(TEST_ACTUATORS, 1000); break;
-    case 4:  _statusManager.playBlockingPattern(TEST_SD,        1000); break;
-    case 5:  _statusManager.playBlockingPattern(TEST_SENSORS,   1000); break;
-    case 6:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    case 7:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    case 8:  _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    case 9:  _statusManager.playBlockingPattern(TEST_SD,        1000); break;
-    case 10: _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000); break;
-    case 11: _statusManager.playBlockingPattern(TEST_ALL,       2000); break;
-    default: break;
     }
 }
 
@@ -181,7 +390,9 @@ bool TestRoutine::testSensors()
 
     PressureSensorData baro2Data;
     SensorReadStatus baro2Status = _model->getMS561101BA03Data_2(baro2Data);
-    if (baro2Status != SensorReadStatus::OK) {
+    if (baro2Status == SensorReadStatus::NOT_PRESENT) {
+        LOG_INFO("Test", "Barometer 2 not configured on this board.");
+    } else if (baro2Status != SensorReadStatus::OK) {
         _statusManager.playBlockingPattern(BARO2_FAIL, 2000);
         LOG_ERROR("Test", "Errore: Barometro 2 non inizializzato. Read status: %d", static_cast<int>(baro2Status));
     } else {
@@ -207,19 +418,24 @@ bool TestRoutine::testActuators()
 {
     LOG_INFO("Test", "[STEP 3] Test attuatori");
     LOG_INFO("Test", "Attivazione attuatori per 5 secondi...");
-    _statusManager.playBlockingPattern(TEST_ACTUATORS, 500);
     gpio_set_level(_board.get_drogue_actuator_pin(), HIGH);
     gpio_set_level(_board.get_main_actuator_pin(),   HIGH);
     _buzzerController.playTone(TONE_MID, 1000);
     vTaskDelay(pdMS_TO_TICKS(5000));
 
     LOG_INFO("Test", "Spegnimento attuatori...");
-    _statusManager.playBlockingPattern(TEST_ACTUATORS, 500);
     gpio_set_level(_board.get_drogue_actuator_pin(), LOW);
     gpio_set_level(_board.get_main_actuator_pin(),   LOW);
     _buzzerController.playTone(TONE_MID, 1000);
 
     return waitForUserInput("Verificare accensione LED e tensione in uscita da DROGUE e MAIN, verificare funzionamento Buzzer. Scrivi PASSED o FAILED");
+}
+
+bool TestRoutine::testBuzzerJingle()
+{
+    LOG_INFO("Test", "[STEP 15] Jingle buzzer");
+    _buzzerController.playJingle();
+    return waitForUserInput("Il buzzer ha suonato il motivetto? Scrivi PASSED o FAILED");
 }
 
 bool TestRoutine::testSDCard()
@@ -414,16 +630,23 @@ bool TestRoutine::clearFlashMemory()
         return waitForUserInput("Type PASSED to continue or FAILED to retry");
     }
 
-    printf("WARNING: This operation will format the entire Flash memory.\n");
-    printf("All data will be lost!\n");
-    printf("Are you sure you want to continue? (Y/n): \n");
-    
-    char buffer[16] = {0};
-    Utils::readLine(buffer, sizeof(buffer));
-    std::string input(buffer);
-    trimString(input);
-    
-    if (input == "Y" || input == "y") {
+    // The dashboard already gates this behind an explicit FORMAT_FLASH
+    // confirmation, so a web-driven run does not ask again on serial.
+    bool confirmed = isWebTestContext();
+
+    if (!confirmed) {
+        printf("WARNING: This operation will format the entire Flash memory.\n");
+        printf("All data will be lost!\n");
+        printf("Are you sure you want to continue? (Y/n): \n");
+
+        char buffer[16] = {0};
+        Utils::readLine(buffer, sizeof(buffer));
+        std::string input(buffer);
+        Utils::trimString(input);
+        confirmed = input == "Y" || input == "y";
+    }
+
+    if (confirmed) {
         LOG_INFO("Test", "Formatting in progress... it might take some time.");
         if (_flash->clearMemory()) {
             LOG_INFO("Test", "Formatting completed successfully!");
@@ -486,10 +709,13 @@ bool TestRoutine::dumpFlashJsonFiles()
             break; // End of file reached
         }
 
-        // Print directly to serial. 
+        // Print directly to serial.
         // Note: readLine() already includes the '\n' at the end.
-        printf("%s", line.c_str());
-        
+        {
+            SerialLogger::Lock lineLock;
+            printf("%s", line.c_str());
+        }
+
         lineCount++;
 
         // Feed the FreeRTOS watchdog to prevent resets during massive file dumps
@@ -513,13 +739,12 @@ bool TestRoutine::dumpFlashJsonFiles()
 bool TestRoutine::testTelemetry()
 {
     LOG_INFO("Test", "[STEP 6] Test telemetria");
-    _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
 
     E220LoRaTransmitter lora(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN,
                              MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
 
     auto initResult = lora.init();
-    if (initResult.getCode() != E220_SUCCESS) {
+    if (!initResult.isOk()) {
         LOG_ERROR("Test", "LoRa init fallita: %s", initResult.getDescription().c_str());
         return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
     }
@@ -528,7 +753,7 @@ bool TestRoutine::testTelemetry()
     for (int i = 1; i <= 3; i++) {
         std::string payload = "LORA_TEST_" + std::to_string(i);
         auto result = lora.transmit(payload);
-        if (result.getCode() == E220_SUCCESS)
+        if (result.isOk())
             LOG_INFO("Test", "Pacchetto %d inviato.", i);
         else
             LOG_ERROR("Test", "Invio pacchetto %d fallito: %s", i, result.getDescription().c_str());
@@ -541,13 +766,12 @@ bool TestRoutine::testTelemetry()
 bool TestRoutine::testTelemetryCommand()
 {
     LOG_INFO("Test", "[STEP 11] Test ricezione comando LoRa (timeout 30s)");
-    _statusManager.playBlockingPattern(TEST_TELEMETRY, 1000);
 
     E220LoRaTransmitter lora(Serial2, MANNY_LORA_TX_PIN, MANNY_LORA_RX_PIN,
                              MANNY_LORA_AUX_PIN, MANNY_LORA_M0_PIN, MANNY_LORA_M1_PIN);
 
     auto initResult = lora.init();
-    if (initResult.getCode() != E220_SUCCESS) {
+    if (!initResult.isOk()) {
         LOG_ERROR("Test", "LoRa init fallita: %s", initResult.getDescription().c_str());
         return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
     }
@@ -597,10 +821,10 @@ bool TestRoutine::testI2CScan()
             const char* label = nullptr;
             for (auto& d : known)
                 if (d.addr == addr) { label = d.name; break; }
-            printf(label ? "Found: 0x%02X %s\n" : "Unknown: 0x%02X\n", addr, label ? label : "");
+            LOG_INFO("TestRoutine", label ? "Found: 0x%02X %s\n" : "Unknown: 0x%02X\n", addr, label ? label : "");
         }
-    }
-    if (!found) printf("No devices found.\n");
+    } 
+    if (!found) LOG_INFO("TestRoutine", "No devices found.\n");
 
     return waitForUserInput("Scrivi PASSED per continuare o FAILED per ripetere");
 }
@@ -711,6 +935,12 @@ bool TestRoutine::calibrateAndSaveIMU()
         return waitForUserInput("Type FAILED to continue");
     }
 
+    // Calibrating is useless in non-fusion mode.
+    if (!bnoSensor->isFusionMode()) {
+        LOG_INFO("Test", "Nothing to calibrate. Check the accelerometer from the Live Data page instead.");
+        return waitForUserInput("Type PASSED to continue");
+    }
+
     bool calibrated = false;
     LOG_INFO("Test", "Waiting for calibration");
 
@@ -754,95 +984,107 @@ void TestRoutine::run()
 {
     LOG_INFO("Test", "=== SYSTEM TEST ROUTINE INITIATED ===");
 
-    while (true)
+    // ── Tests Definition ────────────────
+    std::array<TestOption, 13> tests = {{
+        {"Alimentation and LED Test", [this]() { return testPowerAndLEDs(); }, true},
+        {"Sensors Test", [this]() { return testSensors(); }, true},
+        {"Actuators Test", [this]() { return testActuators(); }, true},
+        {"SD Card Test", [this]() { return testSDCard(); }, true},
+        {"I2C Scan", [this]() { return testI2CScan(); }, false},
+        {"E220 Configuration (one-time setup)", [this]() { return configureE220(); }, false},
+        {"Telemetry Test", [this]() { return testTelemetry(); }, true},
+        {"E220 connector Test", [this]() { return testE220Connector(); }, false},
+        {"Flash memory Test", [this]() { return testFlashMemory(); }, true},
+        {"LoRa command reception Test", [this]() { return testTelemetryCommand(); }, true},
+        {"Dump JSONL telemetry from Flash", [this]() { return dumpFlashJsonFiles(); }, false},
+        {"Format Flash memory", [this]() { return clearFlashMemory(); }, false},
+        {"IMU calibration and save to NVS (Internal Flash)", [this]() { return calibrateAndSaveIMU(); }, false},
+    }};
+
+    // ── Run Tests ────────────────
+    bool run = true;
+    while (run)
     {
         _statusManager.setSystemCode(TEST_MENU);
 
+        // ── Show Menu ────────────────
         printf("\n=== MENU TEST ===\n");
-        printf("1 - Test alimentazione e LED\n");
-        printf("2 - Test sensori\n");
-        printf("3 - Test attuatori\n");
-        printf("4 - Test SD Card\n");
-        printf("5 - I2C scan\n");
-        printf("6 - Configura E220 (one-time setup)\n");
-        printf("7 - Test telemetria\n");
-        printf("8 - Test connettore E220\n");
-        printf("9 - Test Flash memory\n");
-        printf("10 - Test ricezione comando LoRa\n");
-        printf("11 - Esegui tutti i test in sequenza\n");
-        printf("12 - Dump JSONL telemetry from Flash\n");
-        printf("13 - Format Flash memory\n");
-        printf("14 - Calibra IMU e salva in NVS (Internal Flash)\n");
-        printf("0 - Esci dal menu test\n");
-        printf("Inserisci il numero del test da eseguire:\n");
+        const int numTests = static_cast<int>(tests.size());
+        for (int i = 0; i < numTests; i++) {
+            printf("%d - %s\n", i + 1, tests.at(i).name);
+        }
+        printf("%d - Execute all Tests in sequence\n", numTests + 1);
+        printf("0 - Exit Menu\n");
+        printf("Insert the desired action number: (0-%d)\n", numTests + 1);
 
+        // ── Get Choice ────────────────
         char buffer[32] = {0};
         Utils::readLine(buffer, sizeof(buffer));
         std::string input(buffer);
-        trimString(input);
-        int choice = std::atoi(input.c_str());
-        bool testPassed = false;
+        Utils::trimString(input);
 
-        showTestPattern(choice);
-
-        switch (choice)
-        {
-        case 1:  do { testPassed = testPowerAndLEDs();  } while (!testPassed); break;
-        case 2:  do { testPassed = testSensors();       } while (!testPassed); break;
-        case 3:  do { testPassed = testActuators();     } while (!testPassed); break;
-        case 4:  do { testPassed = testSDCard();        } while (!testPassed); break;
-        case 5:  do { testPassed = testI2CScan();       } while (!testPassed); break;
-        case 6:  do { testPassed = configureE220();     } while (!testPassed); break;
-        case 7:  do { testPassed = testTelemetry();     } while (!testPassed); break;
-        case 8:  do { testPassed = testE220Connector(); } while (!testPassed); break;
-        case 9:  do { testPassed = testFlashMemory();      } while (!testPassed); break;
-        case 10: do { testPassed = testTelemetryCommand(); } while (!testPassed); break;
-        case 11:
-            _statusManager.playBlockingPattern(TEST_ALL, 2000);
-            do { testPassed = testPowerAndLEDs();  } while (!testPassed);
-            do { testPassed = testSensors();       } while (!testPassed);
-            do { testPassed = testActuators();     } while (!testPassed);
-            do { testPassed = testSDCard();        } while (!testPassed);
-            do { testPassed = testTelemetry();     } while (!testPassed);
-            do { testPassed = testFlashMemory();   } while (!testPassed);
-            do { testPassed = testTelemetryCommand(); } while (!testPassed);
-            _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
-            LOG_INFO("Test", "\n=== TUTTI I TEST COMPLETATI CON SUCCESSO ===");
-            break;
-        case 12:
-                do { testPassed = dumpFlashJsonFiles(); } while (!testPassed); break;
-        case 13:
-                do { testPassed = clearFlashMemory(); } while (!testPassed); break;
-        case 14:
-                do { testPassed = calibrateAndSaveIMU(); } while (!testPassed); break;
-        case 0:
-            _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
-            LOG_INFO("Test", "\n=== USCITA DAL MENU TEST ===");
-            _statusManager.setSystemCode(SYSTEM_OK);
-            return;
-        default:
-            printf("Scelta non valida. Riprova.\n");
+        // reject non-numeric input (atoi would turn it into 0 = exit)
+        if (input.empty() || input.find_first_not_of("0123456789") != std::string::npos) {
+            printf("Invalid choice. Try again.\n");
             continue;
         }
+        int choice = std::atoi(input.c_str());
 
-        if (choice >= 1 && choice <= 13) {
-            LOG_INFO("Test", "Test completato con successo!");
-            _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+        if (choice >= 0 && choice <= numTests + 1) {
+            // ── Exit ──────────────────────────
+            if (choice == 0) {
+                _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
+                LOG_INFO("Test", "\n=== EXITING TEST MENU ===");
+                _statusManager.setSystemCode(SYSTEM_OK);
+
+                run = false;
+            }
+            // ── Run Single Test ────────────────
+            else if (choice <= numTests)
+            {
+                while (!tests.at(choice - 1).func());
+
+                LOG_INFO("Test", "Test successfully completed!");
+                _statusManager.playBlockingPattern(TEST_SUCCESS, 1000);
+            }
+            // ── Run All Tests ───────────────────
+            // excluding I2C scan, E220 configuration/connector and flash utilities
+            else
+            {
+                for (const auto& test : tests) {
+                    // check if the test should run
+                    if (test.run_all_flag)
+                        while (!test.func());
+                }
+
+                _statusManager.playBlockingPattern(TEST_SUCCESS, 2000);
+                LOG_INFO("Test", "\n=== ALL TESTS SUCCESSFULLY COMPLETED ===");
+            }
+        } else {
+            printf("Invalid choice. Try again.\n");
         }
     }
 }
 
 void TestRoutine::printSystemInfo()
 {
+    rtc_cpu_freq_config_t cpuConf;
+    rtc_clk_cpu_freq_get_config(&cpuConf);
+
+    uint32_t flashSize = 0;
+    if (esp_flash_get_size(NULL, &flashSize) != ESP_OK) {
+        flashSize = 0;
+    }
+
     printf("--- System Information ---\n");
-    printf("ESP32 Chip: %s\n",         ESP.getChipModel());
-    printf("CPU Frequency: %lu MHz\n", (unsigned long)ESP.getCpuFreqMHz());
-    printf("Total Heap: %lu bytes\n",  (unsigned long)ESP.getHeapSize());
-    printf("Free Heap: %lu bytes\n",   (unsigned long)ESP.getFreeHeap());
-    printf("PSRAM Total: %lu bytes\n", (unsigned long)ESP.getPsramSize());
-    printf("PSRAM Free: %lu bytes\n",  (unsigned long)ESP.getFreePsram());
-    printf("Flash Size: %lu bytes\n",  (unsigned long)ESP.getFlashChipSize());
-    printf("SDK Version: %s\n",        ESP.getSdkVersion());
+    printf("ESP32 Chip: %s\n",         CONFIG_IDF_TARGET);
+    printf("CPU Frequency: %lu MHz\n", (unsigned long)cpuConf.freq_mhz);
+    printf("Total Heap: %lu bytes\n",  (unsigned long)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    printf("Free Heap: %lu bytes\n",   (unsigned long)esp_get_free_heap_size());
+    printf("PSRAM Total: %lu bytes\n", (unsigned long)heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+    printf("PSRAM Free: %lu bytes\n",  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    printf("Flash Size: %lu bytes\n",  (unsigned long)flashSize);
+    printf("SDK Version: %s\n",        esp_get_idf_version());
     printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
     printf("Tick rate: %d Hz\n",       configTICK_RATE_HZ);
     printf("--- End System Information ---\n");

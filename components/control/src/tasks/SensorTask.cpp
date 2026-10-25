@@ -1,5 +1,14 @@
 #include "SensorTask.hpp"
+#include "esp_heap_caps.h"
+#include "esp_system.h"
 #include "esp_task_wdt.h"
+
+// Loop and logging rates live in SensorTask.hpp so HIL can mirror them.
+
+// health check thresholds and reporting period
+static constexpr uint32_t HEALTH_CHECK_PERIOD_MS = 5000;
+static constexpr uint32_t MIN_STACK_REMAINING_BYTES = 512;
+static constexpr uint32_t LOW_HEAP_THRESHOLD_BYTES = 5 * 1024;
 
 SensorTask::SensorTask(std::shared_ptr<RocketModel> rocketModel,
                         std::shared_ptr<RocketLogger> logger)
@@ -23,14 +32,20 @@ void SensorTask::onTaskStop()
 
 void SensorTask::taskFunction()
 {
-    uint32_t loopCount = 0;
+#if !AURORA_HIL_ENABLED
+    uint32_t sensorLogCounter = 0;
+    uint32_t lastLoggedBaro1Timestamp = 0;
+    uint32_t lastLoggedBaro2Timestamp = 0;
+    bool hasLoggedBaro1Sample = false;
+    bool hasLoggedBaro2Sample = false;
+#endif
+    TickType_t lastWakeTime = xTaskGetTickCount();
 
     while (running)
     {
         // CRITICAL: Reset the watchdog every loop (watchdog created in BaseTask)
         esp_task_wdt_reset();
-        LOG_INFO("SensorTask", "READING SENSORS");
-        
+
         // Check running flag early to exit quickly during shutdown
         if (!running || !rocketModel) break;
         
@@ -40,30 +55,27 @@ void SensorTask::taskFunction()
         rocketModel->updateMS561101BA03_2();
         rocketModel->updateLIS3DHTR();
 
-        LOG_DEBUG("Sensor", "Updated all sensors");
-        
         if (!running) break;
 
-        // Log memory usage every 10 loops
-        if (loopCount % 10 == 0)
-        {
-            uint32_t freeHeap = ESP.getFreeHeap();
-            LOG_INFO("Sensor", "L%lu: Stack HwM:%u, Heap=%u, Memory=%u",
-                          loopCount, uxTaskGetStackHighWaterMark(NULL), freeHeap,
-                          heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
-                          
-            // Check for low memory condition
-            if (freeHeap < 50000) { // Warning threshold
-                LOG_WARNING("Sensor", "LOW MEMORY WARNING: Only %u bytes free heap remaining!", freeHeap);
-            }
+        // FreeRTOS reports the minimum-ever remaining stack, not stack usage.
+        const uint32_t stackRemaining = uxTaskGetStackHighWaterMark(nullptr);
+        const uint32_t freeHeap = esp_get_free_heap_size();
+
+        if (stackRemaining < MIN_STACK_REMAINING_BYTES || freeHeap < LOW_HEAP_THRESHOLD_BYTES) {
+            LOG_EVERY_MS(HEALTH_CHECK_PERIOD_MS, WARNING, "Sensor",
+                         "Resource warning: stack remaining=%u bytes, heap=%u bytes, largest block=%u bytes",
+                         static_cast<unsigned>(stackRemaining),
+                         static_cast<unsigned>(freeHeap),
+                         static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
         }
 
-#ifndef CONFIG_AURORA_HIL_SIMULATION
-        // Log sensor data every 3 loops if logger is available
-        if (logger)
+#if !AURORA_HIL_ENABLED
+        // Record every second acquisition cycle: 25 Hz from the 50 Hz outer loop.
+        if (++sensorLogCounter >= SENSOR_LOG_INTERVAL_LOOPS)
         {
+            sensorLogCounter = 0;
             // Log sensor data through the model
-            if (rocketModel)
+            if (logger && rocketModel)
             {
                 IMUData outBnoData;
                 SensorReadStatus bnoStatus = rocketModel->getBNO055Data(outBnoData);
@@ -73,14 +85,22 @@ void SensorTask::taskFunction()
 
                 PressureSensorData outMs56Data1;
                 SensorReadStatus baro1Status = rocketModel->getMS561101BA03Data_1(outMs56Data1);
-                if (baro1Status == SensorReadStatus::OK) {
+                // The model retains its last valid barometer sample while D1/D2
+                // conversions are in progress. Record it once, not every log tick.
+                if (baro1Status == SensorReadStatus::OK &&
+                    (!hasLoggedBaro1Sample || outMs56Data1.timestamp != lastLoggedBaro1Timestamp)) {
                     logger->logSensorData(outMs56Data1);
+                    lastLoggedBaro1Timestamp = outMs56Data1.timestamp;
+                    hasLoggedBaro1Sample = true;
                 }
 
                 PressureSensorData outMs56Data2;
                 SensorReadStatus baro2Status = rocketModel->getMS561101BA03Data_2(outMs56Data2);
-                if (baro2Status == SensorReadStatus::OK) {
+                if (baro2Status == SensorReadStatus::OK &&
+                    (!hasLoggedBaro2Sample || outMs56Data2.timestamp != lastLoggedBaro2Timestamp)) {
                     logger->logSensorData(outMs56Data2);
+                    lastLoggedBaro2Timestamp = outMs56Data2.timestamp;
+                    hasLoggedBaro2Sample = true;
                 }
 
                 AccelerometerSensorData outLis3dhData;
@@ -89,15 +109,8 @@ void SensorTask::taskFunction()
                     logger->logSensorData(outLis3dhData);
                 }
             }
-
-            // Log current RocketLogger memory usage for monitoring
-            LOG_INFO("Sensor", "RocketLogger entries logged");
         }
 #endif
-
-        loopCount++;
-        
-        // Shorter delay to exit faster (split into smaller chunks)
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(SENSOR_LOOP_PERIOD_MS));
     }
 }

@@ -1,7 +1,9 @@
 #pragma once
 #include "LEDController.hpp"
 #include "BuzzerController.hpp"
+#include "FlightState.hpp"
 #include <map>
+#include <optional>
 
 // System status codes
 enum SystemCode
@@ -37,23 +39,13 @@ enum SystemCode
     POWER_LOW_WARNING = 90,
     UNKNOWN_ERROR = 99,
 
-    // Additional flight status codes
-    LAUNCH_READY = 100,
-    LAUNCH_DETECTED,
-    APOGEE_DETECTED,
+    // These are never used, keeping as future implementation idea.
+    LAUNCH_DETECTED = 100,
     DROGUE_DEPLOY,
     MAIN_DEPLOY,
-    LANDING_DETECTED,
-    RECOVERY_COMPLETE,
 
     // Test mode status codes
     TEST_MENU = 200,
-    TEST_POWER,
-    TEST_SENSORS,
-    TEST_ACTUATORS,
-    TEST_SD,
-    TEST_TELEMETRY,
-    TEST_ALL,
     TEST_SUCCESS,
     TEST_FAILURE
 };
@@ -65,6 +57,8 @@ struct StatusPattern
     BuzzerPattern buzzerPattern;
     BuzzerTone buzzerTone;
     bool buzzerSync; // Whether to sync buzzer with LED
+    // When set, the buzzer repeats the jingle instead of buzzerPattern.
+    bool buzzerJingleLoop = false;
 };
 
 /**
@@ -81,8 +75,14 @@ private:
     // Current status
     SystemCode currentCode;
 
+    // The phase currently on the LED, empty when something else took it over.
+    std::optional<RocketState> currentPhase;
+
     // Pattern mapping
     std::map<SystemCode, StatusPattern> codeToPattern;
+
+    // LED <-> Flight phase mapping
+    std::map<RocketState, StatusPattern> phaseToPattern;
 
     // Task handles for special pattern handling
     TaskHandle_t statusTaskHandle;
@@ -91,12 +91,17 @@ private:
     struct TaskContext
     {
         StatusManager *instance;
-        SystemCode code;
         StatusPattern pattern;
     };
 
     // Static task function for special patterns
     static void statusTaskFunction(void *param);
+
+    // Hand a pattern to the two controllers
+    void applyPattern(const StatusPattern &pattern);
+
+    // Fill phaseToPattern. Called by init().
+    void initFlightPhases();
 
 public:
     // Constructor
@@ -107,6 +112,9 @@ public:
 
     // Set system status
     void setSystemCode(SystemCode code);
+
+    // Show the phase the rocket is in
+    void setFlightPhase(RocketState phase);
 
     // Get current system code
     SystemCode getCurrentCode() const { return currentCode; }

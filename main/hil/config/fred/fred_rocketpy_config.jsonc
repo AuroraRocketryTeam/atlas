@@ -1,0 +1,429 @@
+{
+  "Environment": {
+    "latitude": 44.2901999,
+    "longitude": 12.0278684,
+    "elevation": 18,
+    "max_expected_height": 318, // 300 m above the 18 m launch elevation.
+    "_calls":
+    // Open-Meteo ICON-D2 fetched 2026-10-25T09:59:42.179090+00:00; launch 2026-10-25T14:30:00+01:00 (2026-10-25T13:30 UTC).
+    // Hourly records 13:00 and 14:00 UTC; time interpolation 0.50 (wind vectors).
+    // Requested site: 44.2901999 N, 12.0278684 E; pad 18 m ASL.
+    // Model grid: 44.285194 N, 12.02127 E; elevation 13.0 m. Raw response: forecast_1430.source.json.
+    // Heights are metres ASL; pressure Pa, temperature K, east/north wind m/s; rounded to 6 decimals.
+    // Replace Environment._calls with this array so the date and atmosphere stay paired.
+    [
+      {
+        "method": "set_date",
+        "kwargs": {
+          "date": [
+            2026,
+            10,
+            25,
+            14,
+            30
+          ],
+          "timezone": "Europe/Rome"
+        }
+      },
+      {
+        "method": "set_atmospheric_model",
+        "kwargs": {
+          "type": "custom_atmosphere",
+          "pressure": [
+            [
+              18.0,
+              101205.0
+            ],
+            [
+              114.5,
+              100000
+            ],
+            [
+              328.5,
+              97500
+            ],
+            [
+              546.5,
+              95000
+            ],
+            [
+              769.19,
+              92500
+            ],
+            [
+              996.83,
+              90000
+            ],
+            [
+              1468.0,
+              85000
+            ]
+          ],
+          "temperature": [
+            [
+              18.0,
+              290.55
+            ],
+            [
+              114.5,
+              288.9
+            ],
+            [
+              328.5,
+              286.75
+            ],
+            [
+              546.5,
+              285.65
+            ],
+            [
+              769.19,
+              283.9
+            ],
+            [
+              996.83,
+              282.15
+            ],
+            [
+              1468.0,
+              278.65
+            ]
+          ],
+          "wind_u": [
+            [
+              18.0,
+              -0.201309
+            ],
+            [
+              28.0,
+              -0.201309
+            ],
+            [
+              98.0,
+              -0.201309
+            ],
+            [
+              138.0,
+              -0.201309
+            ],
+            [
+              198.0,
+              -0.201309
+            ],
+            [
+              328.5,
+              -0.209697
+            ],
+            [
+              546.5,
+              2.418595
+            ],
+            [
+              769.19,
+              3.459319
+            ],
+            [
+              996.83,
+              4.500026
+            ],
+            [
+              1468.0,
+              6.586057
+            ]
+          ],
+          "wind_v": [
+            [
+              18.0,
+              -0.848454
+            ],
+            [
+              28.0,
+              -0.848454
+            ],
+            [
+              98.0,
+              -0.898454
+            ],
+            [
+              138.0,
+              -0.898454
+            ],
+            [
+              198.0,
+              -0.898454
+            ],
+            [
+              328.5,
+              -0.880889
+            ],
+            [
+              546.5,
+              0.539698
+            ],
+            [
+              769.19,
+              0.650111
+            ],
+            [
+              996.83,
+              0.727832
+            ],
+            [
+              1468.0,
+              0.946805
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "SolidMotor": {
+    // 25 Oct Mission Analysis input: 23 Oct 8 mm static fire, 224.81 N*s.
+    // Propulsion window shifted to zero, negative readings clipped, curve closed at zero.
+    // A zero-thrust t=0 row precedes the official first sample at 0.0039 s.
+    "thrust_source": "thrust_curve8mm_20261025.csv",
+    "dry_mass": 0.61785, // Measured motor hardware; wet mass 0.824 kg.
+    "dry_inertia": [0.00455276, 0.00455276, 0.000222935],
+    "nozzle_radius": 0.0089443, // Nozzle exit diameter 17.89 mm (expansion ratio 5); throat diameter 8 mm.
+    "throat_radius": 0.004,
+    "grain_number": 1,
+    "grain_outer_radius": 0.0165,
+    "grain_initial_inner_radius": 0.0065,
+    "grain_initial_height": 0.147,
+    // Measured grain mass is 206.15 g. Density uses its listed design-volume estimate
+    "_grain_mass": 0.20615,
+    "grain_density": 1940.8,
+    "grain_separation": 0.002,
+    "grains_center_of_mass_position": 0.123459, // Grain center in a 0.2320 m long motor; positions run from nozzle to chamber.
+    "center_of_dry_mass_position": 0.0873014,
+    "nozzle_position": 0,
+    "burn_time": 1.5198,
+    "coordinate_system_orientation": "nozzle_to_combustion_chamber"
+  },
+  "RocketV2": {
+    // FRED2.0 v1.1 without AMI: 24 Oct measured dry mass, 25 Oct Mission Analysis geometry.
+    // Dry mass excludes motor hardware; positions run from nose tip toward tail.
+    "radius": 0.0425,
+    "_dry_mass": 2.164,
+    "_ballast": 0.0,
+    "mass": "= $RocketV2._dry_mass + $RocketV2._ballast",
+    "inertia": [0.129, 0.129, 0.002],
+    "power_off_drag": "cd_mach.csv",
+    "power_on_drag": "cd_mach.csv",
+    "center_of_mass_without_motor": 0.434,
+    "coordinate_system_orientation": "nose_to_tail"
+  },
+  "set_rail_buttons": {
+    // Positions are button centers; the two centers are 0.23 m apart.
+    "upper_button_position": 0.4315,
+    "lower_button_position": 0.6615,
+    "angular_position": 0
+  },
+  "add_tail": {
+    // Conical tail in both the OpenRocket source and RocketPy.
+    "top_radius": 0.0425,
+    "bottom_radius": 0.03,
+    "length": 0.043,
+    "position": 0.8615
+  },
+  "add_motor": {
+    // Tail end equals the CSV motor_position (0.9045 m): nozzle exit at rocket tail.
+    "position": "= $add_tail.position + $add_tail.length"
+  },
+  "add_nose": {
+    "length": 0.14,
+    "kind": "elliptical",
+    "position": 0
+  },
+  "add_trapezoidal_fins": {
+    "n": 3,
+    "root_chord": 0.12,
+    "tip_chord": 0.03,
+    "span": 0.12,
+    // Start of the root chord, measured from the nose tip.
+    "position": 0.7365,
+    "sweep_angle": 45
+  },
+  "add_parachute": [
+    {
+      // Mission Analysis: one Rocketman 4 ft main, CdS 1.13296 m^2, 1 s opening lag.
+      "name": "Main",
+      "_trigger": "main",
+      "_cd": 0.97,
+      "_area": 1.168,
+      "cd_s": "= $_cd * $_area",
+      "lag": 1.0
+      // "noise": [0, 6.5, 0.3]
+    }
+  ],
+  "Flight": {
+    "rail_length": 1.5,
+    "inclination": 70,
+    "heading": 180,
+    "time_overshoot": false
+  },
+  "Sensors": {
+    "_default_position": 0,
+
+    "_profiles": {
+      "clean": {
+        // Ideal profile: no explicit noise/bias/resolution values.
+        // Useful as a baseline and for HIL debugging.
+        "Accelerometer": {
+          "name": "Clean Accelerometer",
+          "consider_gravity": true,
+          "orientation": [0, 0, 0]
+        },
+        "Barometer": {
+          "name": "Clean Barometer"
+        },
+        "GnssReceiver": {
+          "name": "Clean GPS"
+        }
+      },
+
+      "noisy": {
+        "_inherits": "clean",
+
+        "Accelerometer": {
+          "name": "Noisy Accelerometer",
+
+          // About ±16 g.
+          "measurement_range": 160.0,
+
+          // Quantization step in m/s².
+          "resolution": 0.005,
+
+          // RocketPy accelerometer noise units are m/s²/√Hz.
+          "noise_density": 0.18,
+
+          // Keep variance fixed across profiles; scale noise with noise_density.
+          "noise_variance": 1.0,
+
+          // Bias random walk in m/s²/√Hz.
+          "random_walk_density": 0.02,
+          "random_walk_variance": 1.0,
+
+          // Constant additive acceleration bias in m/s².
+          "constant_bias": 0.35,
+
+          // Temperature values are in Kelvin, not Celsius.
+          "operating_temperature": 298.15,
+
+          // Temperature drift model: bias in m/s²/K, scale factor in %/K.
+          "temperature_bias": 0.002,
+          "temperature_scale_factor": 0.003,
+
+          // RocketPy interprets this as percent. 0.3 means 0.3%.
+          "cross_axis_sensitivity": 0.3
+        },
+
+        "Barometer": {
+          "name": "Noisy Barometer",
+
+          // Pressure range in Pa.
+          "measurement_range": 200000,
+
+          // Quantization step in Pa.
+          "resolution": 0.1,
+
+          // RocketPy barometer noise units are Pa/√Hz.
+          "noise_density": 6.0,
+          "noise_variance": 1.0,
+
+          // Slow pressure drift in Pa/√Hz.
+          "random_walk_density": 0.35,
+          "random_walk_variance": 1.0,
+
+          // Constant pressure bias in Pa.
+          "constant_bias": 8.0,
+
+          "operating_temperature": 298.15,
+
+          // Temperature drift model: bias in Pa/K, scale factor in %/K.
+          "temperature_bias": 0.08,
+          "temperature_scale_factor": 0.003
+        },
+
+        "GnssReceiver": {
+          "name": "Noisy GPS",
+
+          // Standard deviation-like accuracy values in meters.
+          "position_accuracy": 2.0,
+          "altitude_accuracy": 3.0
+        }
+      },
+
+      "very_noisy": {
+        "_inherits": "noisy",
+
+       "Accelerometer": {
+        "name": "Very Noisy Accelerometer",
+        "noise_density": 0.35,
+        "random_walk_density": 0.05,
+        "constant_bias": 0.75,
+
+        // Slightly worse thermal and cross-axis behavior.
+        "temperature_bias": 0.006,
+        "cross_axis_sensitivity": 1.0
+      },
+
+        "Barometer": {
+          "name": "Very Noisy Barometer",
+          "noise_density": 25.0,
+          "random_walk_density": 1.5,
+          "constant_bias": 25.0
+        },
+
+        "GnssReceiver": {
+          "name": "Very Noisy GPS",
+          "position_accuracy": 4.0,
+          "altitude_accuracy": 4.0
+        }
+      },
+
+      "RealisticNoise": {
+        "_inherits": "clean",
+
+        // Empirical noise model calibrated from water-rocket flights.
+        // Reproduces pre-launch measurement variability at 50 Hz.
+        //
+        // The accelerometer model includes some physical disturbances.
+        // Constant bias, random walk and temperature drift are excluded
+        // because they could not be reliably identified.
+        //
+        // If we switch RocketPy to 25 Hz, the corresponding coefficients
+        // for approximately the same per-measurement RMS would be:
+        // Accelerometer noise_density	[0.034, 0.030, 0.040]
+        // Barometer noise_density	0.266
+
+        "Accelerometer": {
+          "name": "Realistic BNO055 Accelerometer",
+
+          // Manny's current ±16 g configuration.
+          "measurement_range": 160.0,
+
+          // Observed logging resolution.
+          "resolution": 0.01,
+
+          // RMS at 50 Hz: approximately [0.170, 0.148, 0.198] m/s².
+          "noise_density": [0.024, 0.021, 0.028],
+          "noise_variance": 1.0
+        },
+
+        "Barometer": {
+          "name": "Realistic MS5611 Barometer",
+
+          "measurement_range": 200000,
+          "resolution": 1.0,
+
+          // RMS at 50 Hz: approximately 1.33 Pa.
+          "noise_density": 0.188,
+          "noise_variance": 1.0
+        }
+
+        // GNSS inherits from clean; no GNSS noise calibration available.
+      }
+    }
+  }
+}

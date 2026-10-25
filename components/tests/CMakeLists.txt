@@ -14,5 +14,7 @@ idf_component_register(
         flash
         I2C
         radio_lora
+        spi_flash
+        esp_hw_support
         espressif__arduino-esp32
 )

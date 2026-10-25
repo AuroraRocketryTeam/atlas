@@ -1,5 +1,9 @@
 // Standard libraries
 #include <Arduino.h>
+#include "esp_flash.h"
+#include "esp_heap_caps.h"
+#include "soc/rtc.h"
+#include "esp_system.h"
 #include <variant>
 #include <string>
 #include <cstring>
@@ -8,16 +12,10 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-// WiFi and communication
-#include <esp_now.h>
-#include <esp_wifi.h>
-#include <esp_event.h>
-#include <esp_netif.h>
+// ESP-IDF helpers (WiFi/netif/NVS are owned by the board abstraction)
 #include <esp_err.h>
-#include <nvs_flash.h>
-#include "lwip/sockets.h"
-#include "lwip/ip4_addr.h"
-#include "lwip/inet.h"
+#include "esp_ota_ops.h"
+#include <esp_heap_caps.h>
 
 // Configuration and pins
 #include "driver/gpio.h"
@@ -50,64 +48,78 @@
 // Controllers and filters
 #include <LEDController.hpp>
 #include <BuzzerController.hpp>
+#include <FlightFlags.hpp>
 #include <StatusManager.hpp>
 
 // Main system
 #include <RocketFSM.hpp>
+#include <RuntimeConfig.hpp>
 #include <E220LoRaTransmitter.hpp>
+#include <TestRoutine.hpp>
 
 // Board hardware instance
-Board board;
+static Board board;
 
 // Create controller instances
-LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
-BuzzerController buzzerController(board.get_buzzer_pin());
-StatusManager statusManager(ledController, buzzerController);
+static LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(),
+                                   board.get_rgb_blue_pin(),
+                                   {MANNY_RGB_LEDC_TIMER, MANNY_RGB_LEDC_RED,
+                                    MANNY_RGB_LEDC_GREEN, MANNY_RGB_LEDC_BLUE});
+static BuzzerController buzzerController(board.get_buzzer_pin(),
+                                         MANNY_BUZZER_LEDC_TIMER, MANNY_BUZZER_LEDC_CH);
+static StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
-std::shared_ptr<RocketModel> rocketModel = nullptr;
+static std::shared_ptr<RocketModel> rocketModel = nullptr;
 
-std::shared_ptr<SD> sdCard = nullptr;
-std::shared_ptr<Flash> flash = nullptr;
+static std::shared_ptr<SD> sdCard = nullptr;
+static std::shared_ptr<Flash> flash = nullptr;
 
 // Define the RocketLogger
-std::shared_ptr<RocketLogger> logger = nullptr;
+static std::shared_ptr<RocketLogger> logger = nullptr;
 
 // FSM instance
-std::unique_ptr<RocketFSM> rocketFSM;
+static std::unique_ptr<RocketFSM> rocketFSM;
+static std::shared_ptr<TestRoutine> testRoutine = nullptr;
 
 // Utility functions
 void printSystemInfo();
-void wifi_softap_init(void);
-static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
-// HIL lifecycle helpers
+// HIL lifecycle helper
 static void createAndStartFSM();
-static void resetHilSimulationIfRequested();
-static void resetHilSimulation();
 
-#if CONFIG_AURORA_HIL_SIMULATION
+/**
+ * @brief Confirm the running image after an OTA update.
+ *
+ * With CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE a freshly flashed app boots in
+ * ESP_OTA_IMG_PENDING_VERIFY, and the bootloader reverts to the previous
+ * partition on the next restart unless the app marks itself valid. Calling this
+ * only once setup has completed is deliberate: a firmware that cannot finish
+ * initialization is rolled back automatically instead of bricking the board.
+ */
+static void confirmOtaImageIfPending()
+{
+    const esp_partition_t *running_partition = esp_ota_get_running_partition();
+    esp_ota_img_states_t ota_state;
+    if (running_partition == nullptr ||
+        esp_ota_get_state_partition(running_partition, &ota_state) != ESP_OK)
+    {
+        return;
+    }
+    if (ota_state != ESP_OTA_IMG_PENDING_VERIFY) return;
 
-static constexpr const char *HIL_WIFI_SSID = CONFIG_AURORA_HIL_WIFI_SSID;
-static constexpr const char *HIL_WIFI_PASSWORD = CONFIG_AURORA_HIL_WIFI_PASSWORD;
-static constexpr int HIL_WIFI_CHANNEL = CONFIG_AURORA_HIL_WIFI_CHANNEL;
-static constexpr int HIL_MAX_STA_CONN = CONFIG_AURORA_HIL_MAX_STA_CONN;
+    const esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+    if (err == ESP_OK)
+    {
+        LOG_INFO("Main", "OTA image confirmed valid; rollback cancelled");
+    }
+    else
+    {
+        LOG_ERROR("Main", "Failed to confirm OTA image: %s", esp_err_to_name(err));
+    }
+}
 
-static constexpr const char *HIL_AP_IP_ADDR = CONFIG_AURORA_HIL_AP_IP_ADDR;
-static constexpr const char *HIL_AP_NETMASK = CONFIG_AURORA_HIL_AP_NETMASK;
-
-static_assert(sizeof(CONFIG_AURORA_HIL_WIFI_SSID) > 1,
-              "CONFIG_AURORA_HIL_WIFI_SSID must not be empty");
-
-static_assert(
-    sizeof(CONFIG_AURORA_HIL_WIFI_PASSWORD) == 1 ||
-    sizeof(CONFIG_AURORA_HIL_WIFI_PASSWORD) >= 9,
-    "CONFIG_AURORA_HIL_WIFI_PASSWORD must be empty or at least 8 characters"
-);
-
-#endif
-
-void setup()
+void setupHil()
 {
     // Install driver for blocking reads of Utils::readLine
     // Regular console output already works via the vfs bound by CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
@@ -119,8 +131,6 @@ void setup()
 
     // Signal initialization start
     board.init();
-    gpio_set_level(board.get_rgb_blue_pin(), LOW);
-    gpio_set_level(board.get_rgb_red_pin(), HIGH);
 
     // Initialize controllers
     ledController.init();
@@ -129,16 +139,29 @@ void setup()
     // Initialize status patterns
     statusManager.init();
 
-    // Set initial status with PRE_FLIGHT_MODE
-    statusManager.setSystemCode(PRE_FLIGHT_MODE);
+    statusManager.setFlightPhase(RocketState::INACTIVE);
 
     LOG_INFO("Main", "\n=== Aurora Rocketry Flight Software ===");
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
 
     LOG_INFO("Main", "Initializing system...");
 
-    wifi_softap_init();
-    LOG_INFO("Main", "WiFi soft AP ready...");
+    // Initialize NVS
+    // Never abort here: a persistently unwritable NVS would turn every boot into
+    // a panic reboot. The flight tasks fall back to the compiled defaults instead.
+    if (!board.initNvs())
+    {
+        LOG_ERROR("Main", "Failed to initialize NVS; continuing on compiled defaults");
+    }
+    else
+    {
+        const esp_err_t cfg_err = runtime_config_init(&board);
+        if (cfg_err != ESP_OK)
+        {
+            LOG_ERROR("Main", "Failed to initialize runtime config (%s); continuing on compiled defaults",
+                      esp_err_to_name(cfg_err));
+        }
+    }
 
     // Initialize components
     // LOG_INFO("Main", "Initializing sensors...");
@@ -171,6 +194,15 @@ void setup()
     rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
     LOG_INFO("Main", "RocketModel system model created");
 
+    testRoutine = std::make_shared<TestRoutine>(
+        board,
+        rocketModel,
+        sdCard,
+        flash,
+        statusManager,
+        ledController,
+        buzzerController);
+
     // Print system information
     printSystemInfo();
 
@@ -182,7 +214,7 @@ void setup()
     LOG_INFO("Main", "=== System initialization complete ===");
 
     // Wait for arming pin to be enabled before starting FSM
-    statusManager.setSystemCode(PRE_FLIGHT_MODE);
+    statusManager.setFlightPhase(RocketState::INACTIVE);
     while (!board.is_armed())
     {
         LOG_WARNING("Main", "System not armed! Waiting for arming signal...");
@@ -192,10 +224,8 @@ void setup()
     createAndStartFSM();
 
     statusManager.setSystemCode(FLIGHT_MODE);
+    confirmOtaImageIfPending();
 
-    // Signal successful initialization
-    gpio_set_level(board.get_rgb_red_pin(), LOW);
-    gpio_set_level(board.get_rgb_green_pin(), HIGH);
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
 }
 
@@ -203,103 +233,51 @@ static void createAndStartFSM()
 {
     LOG_INFO("Main", "\n=== Initializing Flight State Machine ===");
 
-    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board);
+    rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board, testRoutine);
     rocketFSM->init();
 
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    // These pauses exist to make a normal boot readable on the console. A board
+    // that restarted in mid air is racing its own descent, so it skips them.
+    const bool flightInProgress = FlightFlags::isLaunched();
+    if (flightInProgress)
+        LOG_WARNING("Main", "Launched flag raised. FSM will start in EMERGENCY_RECOVERY.");
+    else
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Start FSM tasks
-    statusManager.setSystemCode(FSM_STARTED);
-    
-    LOG_INFO("Main", "Force transition - READY_FOR_LAUNCH");
-    rocketFSM->forceTransition(RocketState::READY_FOR_LAUNCH);
-    
     LOG_INFO("Main", "Starting Flight State Machine...");
+    statusManager.setSystemCode(FSM_STARTED);
+    if (!flightInProgress) vTaskDelay(1000 / portTICK_PERIOD_MS);
     rocketFSM->start();
 }
 
-static void resetHilSimulationIfRequested()
+void loopHil()
 {
-    if (!rocketModel)
-    {
-        return;
-    }
-
-    if (!rocketModel->getResetSimulationFlag())
-    {
-        return;
-    }
-
-    resetHilSimulation();
-}
-
-static void resetHilSimulation()
-{
-    LOG_WARNING("Main", "HIL reset requested. Reinitializing FSM runtime...");
-
-    statusManager.setSystemCode(PRE_FLIGHT_MODE);
-
-    // Destroy the current FSM.
-    //
-    // Important:
-    // RocketFSM / TaskManager destructors must stop all running FreeRTOS tasks
-    // before task objects are destroyed.
-    if (rocketFSM)
-    {
-        LOG_INFO("Main", "Destroying current RocketFSM instance");
-        rocketFSM.reset();
-        vTaskDelay(250 / portTICK_PERIOD_MS);
-    }
-
-    // Reset simulation time before starting the next run.
-    Utils::setSimMillis(0);
-
-    // Reset logical model state.
-    //
-    // RocketModel::reset() must clear the reset flag, otherwise this function
-    // will be called again on every loop iteration.
-    if (rocketModel)
-    {
-        LOG_INFO("Main", "Resetting RocketModel");
-        rocketModel->reset();
-    }
-
-    // Recreate a fresh FSM/TaskManager/task object graph.
-    createAndStartFSM();
-
-    statusManager.setSystemCode(FLIGHT_MODE);
-
-    gpio_set_level(board.get_rgb_red_pin(), LOW);
-    gpio_set_level(board.get_rgb_green_pin(), HIGH);
-
-    LOG_INFO("Main", "HIL simulation reset complete");
-}
-
-void loop()
-{
-    resetHilSimulationIfRequested();
-
+    static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
-    static bool ledState = false;
-    static RocketState lastLoggedState = RocketState::INACTIVE;
-
+    static unsigned long lastStateLog = 0;
     if (!rocketFSM)
     {
         vTaskDelay(100 / portTICK_PERIOD_MS);
         return;
     }
 
-    // Heartbeat every 2 seconds
-    if (Utils::realMillis() - lastHeartbeat > 2000)
+    static RocketState lastLoggedState = RocketState::INACTIVE;
+    static bool stateLogged = false;
+    // Heartbeat every HEARTBEAT_INTERVAL_MS
+    if (Utils::realMillis() - lastHeartbeat > HEARTBEAT_INTERVAL_MS)
     {
+        LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
         lastHeartbeat = Utils::realMillis();
 
-        LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
-
-        ledState = !ledState;
-        gpio_set_level(board.get_rgb_blue_pin(), ledState);
-
-        LOG_INFO("Main", "Free heap: %u bytes", ESP.getFreeHeap());
+        LOG_INFO("Main", "Free heap: %u bytes", esp_get_free_heap_size());
+        const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+        LOG_INFO("Main", "Health: internal free=%u min=%u largest=%u tasks=%u",
+                 static_cast<unsigned>(heap_caps_get_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_minimum_free_size(internalCaps)),
+                 static_cast<unsigned>(heap_caps_get_largest_free_block(internalCaps)),
+                 static_cast<unsigned>(uxTaskGetNumberOfTasks()));
+        if (rocketFSM) rocketFSM->logActiveTaskStackHealth();
 
         // Monitor RocketLogger memory usage
         if (logger)
@@ -314,14 +292,17 @@ void loop()
             }
         }
 
-        // Optional: Print current state periodically
-        RocketState currentState = rocketFSM->getCurrentState();
+    }
 
-        // if (currentState != lastLoggedState)
-        // {
+    const unsigned long now = Utils::realMillis();
+    const RocketState currentState = rocketFSM->getCurrentState();
+    statusManager.setFlightPhase(currentState);
+    if (!stateLogged || currentState != lastLoggedState || now - lastStateLog >= 30000)
+    {
         LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));
-            // lastLoggedState = currentState;
-        // }
+        lastLoggedState = currentState;
+        lastStateLog = now;
+        stateLogged = true;
     }
 
     // Small delay to prevent watchdog issues
@@ -330,135 +311,26 @@ void loop()
 
 void printSystemInfo()
 {
+    rtc_cpu_freq_config_t cpuConf;
+    rtc_clk_cpu_freq_get_config(&cpuConf);
+
+    uint32_t flashSize = 0;
+    if (esp_flash_get_size(NULL, &flashSize) != ESP_OK) {
+        flashSize = 0;
+    }
+
     printf("--- System Information ---\n");
-    printf("ESP32 Chip: %s\n", ESP.getChipModel());
-    printf("CPU Frequency: %lu MHz\n", (unsigned long)ESP.getCpuFreqMHz());
-    printf("Total Heap: %lu bytes\n", (unsigned long)ESP.getHeapSize());
-    printf("Free Heap: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
-    printf("PSRAM Total: %lu bytes\n", (unsigned long)ESP.getPsramSize());
-    printf("PSRAM Free: %lu bytes\n", (unsigned long)ESP.getFreePsram());
-    printf("Flash Size: %lu bytes\n", (unsigned long)ESP.getFlashChipSize());
-    printf("SDK Version: %s\n", ESP.getSdkVersion());
+    printf("ESP32 Chip: %s\n", CONFIG_IDF_TARGET);
+    printf("CPU Frequency: %lu MHz\n", (unsigned long)cpuConf.freq_mhz);
+    printf("Total Heap: %lu bytes\n", (unsigned long)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
+    printf("Free Heap: %lu bytes\n", (unsigned long)esp_get_free_heap_size());
+    printf("PSRAM Total: %lu bytes\n", (unsigned long)heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+    printf("PSRAM Free: %lu bytes\n", (unsigned long)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+    printf("Flash Size: %lu bytes\n", (unsigned long)flashSize);
+    printf("SDK Version: %s\n", esp_get_idf_version());
 
     // FreeRTOS information
     printf("FreeRTOS running on %d cores\n", portNUM_PROCESSORS);
     printf("Tick rate: %d Hz\n", configTICK_RATE_HZ);
     printf("--- End System Information ---\n");
-}
-
-static void wifi_event_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
-{
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED)
-    {
-        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
-        LOG_INFO("wifi_softap", "station connected, aid=%d", event->aid);
-    }
-
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED)
-    {
-        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-        LOG_INFO("wifi_softap", "station disconnected, aid=%d", event->aid);
-    }
-}
-
-void wifi_softap_init(void)
-{
-    // esp_err_t ret = nvs_flash_init();
-    // if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    //     ESP_ERROR_CHECK(nvs_flash_erase());
-    //     ret = nvs_flash_init();
-    // }
-    // ESP_ERROR_CHECK(ret);
-
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-
-    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
-    if (ap_netif == nullptr)
-    {
-        LOG_ERROR("wifi_softap", "Failed to create default WiFi AP netif");
-        return;
-    }
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    // Register WiFi events
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
-
-    // Register IP event
-    // ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_AP_STAIPASSIGNED, &ip_event_handler, NULL, NULL));
-
-    wifi_config_t wifi_config = {};
-    wifi_config.ap.ssid_len = strlen(HIL_WIFI_SSID);
-    wifi_config.ap.channel = HIL_WIFI_CHANNEL;
-    wifi_config.ap.max_connection = HIL_MAX_STA_CONN;
-
-    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.ssid),
-            HIL_WIFI_SSID,
-            sizeof(wifi_config.ap.ssid) - 1);
-
-    std::strncpy(reinterpret_cast<char *>(wifi_config.ap.password),
-            HIL_WIFI_PASSWORD,
-            sizeof(wifi_config.ap.password) - 1);
-
-    if (strlen(HIL_WIFI_PASSWORD) == 0)
-    {
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-    }
-    else
-    {
-        wifi_config.ap.authmode = WIFI_AUTH_WPA2_WPA3_PSK;
-    }
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-
-    ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
-
-    esp_netif_ip_info_t ip_info = {};
-
-    if (esp_netif_str_to_ip4(HIL_AP_IP_ADDR, &ip_info.ip) != ESP_OK)
-    {
-        LOG_ERROR("wifi_softap", "Invalid HIL AP IP address: %s", HIL_AP_IP_ADDR);
-        return;
-    }
-
-    // In SoftAP mode, the ESP32 itself is also the gateway.
-    if (esp_netif_str_to_ip4(HIL_AP_IP_ADDR, &ip_info.gw) != ESP_OK)
-    {
-        LOG_ERROR("wifi_softap", "Invalid HIL AP gateway address: %s", HIL_AP_IP_ADDR);
-        return;
-    }
-
-    if (esp_netif_str_to_ip4(HIL_AP_NETMASK, &ip_info.netmask) != ESP_OK)
-    {
-        LOG_ERROR("wifi_softap", "Invalid HIL AP netmask: %s", HIL_AP_NETMASK);
-        return;
-    }
-
-    ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ip_info));
-    ESP_ERROR_CHECK(esp_netif_dhcps_start(ap_netif));
-
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    LOG_INFO("wifi_softap",
-            "SoftAP started. SSID:%s IP:%s NETMASK:%s CHANNEL:%d MAX_STA:%d",
-            HIL_WIFI_SSID,HIL_AP_IP_ADDR,HIL_AP_NETMASK,HIL_WIFI_CHANNEL,HIL_MAX_STA_CONN);
-}
-
-// The ESP-IDF entry point, which must be C-linkage
-extern "C" void app_main()
-{
-    // Initialize the Arduino core background tasks
-    initArduino();
-
-    setup();
-
-    while (1)
-    {
-        loop();
-    }
 }
