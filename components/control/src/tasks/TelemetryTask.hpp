@@ -2,7 +2,7 @@
 
 #include "BaseTask.hpp"
 #include <RocketModel.hpp>
-#include "E220LoRaTransmitter.hpp"
+#include "TelemetryLink.hpp"
 #include "SerialLogger.hpp"
 #include "IStateMachine.hpp"
 #include <memory>
@@ -28,9 +28,14 @@ struct LoRaTelemetryStatus {
  * @brief Binary telemetry packet structure for efficient transmission.
  *
  * This structure is tightly packed (no padding) for efficient transmission
- * over LoRa. Total size: 67 bytes.
+ * over LoRa. Total size: 95 bytes.
  *
  * All multi-byte values are little-endian (ESP32 native).
+ *
+ * @note The layout is shared with the antenna board firmware
+ *       (components/telemetry/protocol/src/TelemetryPacket.hpp), the ground
+ *       station sketch and the dashboard backend parser.
+ *       Maybe we shall include an IDL?
  */
 #pragma pack(push, 1)
 struct TelemetryPacket
@@ -40,8 +45,11 @@ struct TelemetryPacket
 
     struct
     {
-        float accel_x, accel_y, accel_z; ///< Accelerometer (m/s²)
-        float gyro_x, gyro_y, gyro_z;    ///< Gyroscope / angular velocity (rad/s)
+        float accel_x, accel_y, accel_z; ///< Accelerometer, gravity included (m/s²)
+        float orientation_x, orientation_y, orientation_z; ///< Fused attitude, Euler angles (degrees)
+        float linear_accel_x, linear_accel_y, linear_accel_z; ///< Acceleration with gravity removed (m/s^2)
+        float gyro_x, gyro_y, gyro_z; ///< Angular velocity (deg/s)
+        uint8_t calib_sys, calib_gyro, calib_accel, calib_mag; ///< BNO055 calibration, 0 to 3
     } imu;
 
     struct
@@ -76,15 +84,16 @@ struct TelemetryPacket
  * @brief Task that periodically collects sensor data and transmits it via LoRa.
  *
  * This task reads from SharedSensorData, serializes it to binary format,
- * and transmits it using E220LoRaTransmitter.
+ * and hands it to the link selected in menuconfig.
  *
- * Transmission rate is read from the locked RuntimeConfig snapshot.
+ * Transmission rate follows the active RuntimeConfig revision and becomes
+ * immutable with the locked flight snapshot.
  */
 class TelemetryTask : public BaseTask
 {
 private:
     std::shared_ptr<RocketModel> _rocketModel;
-    std::shared_ptr<E220LoRaTransmitter> _loraTransmitter;
+    std::shared_ptr<TelemetryLink> _loraTransmitter;
     IStateMachine* _fsm;
 
     uint32_t _lastTransmitTime;
@@ -102,8 +111,8 @@ public:
      * @param rocketModel Shared rocket model to read sensor data from.
      * @param fsm State machine used to report the flight phase and dispatch ground commands.
      *
-     * @note The transmission period is read from the locked RuntimeConfig
-     *       snapshot when the task starts, not from a constructor argument.
+     * @note The transmission period is read from RuntimeConfig and refreshed
+     *       when its revision changes, not from a constructor argument.
      */
     TelemetryTask(std::shared_ptr<RocketModel> rocketModel,
                   IStateMachine* fsm = nullptr);
@@ -120,7 +129,7 @@ public:
     static LoRaTelemetryStatus getLoRaStatus();
 
     /** @brief Set LoRa transmitter. Will be used only if present. */
-    void setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter);
+    void setLoRaTransmitter(std::shared_ptr<TelemetryLink> transmitter);
 
 protected:
     void taskFunction() override;

@@ -129,3 +129,7 @@ flash_logs/
 
 # HIL simulation captures from sim to flight controller
 main/hil/hil_captures/
+
+# Older generated ICON-D2 forecast exports
+data_analysis/fred_icon_d2_*.jsonc
+data_analysis/fred_icon_d2_*.source.json

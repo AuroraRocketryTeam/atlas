@@ -57,7 +57,6 @@ private:
     bool                         _hasPendingVerdict;
 
     bool waitForUserInput(const char* message);
-    void showTestPattern(int testNumber);
     bool runSingleTestById(int id);
     bool isWebTestContext() const;
     void setWebStatus(const char* state, const char* message);
@@ -68,6 +67,7 @@ private:
     bool testPowerAndLEDs();
     bool testSensors();
     bool testActuators();
+    bool testBuzzerJingle();
     bool testSDCard();
     bool testFlashMemory();
     bool testTelemetry();

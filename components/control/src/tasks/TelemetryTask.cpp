@@ -50,7 +50,7 @@ void TelemetryTask::onTaskStart()
     s_loraLastSuccessMs.store(0, std::memory_order_relaxed);
 }
 
-void TelemetryTask::setLoRaTransmitter(std::shared_ptr<E220LoRaTransmitter> transmitter)
+void TelemetryTask::setLoRaTransmitter(std::shared_ptr<TelemetryLink> transmitter)
 {
     _loraTransmitter = std::move(transmitter);
     s_loraAvailable.store(_loraTransmitter != nullptr, std::memory_order_release);
@@ -64,8 +64,13 @@ void TelemetryTask::onTaskStop()
 
 void TelemetryTask::taskFunction()
 {
-    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
-    const uint32_t transmitIntervalMs = runtimeConfig.telemetry.period_ms;
+    RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+    uint32_t transmitIntervalMs = runtimeConfig.telemetry.period_ms;
+    uint32_t pollingIntervalMs = transmitIntervalMs / 10 < 10
+        ? 10
+        : transmitIntervalMs / 10;
+    TickType_t pollingPeriod = pdMS_TO_TICKS(pollingIntervalMs);
+    TickType_t lastWakeTime = xTaskGetTickCount();
     LOG_INFO("Telemetry", "RuntimeConfig telemetry period: %lu ms", static_cast<unsigned long>(transmitIntervalMs));
 
     while (running)
@@ -76,6 +81,21 @@ void TelemetryTask::taskFunction()
         if (!running)
             break;
 
+        if (runtime_config_get_flight_revision() != runtimeConfig.config_revision) {
+            const RuntimeConfig updatedConfig = runtime_config_get_flight_snapshot();
+            if (updatedConfig.telemetry.period_ms != transmitIntervalMs) {
+                transmitIntervalMs = updatedConfig.telemetry.period_ms;
+                pollingIntervalMs = transmitIntervalMs / 10 < 10
+                    ? 10
+                    : transmitIntervalMs / 10;
+                pollingPeriod = pdMS_TO_TICKS(pollingIntervalMs);
+                lastWakeTime = xTaskGetTickCount();
+                LOG_INFO("Telemetry", "Applied RuntimeConfig telemetry period: %lu ms",
+                         static_cast<unsigned long>(transmitIntervalMs));
+            }
+            runtimeConfig = updatedConfig;
+        }
+
         uint32_t now = Utils::millis();
 
         // Check if it's time to transmit
@@ -83,8 +103,8 @@ void TelemetryTask::taskFunction()
         {
             _lastTransmitTime = now;
 
-            // Poll LoRa RX before building the packet so any received command
-            // is reflected in last_ack_command_id within the same TX cycle.
+            // Read what the last transmission brought back before building the
+            // packet, so a command is acknowledged within the same cycle.
             if (_loraTransmitter && running)
                 pollLoRaRx();
 
@@ -103,7 +123,7 @@ void TelemetryTask::taskFunction()
                 if (_loraTransmitter && running)
                 {
                     auto result = _loraTransmitter->transmit(message);
-                    if (result.getCode() == E220_SUCCESS)
+                    if (result.isOk())
                     {
                         s_loraSuccessfulMessages.fetch_add(1, std::memory_order_relaxed);
                         s_loraLastSuccessMs.store(now, std::memory_order_release);
@@ -129,15 +149,9 @@ void TelemetryTask::taskFunction()
                      _messagesCreated, _transmitErrors,
                      lora.successful_messages, lora.failed_messages, esp_get_free_heap_size());
 
-        // Check running flag frequently during delay (50ms chunks)
-        uint32_t delayRemaining = transmitIntervalMs / 10; // Split into 10 chunks
-        if (delayRemaining < 10)
-            delayRemaining = 10;
-
-        for (uint32_t i = 0; i < 10 && running; i++)
-        {
-            vTaskDelay(pdMS_TO_TICKS(delayRemaining));
-        }
+        // Wake ten times per transmit interval (minimum 10 ms) so shutdown
+        // reacts promptly without adding the preceding work time to the schedule.
+        vTaskDelayUntil(&lastWakeTime, pollingPeriod);
     }
 }
 
@@ -166,9 +180,19 @@ bool TelemetryTask::collectSensorData(TelemetryPacket &packet)
             packet.imu.accel_x = outBnoData.acceleration_x;
             packet.imu.accel_y = outBnoData.acceleration_y;
             packet.imu.accel_z = outBnoData.acceleration_z;
-            packet.imu.gyro_x = outBnoData.orientation_x;
-            packet.imu.gyro_y = outBnoData.orientation_y;
-            packet.imu.gyro_z = outBnoData.orientation_z;
+            packet.imu.orientation_x = outBnoData.orientation_x;
+            packet.imu.orientation_y = outBnoData.orientation_y;
+            packet.imu.orientation_z = outBnoData.orientation_z;
+            packet.imu.linear_accel_x = outBnoData.linear_acceleration_x;
+            packet.imu.linear_accel_y = outBnoData.linear_acceleration_y;
+            packet.imu.linear_accel_z = outBnoData.linear_acceleration_z;
+            packet.imu.gyro_x = outBnoData.angular_velocity_x;
+            packet.imu.gyro_y = outBnoData.angular_velocity_y;
+            packet.imu.gyro_z = outBnoData.angular_velocity_z;
+            packet.imu.calib_sys = outBnoData.calibration_sys;
+            packet.imu.calib_gyro = outBnoData.calibration_gyro;
+            packet.imu.calib_accel = outBnoData.calibration_accel;
+            packet.imu.calib_mag = outBnoData.calibration_mag;
         }
 
         PressureSensorData outMs56Data1;
@@ -222,15 +246,19 @@ void TelemetryTask::logSensorValues(const TelemetryPacket &packet,
     const bool baro2Ok = baro2Status == SensorReadStatus::OK;
     const bool gpsOk = gpsStatus == SensorReadStatus::OK;
 
-    char imuText[80] = "n/a";
+    char imuText[160] = "n/a";
     char baro1Text[64] = "n/a";
     char baro2Text[64] = "n/a";
     char gpsText[64] = "n/a";
 
     if (imuOk) {
-        snprintf(imuText, sizeof(imuText), "a=%.2f/%.2f/%.2f g=%.2f/%.2f/%.2f",
+        snprintf(imuText, sizeof(imuText),
+                 "a=%.2f/%.2f/%.2f att=%.1f/%.1f/%.1f lin=%.2f/%.2f/%.2f gyro=%.1f/%.1f/%.1f deg/s calib=%u%u%u%u",
                  packet.imu.accel_x, packet.imu.accel_y, packet.imu.accel_z,
-                 packet.imu.gyro_x, packet.imu.gyro_y, packet.imu.gyro_z);
+                 packet.imu.orientation_x, packet.imu.orientation_y, packet.imu.orientation_z,
+                 packet.imu.linear_accel_x, packet.imu.linear_accel_y, packet.imu.linear_accel_z,
+                 packet.imu.gyro_x, packet.imu.gyro_y, packet.imu.gyro_z,
+                 packet.imu.calib_sys, packet.imu.calib_gyro, packet.imu.calib_accel, packet.imu.calib_mag);
     }
     if (baro1Ok) {
         snprintf(baro1Text, sizeof(baro1Text), "%.1fPa %.2fC alt=%.2fm",

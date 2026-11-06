@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cstdio>
 #include "AccelerometerSensorData.hpp"
+#include "AltitudeData.hpp"
 #include "GPSData.hpp"
 #include "IMUData.hpp"
 #include "PressureSensorData.hpp"
@@ -35,11 +36,11 @@ struct SystemLog {
     // Writes up to maxLength. Returns the true required size (excluding null terminator).
     size_t serializeJson(char* buffer, size_t maxLength) const {
         return snprintf(buffer, maxLength,
-            "{\"type\":\"%s\",\"source\":\"%s\",\"content\":{\"message\":\"%s\",\"timestamp\":%lu}}\n",
+            "{\"type\":\"%s\",\"src\":\"%s\",\"content\":{\"message\":\"%s\",\"timestamp\":%lu}}\n",
             level, source, message, static_cast<unsigned long>(timestamp));
     }
 };
 
 // The Variant: The compiler calculates the size of the largest object here
 // and reserves exactly that much stack/queue memory.
-using LogPayload = std::variant<SystemLog, AccelerometerSensorData, GPSData, IMUData, PressureSensorData>;
+using LogPayload = std::variant<SystemLog, AccelerometerSensorData, AltitudeData, GPSData, IMUData, PressureSensorData>;

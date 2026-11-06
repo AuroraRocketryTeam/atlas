@@ -45,6 +45,11 @@
 #define LAUNCH_TO_BALLISTIC_THRESHOLD 4000 // Time threshold for transition from LAUNCH to BALLISTIC_FLIGHT if apogee is not detected
 #define LAUNCH_TO_APOGEE_THRESHOLD 6700 //24850 + 2150 = 27000, Time threshold for transition from LAUNCH to APOGEE if apogee is not detected but the rocket is no more rising
 
+#define EMERGENCY_DESCENT_THRESHOLD_MPS 2.0f // Vertical speed to determine movement
+#define EMERGENCY_WINDOW_MS 400              // Window size
+#define EMERGENCY_STAND_DOWN_MS 5000         // No changes for this duration mean false alarm
+#define EMERGENCY_MAX_DEPLOY_ATTEMPTS 3      // Max retries, if stuck in boot loop, before exiting
+
 /* Telemetry Configuration */
 #define TELEMETRY_INTERVAL_MS 500
 #define TOUCHDOWN_ALTITUDE_THRESHOLD 15.0f // Altitude threshold for touchdown detection (in meters)

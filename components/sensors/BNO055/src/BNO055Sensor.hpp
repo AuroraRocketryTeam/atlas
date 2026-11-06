@@ -47,6 +47,13 @@ public:
      */
     bool loadCalibrationFromNVS();
 
+    /**
+     * @brief Check whether the device is running one of the fusion modes.
+     *
+     * @return true for IMUPLUS/COMPASS/M4G/NDOF*, false for CONFIG and AMG.
+     */
+    bool isFusionMode() const;
+
 private:
     // Interface to the BNO055 sensor using low-level APIs
     BNO055SensorInterface _bno_interface;
@@ -59,4 +66,7 @@ private:
 
     // Flag to track if calibration file was successfully loaded
     bool _calibration_restored = false;
+
+    // Operation mode the device was switched to by init().
+    uint8_t _operationMode = BNO055_OPERATION_MODE_CONFIG;
 };

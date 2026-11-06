@@ -1,9 +1,15 @@
 #include "LEDController.hpp"
+#include "SerialLogger.hpp"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "soc/gpio_num.h"
 
-LEDController::LEDController(gpio_num_t redPin, gpio_num_t greenPin, gpio_num_t bluePin)
-    : redPin(redPin), greenPin(greenPin), bluePin(bluePin),
+// PWM assignment is BoardHardware, passed via RgbLedcSlots
+static constexpr ledc_mode_t LEDC_MODE       = LEDC_LOW_SPEED_MODE;
+static constexpr uint32_t    RGB_PWM_FREQ_HZ = 5000;
+
+LEDController::LEDController(gpio_num_t redPin, gpio_num_t greenPin, gpio_num_t bluePin, RgbLedcSlots slots)
+    : slots(slots), redPin(redPin), greenPin(greenPin), bluePin(bluePin),
       statusLedCount(0), statusLedPins(nullptr), ledTaskHandle(nullptr)
 {
 }
@@ -35,8 +41,42 @@ void LEDController::addStatusLeds(gpio_num_t *pins, uint8_t count)
 }
 
 void LEDController::init()
-{
+{   
+    ledc_timer_config_t timer = {};
+    timer.speed_mode      = LEDC_MODE;
+    timer.duty_resolution = LEDC_TIMER_8_BIT;
+    timer.timer_num       = slots.timer;
+    timer.freq_hz         = RGB_PWM_FREQ_HZ;
+    timer.clk_cfg         = LEDC_AUTO_CLK;
+    esp_err_t err = ledc_timer_config(&timer);
+    if (err != ESP_OK)
+    {
+        LOG_ERROR("LED", "LEDC timer config failed: %s", esp_err_to_name(err));
+        return;
+    }
 
+    const struct { ledc_channel_t channel; gpio_num_t pin; } channels[] = {
+        {slots.red, redPin}, {slots.green, greenPin}, {slots.blue, bluePin}};
+
+    // slots.timer: shared for all of them
+    for (const auto &c : channels)
+    {
+        ledc_channel_config_t cfg = {};
+        cfg.gpio_num   = c.pin;
+        cfg.speed_mode = LEDC_MODE;
+        cfg.channel    = c.channel;
+        cfg.intr_type  = LEDC_INTR_DISABLE;
+        cfg.timer_sel  = slots.timer;
+        cfg.duty       = 0;
+        cfg.hpoint     = 0;
+        err = ledc_channel_config(&cfg);
+        if (err != ESP_OK)
+        {
+            LOG_ERROR("LED", "LEDC channel %d config failed: %s", c.channel, esp_err_to_name(err));
+            return;
+        }
+    }
+    initialized = true;
 
     // Initialize any status LEDs
     for (uint8_t i = 0; i < statusLedCount; i++)
@@ -44,8 +84,7 @@ void LEDController::init()
         gpio_set_level(statusLedPins[i], LOW); // All off
     }
 
-    // Initialize LED to off state
-    setRGB(0, 0, 0);
+    setOff();
 }
 
 void LEDController::startPattern(const LEDPattern &pattern)
@@ -144,18 +183,9 @@ void LEDController::getRGBValues(LEDColor color, uint8_t &r, uint8_t &g, uint8_t
 
 void LEDController::setColor(LEDColor color)
 {
-    switch (color) {
-        case ART_LED_RED:     setRGB(1, 0, 0); break;
-        case ART_LED_GREEN:   setRGB(0, 1, 0); break;
-        case ART_LED_BLUE:    setRGB(0, 0, 1); break;
-        case ART_LED_YELLOW:  setRGB(1, 1, 0); break;
-        case ART_LED_CYAN:    setRGB(0, 1, 1); break;
-        case ART_LED_MAGENTA: setRGB(1, 0, 1); break;
-        case ART_LED_WHITE:   setRGB(1, 1, 1); break;
-        case ART_LED_ORANGE:  setRGB(1, 1, 0); break; // no PWM, yellow approximation
-        case ART_LED_OFF:
-        default:              setRGB(0, 0, 0); break;
-    }
+    uint8_t r, g, b;
+    getRGBValues(color, r, g, b);
+    setRGB(r, g, b);
 }
 
 void LEDController::setOff()
@@ -165,9 +195,17 @@ void LEDController::setOff()
 
 void LEDController::setRGB(uint8_t r, uint8_t g, uint8_t b)
 {
-    gpio_set_level(redPin,   r > 0 ? 1 : 0);
-    gpio_set_level(greenPin, g > 0 ? 1 : 0);
-    gpio_set_level(bluePin,  b > 0 ? 1 : 0);
+    if (!initialized) return;
+
+    setChannelDuty(slots.red, r);
+    setChannelDuty(slots.green, g);
+    setChannelDuty(slots.blue, b);
+}
+
+void LEDController::setChannelDuty(ledc_channel_t channel, uint8_t duty)
+{
+    ledc_set_duty(LEDC_MODE, channel, duty);
+    ledc_update_duty(LEDC_MODE, channel);
 }
 
 void LEDController::setStatusLeds(uint8_t mask)

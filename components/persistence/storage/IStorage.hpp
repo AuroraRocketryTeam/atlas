@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <sys/types.h>
 
 struct StorageFileInfo {
     char name[64] = {};
@@ -23,7 +24,8 @@ public:
     
     virtual std::string readFile(const char* filename) = 0;
     virtual std::string readLine() = 0;
-    virtual size_t listFiles(StorageFileInfo* files, size_t capacity) = 0;
+    // Nonnegative file count on success (including an empty directory); -1 on error.
+    virtual ssize_t listFiles(StorageFileInfo* files, size_t capacity) = 0;
     virtual bool readFileChunk(const char* filename, size_t offset, uint8_t* buffer,
                                size_t capacity, size_t& bytesRead, size_t& fileSize) = 0;
     virtual bool deleteFile(const char* filename) = 0;

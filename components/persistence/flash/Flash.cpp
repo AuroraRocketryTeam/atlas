@@ -1,5 +1,6 @@
 #include "Flash.hpp"
 #include <algorithm>
+#include <cerrno>
 #include <cstdlib>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -346,23 +347,28 @@ bool Flash::fileExists(const char* filename) {
     return stat(getFullPath(filename).c_str(), &st) == 0;
 }
 
-size_t Flash::listFiles(StorageFileInfo* files, size_t capacity) {
-    if (files == nullptr || capacity == 0 || (!_initialized && !init())) return 0;
+ssize_t Flash::listFiles(StorageFileInfo* files, size_t capacity) {
+    if (files == nullptr || capacity == 0 || (!_initialized && !init())) return -1;
     DIR* dir = opendir(_mount_point.c_str());
-    if (dir == nullptr) return 0;
+    if (dir == nullptr) return -1;
 
     size_t count = 0;
     while (count < capacity) {
+        errno = 0; // A null readdir result is either end-of-directory or an error.
         dirent* entry = readdir(dir);
-        if (entry == nullptr) break;
+        if (entry == nullptr) {
+            if (errno != 0) { closedir(dir); return -1; }
+            break;
+        }
         struct stat st = {};
-        if (stat(getFullPath(entry->d_name).c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
+        if (stat(getFullPath(entry->d_name).c_str(), &st) != 0) { closedir(dir); return -1; }
+        if (!S_ISREG(st.st_mode)) continue;
         snprintf(files[count].name, sizeof(files[count].name), "%s", entry->d_name);
         files[count].size = static_cast<size_t>(st.st_size);
         ++count;
     }
-    closedir(dir);
-    return count;
+    if (closedir(dir) != 0) return -1;
+    return static_cast<ssize_t>(count);
 }
 
 bool Flash::readFileChunk(const char* filename, size_t offset, uint8_t* buffer,

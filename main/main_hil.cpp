@@ -48,6 +48,7 @@
 // Controllers and filters
 #include <LEDController.hpp>
 #include <BuzzerController.hpp>
+#include <FlightFlags.hpp>
 #include <StatusManager.hpp>
 
 // Main system
@@ -60,8 +61,12 @@
 static Board board;
 
 // Create controller instances
-static LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(), board.get_rgb_blue_pin());
-static BuzzerController buzzerController(board.get_buzzer_pin());
+static LEDController ledController(board.get_rgb_red_pin(), board.get_rgb_green_pin(),
+                                   board.get_rgb_blue_pin(),
+                                   {MANNY_RGB_LEDC_TIMER, MANNY_RGB_LEDC_RED,
+                                    MANNY_RGB_LEDC_GREEN, MANNY_RGB_LEDC_BLUE});
+static BuzzerController buzzerController(board.get_buzzer_pin(),
+                                         MANNY_BUZZER_LEDC_TIMER, MANNY_BUZZER_LEDC_CH);
 static StatusManager statusManager(ledController, buzzerController);
 
 // Define the system model
@@ -80,10 +85,8 @@ static std::shared_ptr<TestRoutine> testRoutine = nullptr;
 // Utility functions
 void printSystemInfo();
 
-// HIL lifecycle helpers
+// HIL lifecycle helper
 static void createAndStartFSM();
-static void resetHilSimulationIfRequested();
-static void resetHilSimulation();
 
 /**
  * @brief Confirm the running image after an OTA update.
@@ -128,8 +131,6 @@ void setupHil()
 
     // Signal initialization start
     board.init();
-    gpio_set_level(board.get_rgb_blue_pin(), LOW);
-    gpio_set_level(board.get_rgb_red_pin(), HIGH);
 
     // Initialize controllers
     ledController.init();
@@ -138,8 +139,7 @@ void setupHil()
     // Initialize status patterns
     statusManager.init();
 
-    // Set initial status with PRE_FLIGHT_MODE
-    statusManager.setSystemCode(PRE_FLIGHT_MODE);
+    statusManager.setFlightPhase(RocketState::INACTIVE);
 
     LOG_INFO("Main", "\n=== Aurora Rocketry Flight Software ===");
     LOG_INFO("Main", "Firmware Board: %s", Board::BOARD_NAME);
@@ -214,7 +214,7 @@ void setupHil()
     LOG_INFO("Main", "=== System initialization complete ===");
 
     // Wait for arming pin to be enabled before starting FSM
-    statusManager.setSystemCode(PRE_FLIGHT_MODE);
+    statusManager.setFlightPhase(RocketState::INACTIVE);
     while (!board.is_armed())
     {
         LOG_WARNING("Main", "System not armed! Waiting for arming signal...");
@@ -224,11 +224,6 @@ void setupHil()
     createAndStartFSM();
 
     statusManager.setSystemCode(FLIGHT_MODE);
-
-    // Signal successful initialization
-    gpio_set_level(board.get_rgb_red_pin(), 0);
-    gpio_set_level(board.get_rgb_green_pin(), 1);
-
     confirmOtaImageIfPending();
 
     LOG_INFO("Main", "SETUP COMPLETE - SYSTEM IN FLIGHT MODE");
@@ -241,79 +236,26 @@ static void createAndStartFSM()
     rocketFSM = std::make_unique<RocketFSM>(rocketModel, sdCard, logger, &board, testRoutine);
     rocketFSM->init();
 
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    // These pauses exist to make a normal boot readable on the console. A board
+    // that restarted in mid air is racing its own descent, so it skips them.
+    const bool flightInProgress = FlightFlags::isLaunched();
+    if (flightInProgress)
+        LOG_WARNING("Main", "Launched flag raised. FSM will start in EMERGENCY_RECOVERY.");
+    else
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
 
     // Start FSM tasks
     LOG_INFO("Main", "Starting Flight State Machine...");
-    rocketFSM->start();
     statusManager.setSystemCode(FSM_STARTED);
-}
-
-static void resetHilSimulationIfRequested()
-{
-    if (!rocketModel)
-    {
-        return;
-    }
-
-    if (!rocketModel->getResetSimulationFlag())
-    {
-        return;
-    }
-
-    resetHilSimulation();
-}
-
-static void resetHilSimulation()
-{
-    LOG_WARNING("Main", "HIL reset requested. Reinitializing FSM runtime...");
-
-    statusManager.setSystemCode(PRE_FLIGHT_MODE);
-
-    // Destroy the current FSM.
-    //
-    // Important:
-    // RocketFSM / TaskManager destructors must stop all running FreeRTOS tasks
-    // before task objects are destroyed.
-    if (rocketFSM)
-    {
-        LOG_INFO("Main", "Destroying current RocketFSM instance");
-        rocketFSM.reset();
-        vTaskDelay(250 / portTICK_PERIOD_MS);
-    }
-
-    // Reset simulation time before starting the next run.
-    Utils::setSimMillis(0);
-
-    // Reset logical model state.
-    //
-    // RocketModel::reset() must clear the reset flag, otherwise this function
-    // will be called again on every loop iteration.
-    if (rocketModel)
-    {
-        LOG_INFO("Main", "Resetting RocketModel");
-        rocketModel->reset();
-    }
-
-    // Recreate a fresh FSM/TaskManager/task object graph.
-    createAndStartFSM();
-
-    statusManager.setSystemCode(FLIGHT_MODE);
-
-    gpio_set_level(board.get_rgb_red_pin(), 0);
-    gpio_set_level(board.get_rgb_green_pin(), 1);
-
-    LOG_INFO("Main", "HIL simulation reset complete");
+    if (!flightInProgress) vTaskDelay(1000 / portTICK_PERIOD_MS);
+    rocketFSM->start();
 }
 
 void loopHil()
 {
-    resetHilSimulationIfRequested();
-
     static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
     static unsigned long lastHeartbeat = 0;
     static unsigned long lastStateLog = 0;
-    static bool ledState = false;
     if (!rocketFSM)
     {
         vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -327,8 +269,6 @@ void loopHil()
     {
         LOG_INFO("Main", "Last heartbeat at %lu ms - System running", Utils::realMillis());
         lastHeartbeat = Utils::realMillis();
-        ledState = !ledState;
-        gpio_set_level(board.get_rgb_blue_pin(), ledState);
 
         LOG_INFO("Main", "Free heap: %u bytes", esp_get_free_heap_size());
         const uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
@@ -356,6 +296,7 @@ void loopHil()
 
     const unsigned long now = Utils::realMillis();
     const RocketState currentState = rocketFSM->getCurrentState();
+    statusManager.setFlightPhase(currentState);
     if (!stateLogged || currentState != lastLoggedState || now - lastStateLog >= 30000)
     {
         LOG_INFO("Main", "Current FSM State: %s", rocketFSM->getStateString(currentState));

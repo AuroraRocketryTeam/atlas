@@ -1,5 +1,7 @@
 #pragma once
 #include <SensorData.hpp>
+#include <cstdint>
+#include <cstdio>
 
 /**
  * @brief Data structure for a general accelerometer sensor readings
@@ -18,8 +20,9 @@ public:
     uint32_t timestamp = 0;
 
     size_t serializeJson(char* buffer, size_t maxLength) const {
-        return snprintf(buffer, maxLength, 
-            "{\"source\":\"%s\",\"sensorData\":{\"acceleration_x\":%f,\"acceleration_y\":%f,\"acceleration_z\":%f,\"timestamp\":%lu}}\n",
-            getSensorName(), acceleration_x, acceleration_y, acceleration_z, (unsigned long)timestamp);
+        return std::snprintf(buffer, maxLength,
+            "{\"src\":\"%s\",\"t\":%lu,\"accx\":%.6g,\"accy\":%.6g,\"accz\":%.6g}\n",
+            getSensorName(), static_cast<unsigned long>(timestamp),
+            acceleration_x, acceleration_y, acceleration_z);
     }
 };

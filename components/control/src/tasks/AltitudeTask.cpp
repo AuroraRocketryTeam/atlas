@@ -3,18 +3,26 @@
 #include <config.h>
 #include <SerialLogger.hpp>
 #include "RuntimeConfig.hpp"
+#include "RocketLogger.hpp"
+#include "AltitudeData.hpp"
 
-static constexpr uint32_t ALTITUDE_LOG_PERIOD_MS = 1000;
-static constexpr uint32_t ALTITUDE_DIAGNOSTIC_PERIOD_MS = 1000;
+static constexpr uint32_t ALTITUDE_LOG_PERIOD_MS = 5000;
+static constexpr uint32_t ALTITUDE_DIAGNOSTIC_PERIOD_MS = 5000;
 static constexpr uint32_t UNUSUAL_BAROMETER_DT_MS = 75;
+// Flight-recorder diagnostic rate: log every processed altitude sample by default.
+// Increase this value to reduce flash/SPI load without changing estimator behavior.
+static constexpr uint32_t ALTITUDE_LOG_INTERVAL_SAMPLES = 1;
+static_assert(ALTITUDE_LOG_INTERVAL_SAMPLES > 0);
 
 void AltitudeTask::taskFunction()
 {
     LOG_INFO("AltitudeTask", "Starting Altitude task pipeline...");
 
     uint32_t lastTimestamp = 0;
-    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
-    const TickType_t taskPeriod = pdMS_TO_TICKS(static_cast<uint32_t>(1000.0f / runtimeConfig.altitude.apogee_sample_rate_hz));
+    uint32_t altitudeLogSampleCounter = 0;
+    RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+    TickType_t taskPeriod = pdMS_TO_TICKS(static_cast<uint32_t>(1000.0f / runtimeConfig.altitude.apogee_sample_rate_hz));
+    TickType_t lastWakeTime = xTaskGetTickCount();
     apogeeDetector.configure(runtimeConfig.altitude.apogee_window_size,
                              runtimeConfig.altitude.apogee_trigger_velocity_mps,
                              runtimeConfig.altitude.apogee_confirmation_windows);
@@ -27,13 +35,48 @@ void AltitudeTask::taskFunction()
         esp_task_wdt_reset();
         if(!running) break;
 
+        if (runtime_config_get_flight_revision() != runtimeConfig.config_revision) {
+            const RuntimeConfig updatedConfig = runtime_config_get_flight_snapshot();
+            const bool filterChanged =
+                updatedConfig.altitude.filter_window != runtimeConfig.altitude.filter_window;
+            const bool barometerChanged =
+                updatedConfig.altitude.selected_barometer != runtimeConfig.altitude.selected_barometer;
+            const bool detectorChanged = filterChanged || barometerChanged ||
+                updatedConfig.altitude.apogee_window_size != runtimeConfig.altitude.apogee_window_size ||
+                updatedConfig.altitude.apogee_trigger_velocity_mps != runtimeConfig.altitude.apogee_trigger_velocity_mps ||
+                updatedConfig.altitude.apogee_confirmation_windows != runtimeConfig.altitude.apogee_confirmation_windows ||
+                updatedConfig.mission.sea_level_pressure_hpa != runtimeConfig.mission.sea_level_pressure_hpa ||
+                updatedConfig.mission.launch_site_altitude_m != runtimeConfig.mission.launch_site_altitude_m;
+            const bool periodChanged =
+                updatedConfig.altitude.apogee_sample_rate_hz != runtimeConfig.altitude.apogee_sample_rate_hz;
+
+            runtimeConfig = updatedConfig;
+            if (filterChanged || barometerChanged) pressureFilter.reset();
+            if (barometerChanged) {
+                lastTimestamp = 0;
+                lastValidPressure = -1.0f;
+            }
+            if (detectorChanged) {
+                apogeeDetector.configure(runtimeConfig.altitude.apogee_window_size,
+                                         runtimeConfig.altitude.apogee_trigger_velocity_mps,
+                                         runtimeConfig.altitude.apogee_confirmation_windows);
+                _max_altitude_read = -1000.0f;
+            }
+            if (periodChanged) {
+                taskPeriod = pdMS_TO_TICKS(static_cast<uint32_t>(1000.0f / runtimeConfig.altitude.apogee_sample_rate_hz));
+                lastWakeTime = xTaskGetTickCount();
+            }
+            LOG_INFO("AltitudeTask", "Applied RuntimeConfig revision %lu",
+                     static_cast<unsigned long>(runtimeConfig.config_revision));
+        }
+
         PressureSensorData baroData;
         SensorReadStatus baro_status = runtimeConfig.altitude.selected_barometer == 1
             ? _rocketModel->getMS561101BA03Data_1(baroData)
             : _rocketModel->getMS561101BA03Data_2(baroData);
         // Reject identical simulated packets
         if ((baro_status != SensorReadStatus::OK) || baroData.pressure <= 0.0f || baroData.timestamp == lastTimestamp) {
-            vTaskDelay(pdMS_TO_TICKS(10));
+            vTaskDelayUntil(&lastWakeTime, taskPeriod);
             continue;
         }
         
@@ -60,7 +103,7 @@ void AltitudeTask::taskFunction()
         float filteredPressure = pressureFilter.update(rawPressure, runtimeConfig.altitude.filter_window);
 
         if (!pressureFilter.isReady(runtimeConfig.altitude.filter_window)) {
-            vTaskDelay(taskPeriod);
+            vTaskDelayUntil(&lastWakeTime, taskPeriod);
             continue;
         }
         
@@ -85,7 +128,21 @@ void AltitudeTask::taskFunction()
         
         float currentVelocity = apogeeDetector.getVelocity();
 
-        _rocketModel->setHeightGainSpeed(currentVelocity);
+        _rocketModel->setHeightGainSpeed(currentVelocity, baroData.timestamp);
+
+        // Preserve the exact data consumed by the apogee detector so flight
+        // analysis can compare raw pressure with the filtered estimator input.
+        if (_logger && ++altitudeLogSampleCounter >= ALTITUDE_LOG_INTERVAL_SAMPLES) {
+            altitudeLogSampleCounter = 0;
+            _logger->logSensorData(AltitudeData{
+                filteredPressure,
+                currentAltitude,
+                currentVelocity,
+                apogeeDetector.isReady(),
+                apogeeDetector.isRising(),
+                baroData.timestamp,
+            });
+        }
 
         LOG_EVERY_MS(ALTITUDE_LOG_PERIOD_MS, INFO, "AltitudeTask", "Alt: %0.2f m | Vz: %0.2f m/s | Max: %0.2f m",
                      currentAltitude, currentVelocity, _max_altitude_read);
@@ -97,7 +154,7 @@ void AltitudeTask::taskFunction()
                      currentVelocity,
                      sampleDtMs > UNUSUAL_BAROMETER_DT_MS ? " (delayed)" : "");
 
-        vTaskDelay(taskPeriod);
+        vTaskDelayUntil(&lastWakeTime, taskPeriod);
     }
 }
 

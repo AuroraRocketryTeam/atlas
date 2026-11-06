@@ -1,4 +1,5 @@
 #include "RocketFSM.hpp"
+#include <FlightFlags.hpp>
 #include "tasks/RuntimeConfig.hpp"
 #include "esp_system.h"
 #include "esp_task_wdt.h"
@@ -9,6 +10,9 @@
 // Event queue size
 static const size_t EVENT_QUEUE_SIZE = 10;
 static constexpr uint32_t ACCELERATION_LOG_PERIOD_MS = 5000;
+static constexpr uint8_t BURNOUT_CONFIRMATION_SAMPLES = 3;
+static constexpr uint32_t FLIGHT_ESTIMATE_FRESHNESS_MS = 250;
+static constexpr uint32_t LANDING_RECOVERY_TIMEOUT_MS = 60000;
 
 namespace {
 void fireActuator(gpio_num_t pin, const ActuatorConfig &config)
@@ -221,9 +225,15 @@ void RocketFSM::stop()
 
 bool RocketFSM::sendEvent(FSMEvent event, RocketState targetState, void *eventData)
 {
+    if (event == FSMEvent::START_READY_FOR_LAUNCH) {
+        if (_readyAttemptStatus.exchange(ReadyAttemptStatus::PENDING) == ReadyAttemptStatus::PENDING)
+            return false; // Only one preparation may be queued at a time.
+    }
     if (!_eventQueue)
     {
         LOG_ERROR("RocketFSM", "ERROR: Event queue not initialized");
+        if (event == FSMEvent::START_READY_FOR_LAUNCH)
+            _readyAttemptStatus.store(ReadyAttemptStatus::QUEUE_FAILED);
         return false;
     }
 
@@ -238,8 +248,30 @@ bool RocketFSM::sendEvent(FSMEvent event, RocketState targetState, void *eventDa
     else
     {
         LOG_ERROR("RocketFSM", "ERROR: Failed to send event %d (queue full?)", static_cast<int>(event));
+        if (event == FSMEvent::START_READY_FOR_LAUNCH)
+            _readyAttemptStatus.store(ReadyAttemptStatus::QUEUE_FAILED);
         return false;
     }
+}
+
+const char *RocketFSM::getReadyAttemptStatus() const
+{
+    switch (_readyAttemptStatus.load()) {
+    case ReadyAttemptStatus::IDLE: return "idle";
+    case ReadyAttemptStatus::PENDING: return "pending";
+    case ReadyAttemptStatus::SCHEDULED: return "scheduled";
+    case ReadyAttemptStatus::READY: return "ready";
+    case ReadyAttemptStatus::QUEUE_FAILED: return "queue_failed";
+    case ReadyAttemptStatus::INVALID_STATE: return "invalid_state";
+    case ReadyAttemptStatus::FILE_BUSY: return "file_busy";
+    case ReadyAttemptStatus::FILENAME_FAILED: return "filename_failed";
+    case ReadyAttemptStatus::CONFIG_LOCK_FAILED: return "config_lock_failed";
+    case ReadyAttemptStatus::FILE_PREP_FAILED: return "file_prep_failed";
+    case ReadyAttemptStatus::FILE_ACTIVATION_FAILED: return "file_activation_failed";
+    case ReadyAttemptStatus::TRANSITION_FAILED: return "transition_failed";
+    case ReadyAttemptStatus::CONFIG_UNLOCK_FAILED: return "config_unlock_failed";
+    }
+    return "unknown";
 }
 
 RocketState RocketFSM::getCurrentState()
@@ -275,6 +307,7 @@ FlightPhase RocketFSM::getCurrentPhase()
     case RocketState::DECELERATION:
     case RocketState::LANDING:
     case RocketState::RECOVERED:
+    case RocketState::EMERGENCY_RECOVERY:
         return FlightPhase::RECOVERY;
 
     default:
@@ -369,6 +402,70 @@ void RocketFSM::deployStabilizationExitRecovery()
     }
 }
 
+/**
+ * Only the barometer is used, and only for how it is changing: after a
+ * restart there is no reference left to say how high the vehicle is. Descending
+ * wins over every other reading.
+ */
+void RocketFSM::runEmergencyRecovery(uint32_t now)
+{
+    PressureSensorData baro;
+    if (_rocketModel->getMS561101BA03Data_1(baro) == SensorReadStatus::OK &&
+        baro.timestamp != _emergencyLastBaroTimestamp)
+    {
+        _emergencyLastBaroTimestamp = baro.timestamp;
+        _descentDetector.addSample(baro.pressure, baro.timestamp);
+    }
+
+    // The transition is queued rather than immediate, so check with this variable.
+    if (_emergencyDeployCommanded) return;
+
+    LOG_EVERY_MS(500, INFO, "RocketFSM", "EMERGENCY_RECOVERY: %.2f m/s, level for %lu ms%s",
+                 _descentDetector.rateMps(),
+                 static_cast<unsigned long>(_descentDetector.levelForMs(now)),
+                 _descentDetector.isStuck() ? ", BAROMETER NOT CHANGING" : "");
+
+    if (_descentDetector.verdict() == DescentDetector::Verdict::Descending)
+    {
+        const uint8_t attempts = FlightFlags::deployAttempts();
+        if (attempts >= EMERGENCY_MAX_DEPLOY_ATTEMPTS)
+        {
+            // In boot loop for some reason, maybe deploying causes a brownout.
+            // Stop after MAX ATTEMPTS.
+            LOG_EVERY_MS(2000, ERROR, "RocketFSM",
+                         "EMERGENCY_RECOVERY: descending, but %u deploy attempts already made.",
+                         attempts);
+            return;
+        }
+
+        LOG_WARNING("RocketFSM", "EMERGENCY_RECOVERY: descending at %.2f m/s, deploying recovery now",
+                    _descentDetector.rateMps());
+
+        // Pyro first, flash second
+        deployApogeeRecovery();
+        FlightFlags::recordDeployAttempt();
+
+        _emergencyDeployCommanded = true;
+        sendEvent(FSMEvent::EMERGENCY_DEPLOYED);
+        return;
+    }
+
+    if (_descentDetector.levelForMs(now) >= EMERGENCY_STAND_DOWN_MS)
+    {
+        if (_descentDetector.isStuck())
+        {
+            // Standing still and reading nothing look identical from here, but a
+            // live sensor holding position still jitters in its last bits. One
+            // that does not is reporting no world at all.
+            LOG_ERROR("RocketFSM", "EMERGENCY_RECOVERY: the barometer never changed by a single count. "
+                                   "Standing down, but treat this reading as unverified");
+        }
+        LOG_WARNING("RocketFSM", "EMERGENCY_RECOVERY: nothing moving for %d ms, standing down to ground services",
+                    EMERGENCY_STAND_DOWN_MS);
+        sendEvent(FSMEvent::EMERGENCY_STAND_DOWN);
+    }
+}
+
 void RocketFSM::setupStateActions()
 {
     LOG_INFO("RocketFSM", "Setting up state actions...");
@@ -416,6 +513,8 @@ void RocketFSM::setupStateActions()
          * ESP32-S3-WROOM-1-N16.
          */
         .addTask(TaskConfig(TaskType::GROUND_SERVICES, "GroundServices", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
+        // The recorder task is ready here, but opens no flight file until arming.
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Ground", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         #if AURORA_HIL_ENABLED
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ground", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
@@ -423,12 +522,20 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ground", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Ground", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true))
+        .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Ground", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         ;
     // READY_FOR_LAUNCH state
     _stateActions[RocketState::READY_FOR_LAUNCH] = std::make_unique<StateAction>(RocketState::READY_FOR_LAUNCH);
     _stateActions[RocketState::READY_FOR_LAUNCH]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH"); })
+                         {
+                             // Reset at entry. This indicates for how long we have high
+                             // enough accelerationt to transition to LAUNCH.
+                             _launchHighSince = 0;
+                             LOG_INFO("RocketFSM", "Entering READY_FOR_LAUNCH");
+                             // Record that a flight is starting
+                             FlightFlags::setLaunched(true);
+                         })
         #if AURORA_HIL_ENABLED
         // TODO: do not treat HilSimulationTask as a normal fsm task, start in ONCE from rocketfsm.
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Ready", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
@@ -436,7 +543,9 @@ void RocketFSM::setupStateActions()
         .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Ready", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask(TaskConfig(TaskType::GPS, "Gps_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_1, true))
         #endif
-        //.addTask(TaskConfig(TaskType::STORAGE, "Storage_Ready", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
+        // The same task persists through READY and flight; READY alone uses
+        // bounded periodic sensor batches so a long hold cannot fill flash.
+        .addTask(TaskConfig(TaskType::STORAGE, "Storage_Ready", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         //.addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Ready", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Ready", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         .addTask((TaskConfig(TaskType::TELEMETRY, "Telemetry_Ready", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true)))
@@ -460,7 +569,12 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::ACCELERATED_FLIGHT] = std::make_unique<StateAction>(RocketState::ACCELERATED_FLIGHT);
     _stateActions[RocketState::ACCELERATED_FLIGHT]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT"); })
+                         {
+                             _acceleratedPeakVelocityMps = 0.0f;
+                             _acceleratedLastVelocityTimestamp = 0;
+                             _burnoutConfirmationSamples = 0;
+                             LOG_INFO("RocketFSM", "Entering ACCELERATED_FLIGHT");
+                         })
         .addTask(TaskConfig(TaskType::ALTITUDE, "Altitude_Accel", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
         #if AURORA_HIL_ENABLED
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Accel", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)) // Might need way more memory
@@ -542,7 +656,11 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::LANDING] = std::make_unique<StateAction>(RocketState::LANDING);
     _stateActions[RocketState::LANDING]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering LANDING"); })
+                         {
+                             _landingStableSince = 0;
+                             _landingLastVelocityTimestamp = 0;
+                             LOG_INFO("RocketFSM", "Entering LANDING");
+                         })
         #if AURORA_HIL_ENABLED
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Landing", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
@@ -556,7 +674,16 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::RECOVERED] = std::make_unique<StateAction>(RocketState::RECOVERED);
     _stateActions[RocketState::RECOVERED]
         ->setEntryAction([this]()
-                         { LOG_INFO("RocketFSM", "Entering RECOVERED"); })
+                         {
+                             // Flight has ended.
+                             FlightFlags::setLaunched(false);
+#if AURORA_HIL_ENABLED
+                             LOG_INFO("RocketFSM", "Entering RECOVERED; rebooting after the final HIL response");
+#else
+                             LOG_INFO("RocketFSM", "Entering RECOVERED; rebooting into pre-flight services");
+                             esp_restart();
+#endif
+                         })
         #if AURORA_HIL_ENABLED
         .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Recovered", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
         #else
@@ -566,6 +693,24 @@ void RocketFSM::setupStateActions()
         // .addTask(TaskConfig(TaskType::STORAGE, "Storage_Recovered", 8192, TaskPriority::TASK_CRITICAL, TaskCore::CORE_1, true))
         // .addTask((TaskConfig(TaskType::AIRBRAKES, "Airbrakes_Recovered", 4096, TaskPriority::TASK_HIGH, TaskCore::CORE_0, true)))
         .addTask(TaskConfig(TaskType::TELEMETRY, "Telemetry_Recovered", 4096, TaskPriority::TASK_MEDIUM, TaskCore::CORE_1, true));
+
+    // EMERGENCY_RECOVERY: Only sensor task for barometer.
+    _stateActions[RocketState::EMERGENCY_RECOVERY] = std::make_unique<StateAction>(RocketState::EMERGENCY_RECOVERY);
+    _stateActions[RocketState::EMERGENCY_RECOVERY]
+        ->setEntryAction([this]()
+                         {
+                             LOG_WARNING("RocketFSM", "Entering EMERGENCY_RECOVERY: booted with a flight in progress");
+                             _descentDetector.configure(EMERGENCY_DESCENT_THRESHOLD_MPS, EMERGENCY_WINDOW_MS);
+                             _emergencyLastBaroTimestamp = 0;
+                             _emergencyDeployCommanded = false;
+                         })
+        #if AURORA_HIL_ENABLED
+        .addTask(TaskConfig(TaskType::HIL_SIMULATION, "HIL_Emergency", (4096+1024), TaskPriority::TASK_HIGH, TaskCore::CORE_0, true))
+        #else
+        .addTask(TaskConfig(TaskType::SENSOR, "Sensor_Emergency", 4096, TaskPriority::TASK_CRITICAL, TaskCore::CORE_0, true))
+        #endif
+        ;
+
     LOG_INFO("RocketFSM", "State actions setup complete");
 }
 
@@ -629,8 +774,21 @@ void RocketFSM::setupTransitions()
         RocketState::RECOVERED,
         FSMEvent::LANDING_COMPLETE));
 
+    _transitionManager->addTransition(Transition(
+        RocketState::INACTIVE,
+        RocketState::EMERGENCY_RECOVERY,
+        FSMEvent::EMERGENCY_RECOVERY_START));
+    _transitionManager->addTransition(Transition(
+        RocketState::EMERGENCY_RECOVERY,
+        RocketState::STABILIZATION,
+        FSMEvent::EMERGENCY_DEPLOYED));
+    _transitionManager->addTransition(Transition(
+        RocketState::EMERGENCY_RECOVERY,
+        RocketState::GROUND_SERVICES,
+        FSMEvent::EMERGENCY_STAND_DOWN));
+
     // Emergency abort transition from any state to INACTIVE
-    for (int state = static_cast<int>(RocketState::INACTIVE); state <= static_cast<int>(RocketState::RECOVERED); ++state)
+    for (int state = static_cast<int>(RocketState::INACTIVE); state <= static_cast<int>(RocketState::EMERGENCY_RECOVERY); ++state)
     {
         _transitionManager->addTransition(Transition(
             static_cast<RocketState>(state),
@@ -643,23 +801,34 @@ void RocketFSM::setupTransitions()
     LOG_INFO("RocketFSM", "Transitions setup complete");
 }
 
-void RocketFSM::transitionTo(RocketState newState)
+bool RocketFSM::transitionTo(RocketState newState)
 {
     if (_isTransitioning)
     {
         LOG_WARNING("RocketFSM", "Already transitioning, ignoring");
-        return;
+        return false;
     }
 
     if (newState == _currentState)
     {
-        return;
+        return false;
     }
 
     _isTransitioning = true;
 
     if (xSemaphoreTake(_stateMutex, pdMS_TO_TICKS(10)) == pdTRUE)
     {
+        // File preparation may have succeeded, but do not mark it active/LATEST
+        // until the transition mutex is held and READY can actually be entered.
+        if (_currentState == RocketState::GROUND_SERVICES &&
+            newState == RocketState::READY_FOR_LAUNCH &&
+            (!_taskManager || !_taskManager->activateFlightLog())) {
+            LOG_ERROR("RocketFSM", "[TRANSITION] Cannot activate prepared flight log");
+            _readyAttemptStatus.store(ReadyAttemptStatus::FILE_ACTIVATION_FAILED);
+            xSemaphoreGive(_stateMutex);
+            _isTransitioning = false;
+            return false;
+        }
         LOG_INFO("RocketFSM", "[TRANSITION] %s -> %s",
                  getStateString(_currentState),
                  getStateString(newState));
@@ -692,6 +861,9 @@ void RocketFSM::transitionTo(RocketState newState)
 
         if (_taskManager)
         {
+            if (newState == RocketState::RECOVERED) {
+                _taskManager->markFlightLogComplete();
+            }
             // Stop tasks that are no longer needed in the new state
             for (const auto& oldTask : oldTaskConfigs)
             {
@@ -746,6 +918,8 @@ void RocketFSM::transitionTo(RocketState newState)
         xSemaphoreGive(_stateMutex);
 
         LOG_INFO("RocketFSM", "[TRANSITION] Complete - Free heap: %u bytes", esp_get_free_heap_size());
+        _isTransitioning = false;
+        return true;
     }
     else
     {
@@ -753,6 +927,7 @@ void RocketFSM::transitionTo(RocketState newState)
     }
     
     _isTransitioning = false;
+    return false;
 }
 
 void RocketFSM::processEvent(const FSMEventData &eventData)
@@ -776,25 +951,72 @@ void RocketFSM::processEvent(const FSMEventData &eventData)
         LOG_WARNING("RocketFSM", "No valid transition for event %d in state %s",
                     static_cast<int>(eventData.event),
                     getStateString(_currentState));
+        if (eventData.event == FSMEvent::START_READY_FOR_LAUNCH)
+            _readyAttemptStatus.store(ReadyAttemptStatus::INVALID_STATE);
         return;
     }
 
-    if (_currentState == RocketState::GROUND_SERVICES && eventData.event == FSMEvent::START_READY_FOR_LAUNCH)
+    const bool preparingReady = _currentState == RocketState::GROUND_SERVICES &&
+                                eventData.event == FSMEvent::START_READY_FOR_LAUNCH;
+    if (preparingReady)
     {
         char reason[128] = {};
+        if (!StorageLoggingTask::tryBeginFileOperation()) {
+            LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: file operation in progress");
+            _readyAttemptStatus.store(ReadyAttemptStatus::FILE_BUSY);
+            return;
+        }
         if (!_taskManager || !_taskManager->prepareStorageLogging())
         {
             LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: flight recorder filename is not prepared");
+            _readyAttemptStatus.store(ReadyAttemptStatus::FILENAME_FAILED);
+            StorageLoggingTask::endFileOperation();
             return;
         }
         if (runtime_config_lock_for_flight(reason, sizeof(reason)) != ESP_OK)
         {
             LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: config lock failed: %s", reason);
+            _readyAttemptStatus.store(ReadyAttemptStatus::CONFIG_LOCK_FAILED);
+            StorageLoggingTask::endFileOperation();
+            return;
+        }
+        if (!_taskManager->prepareFlightLog()) {
+            const esp_err_t unlockError = runtime_config_unlock_after_recovery();
+            LOG_ERROR("RocketFSM", "Refusing READY_FOR_LAUNCH: flight log preparation failed%s",
+                      unlockError == ESP_OK ? "" : "; configuration remains locked");
+            _readyAttemptStatus.store(unlockError == ESP_OK
+                ? ReadyAttemptStatus::FILE_PREP_FAILED : ReadyAttemptStatus::CONFIG_UNLOCK_FAILED);
+            StorageLoggingTask::endFileOperation();
             return;
         }
     }
 
-    transitionTo(newState.value());
+    if (preparingReady)
+    {
+        // Everything that can refuse the arming has already succeeded, and both
+        // remaining failure paths inside transitionTo() return before any task
+        // is stopped, so a refusal leaves Ground Services and its AP running.
+        // Publish here: the transition takes the Wi-Fi down with it, so this is
+        // the last state the dashboard can read.
+        _readyAttemptStatus.store(ReadyAttemptStatus::SCHEDULED);
+        LOG_INFO("RocketFSM", "READY_FOR_LAUNCH scheduled: committing transition, Ground Services will stop");
+    }
+
+    const bool transitioned = transitionTo(newState.value());
+    if (preparingReady) {
+        if (!transitioned) {
+            const esp_err_t unlockError = runtime_config_unlock_after_recovery();
+            LOG_ERROR("RocketFSM", "READY_FOR_LAUNCH transition failed%s",
+                      unlockError == ESP_OK ? "" : "; configuration remains locked");
+            if (unlockError != ESP_OK)
+                _readyAttemptStatus.store(ReadyAttemptStatus::CONFIG_UNLOCK_FAILED);
+            else if (_readyAttemptStatus.load() == ReadyAttemptStatus::SCHEDULED)
+                _readyAttemptStatus.store(ReadyAttemptStatus::TRANSITION_FAILED);
+        } else {
+            _readyAttemptStatus.store(ReadyAttemptStatus::READY);
+        }
+        StorageLoggingTask::endFileOperation();
+    }
 }
 
 void RocketFSM::checkTransitions()
@@ -804,9 +1026,6 @@ void RocketFSM::checkTransitions()
     {
         return; // automatic transition handled
     }
-
-    // Cache some persistent values across calls to avoid repeated allocations
-    static uint32_t launchHighSince = 0;
 
     // Get accelerometer data before switch statement
     auto accX = 0.0f;
@@ -829,7 +1048,19 @@ void RocketFSM::checkTransitions()
     switch (_currentState)
     {
     case RocketState::INACTIVE:
-        sendEvent(FSMEvent::START_CALIBRATION);
+        if (FlightFlags::isLaunched())
+        {
+            LOG_WARNING("RocketFSM", "Launched flag raised: last reboot was mid flight!");
+            sendEvent(FSMEvent::EMERGENCY_RECOVERY_START);
+        }
+        else
+        {
+            sendEvent(FSMEvent::START_CALIBRATION);
+        }
+        break;
+
+    case RocketState::EMERGENCY_RECOVERY:
+        runEmergencyRecovery(Utils::millis());
         break;
 
     case RocketState::GROUND_SERVICES:
@@ -871,17 +1102,22 @@ void RocketFSM::checkTransitions()
         }
 
         const bool isBaroReady = _rocketModel->isBarometerZeroed();
+        // In a non-fusion mode (AMG) the BNO055 never updates CALIB_STAT, so
+        // there is no IMU calibration to wait for.
+        const bool isImuFusion = _rocketModel->isIMUFusionMode();
         const bool isBnoReady  = _rocketModel->isSensorSystemCalibrated();
 
         if (useBaroSample)
         {
-            LOG_EVERY_MS(1000, INFO, "RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d",
-                         isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady);
+            LOG_EVERY_MS(1000, INFO, "RocketFSM", "CALIBRATING: Baro Ready=%d (samples=%u), IMU Ready=%d (%s)",
+                         isBaroReady, _rocketModel->getBarometerSampleCount(), isBnoReady,
+                         isImuFusion ? "fusion" : "non-fusion: skipped");
         }
 
         if (isBaroReady && isBnoReady)
         {
-            LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed & IMU calibrated.");
+            LOG_INFO("RocketFSM", "Calibration complete! Baro zeroed, IMU %s.",
+                     isImuFusion ? "calibrated" : "skipped");
             sendEvent(FSMEvent::CALIBRATION_COMPLETE);
         }
         else if (Utils::millis() - _stateStartTime > runtimeCfg.calibration.timeout_ms)
@@ -900,11 +1136,11 @@ void RocketFSM::checkTransitions()
 
             if (accelAboveThreshold)
             {
-                if (launchHighSince == 0)
+                if (_launchHighSince == 0)
                 {
-                    launchHighSince = Utils::millis();
+                    _launchHighSince = Utils::millis();
                 }
-                else if (Utils::millis() - launchHighSince >= runtimeCfg.flight.liftoff_timeout_ms)
+                else if (Utils::millis() - _launchHighSince >= runtimeCfg.flight.liftoff_timeout_ms)
                 {
                     _launchDetectionTime = Utils::millis();
                     sendEvent(FSMEvent::LAUNCH_DETECTED);
@@ -912,7 +1148,7 @@ void RocketFSM::checkTransitions()
             }
             else 
             {
-                launchHighSince = 0;
+                _launchHighSince = 0;
             }
         } catch (const std::exception& e) {
             LOG_ERROR("RocketFSM", "READY_FOR_LAUNCH: Exception occurred: %s", e.what());
@@ -928,10 +1164,53 @@ void RocketFSM::checkTransitions()
 
     case RocketState::ACCELERATED_FLIGHT:
     {
-        const uint32_t accelElapsed = Utils::millis() - _launchDetectionTime;
+        const uint32_t now = Utils::millis();
+        const uint32_t accelElapsed = now - _launchDetectionTime;
+        const uint32_t velocityTimestamp = _rocketModel->getHeightGainSpeedTimestamp();
 
-        if (accelElapsed >= runtimeCfg.flight.launch_to_ballistic_threshold_ms)
+        if (velocityTimestamp != 0 &&
+            velocityTimestamp != _acceleratedLastVelocityTimestamp &&
+            now - velocityTimestamp <= FLIGHT_ESTIMATE_FRESHNESS_MS)
         {
+            _acceleratedLastVelocityTimestamp = velocityTimestamp;
+            const float verticalVelocity = _rocketModel->getHeightGainSpeed();
+
+            if (std::isfinite(verticalVelocity))
+            {
+                if (verticalVelocity > _acceleratedPeakVelocityMps)
+                {
+                    _acceleratedPeakVelocityMps = verticalVelocity;
+                    _burnoutConfirmationSamples = 0;
+                }
+                else if (_acceleratedPeakVelocityMps > 0.0f &&
+                         _acceleratedPeakVelocityMps - verticalVelocity >=
+                             runtimeCfg.flight_transitions.burnout_velocity_drop_mps)
+                {
+                    if (_burnoutConfirmationSamples < BURNOUT_CONFIRMATION_SAMPLES)
+                    {
+                        ++_burnoutConfirmationSamples;
+                    }
+                }
+                else
+                {
+                    _burnoutConfirmationSamples = 0;
+                }
+            }
+        }
+
+        const bool velocityDropConfirmed =
+            _burnoutConfirmationSamples >= BURNOUT_CONFIRMATION_SAMPLES;
+        const bool fallbackTimeout =
+            accelElapsed >= runtimeCfg.flight.launch_to_ballistic_threshold_ms;
+
+        if (velocityDropConfirmed || fallbackTimeout)
+        {
+            LOG_INFO("RocketFSM", "Burnout detected: peak=%.2f m/s current=%.2f m/s source=%s",
+                     _acceleratedPeakVelocityMps,
+                     _rocketModel->getHeightGainSpeed(),
+                     velocityDropConfirmed ? "velocity" : "timeout");
+            _logger->logInfo("RocketFSM", velocityDropConfirmed ? "Burnout detected: velocity"
+                                                                : "Burnout detected: timeout");
             sendEvent(FSMEvent::ACCELERATION_COMPLETE);
         }
         break;
@@ -944,18 +1223,33 @@ void RocketFSM::checkTransitions()
         const bool isRising       = _rocketModel->getIsRising();
         const bool maxTimeReached = elapsed >= runtimeCfg.flight.launch_to_apogee_threshold_ms;
         // Ignore all sensor apogee logic until the initial chaotic burn phase ends
+        // Persisted to the flight file (Flash + SD) so every apogee trigger and
+        // its cause can be recovered after the flight.
+        auto logApogeeTrigger = [&](const char* reason)
+        {
+            char message[96];
+            snprintf(message, sizeof(message), "Apogee triggered by %s at T+%lu ms h=%.2f m v=%.2f m/s",
+                     reason, static_cast<unsigned long>(elapsed),
+                     _rocketModel->getCurrentHeight(), _rocketModel->getHeightGainSpeed());
+            if (_logger) {
+                _logger->logInfo("RocketFSM", message);
+            }
+        };
+
         if (lockoutExpired)
         {
             if (!isRising || maxTimeReached)
             {
                 LOG_INFO("RocketFSM", "Apogee detected! Elapsed: %lu ms", elapsed);
+                logApogeeTrigger(isRising ? "max timeout" : "algorithm");
                 sendEvent(FSMEvent::APOGEE_REACHED);
             }
-        } 
+        }
         // If we somehow haven't hit the lockout but the max time elapsed, trigger anyway
         else if (maxTimeReached)
         {
             LOG_WARNING("RocketFSM", "Apogee Lockout bypassed due to absolute max time limit!");
+            logApogeeTrigger("max timeout (lockout bypassed)");
             sendEvent(FSMEvent::APOGEE_REACHED);
         }
 
@@ -997,11 +1291,54 @@ void RocketFSM::checkTransitions()
     }
 
     case RocketState::LANDING:
-        if (Utils::millis() - _stateStartTime > 2000U)
+    {
+        const uint32_t now = Utils::millis();
+        const uint32_t velocityTimestamp = _rocketModel->getHeightGainSpeedTimestamp();
+        const bool velocityFresh = velocityTimestamp != 0 &&
+                                   now - velocityTimestamp <= FLIGHT_ESTIMATE_FRESHNESS_MS;
+        const bool imuFresh = imuStatus == SensorReadStatus::OK &&
+                              outBno055Data.timestamp != 0 &&
+                              now - outBno055Data.timestamp <= FLIGHT_ESTIMATE_FRESHNESS_MS;
+
+        if (velocityTimestamp != 0 && velocityTimestamp != _landingLastVelocityTimestamp)
         {
+            _landingLastVelocityTimestamp = velocityTimestamp;
+            const float verticalVelocity = _rocketModel->getHeightGainSpeed();
+            const bool velocityStable = velocityFresh && std::isfinite(verticalVelocity) &&
+                                        std::fabs(verticalVelocity) <=
+                                            runtimeCfg.flight_transitions.landing_vertical_velocity_threshold;
+            const bool accelerationStable = imuFresh && std::isfinite(accMag) &&
+                                            std::fabs(accMag - GRAVITY) <=
+                                                runtimeCfg.flight_transitions.landing_acceleration_threshold;
+
+            if (velocityStable && accelerationStable)
+            {
+                if (_landingStableSince == 0) _landingStableSince = now;
+            }
+            else
+            {
+                _landingStableSince = 0;
+            }
+        }
+
+        if (!velocityFresh || !imuFresh)
+        {
+            _landingStableSince = 0;
+        }
+
+        const bool stabilityConfirmed = _landingStableSince != 0 &&
+            now - _landingStableSince >= runtimeCfg.flight_transitions.landing_stability_ms;
+        const bool fallbackTimeout = now - _stateStartTime >= LANDING_RECOVERY_TIMEOUT_MS;
+
+        if (stabilityConfirmed || fallbackTimeout)
+        {
+            LOG_INFO("RocketFSM", "Landing complete: Vz=%.2f m/s accel=%.2f m/s^2 source=%s",
+                     _rocketModel->getHeightGainSpeed(), accMag,
+                     stabilityConfirmed ? "stability" : "timeout");
             sendEvent(FSMEvent::LANDING_COMPLETE);
         }
         break;
+    }
 
     case RocketState::RECOVERED:
         // Nothing to do

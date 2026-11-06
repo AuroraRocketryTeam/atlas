@@ -46,12 +46,6 @@ public:
     void onTaskStop() override;
     void taskFunction() override;
     
-    /**
-     * @brief Reset the simulation task to its initial state
-     * 
-     */
-    void reset();
-
 private:
     std::shared_ptr<RocketModel> _rocketModel;
 

@@ -15,6 +15,13 @@ struct FlightParametersConfig {
     float touchdown_altitude_threshold_m;
 };
 
+struct FlightTransitionConfig {
+    float burnout_velocity_drop_mps;
+    float landing_vertical_velocity_threshold; // m/s; maximum absolute barometric vertical velocity
+    float landing_acceleration_threshold;      // m/s^2; maximum |IMU acceleration magnitude - gravity|
+    uint32_t landing_stability_ms;
+};
+
 struct CalibrationConfig {
     uint32_t timeout_ms;
     uint32_t barometer_samples;

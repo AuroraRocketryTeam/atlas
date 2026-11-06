@@ -2,6 +2,7 @@
 
 #include "boards_hardware/IBoardHardware.hpp"
 #include "esp_netif.h"
+#include <driver/ledc.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <cstdint>
@@ -20,6 +21,22 @@ static constexpr gpio_num_t MANNY_LED_RED_PIN = GPIO_NUM_18;
 static constexpr gpio_num_t MANNY_LED_GREEN_PIN = GPIO_NUM_8;
 static constexpr gpio_num_t MANNY_LED_BLUE_PIN = GPIO_NUM_7;
 static constexpr gpio_num_t MANNY_LED_BUILTIN_PIN = MANNY_LED_BLUE_PIN;
+
+static constexpr ledc_timer_t   MANNY_RGB_LEDC_TIMER = LEDC_TIMER_0;
+static constexpr ledc_channel_t MANNY_RGB_LEDC_RED   = LEDC_CHANNEL_0;
+static constexpr ledc_channel_t MANNY_RGB_LEDC_GREEN = LEDC_CHANNEL_1;
+static constexpr ledc_channel_t MANNY_RGB_LEDC_BLUE  = LEDC_CHANNEL_2;
+
+// Different timer from LED!
+static constexpr ledc_timer_t   MANNY_BUZZER_LEDC_TIMER = LEDC_TIMER_1;
+static constexpr ledc_channel_t MANNY_BUZZER_LEDC_CH    = LEDC_CHANNEL_3;
+
+// Link with the antenna board, connector J4 pins 15, 16, 17 and 20. 
+// This board is the SPI master.
+static constexpr gpio_num_t MANNY_ANTENNA_LINK_MOSI_PIN = GPIO_NUM_35;
+static constexpr gpio_num_t MANNY_ANTENNA_LINK_MISO_PIN = GPIO_NUM_36;
+static constexpr gpio_num_t MANNY_ANTENNA_LINK_CS_PIN   = GPIO_NUM_48;
+static constexpr gpio_num_t MANNY_ANTENNA_LINK_CLK_PIN  = GPIO_NUM_47;
 
 static constexpr gpio_num_t MANNY_FLASH_HOLD_PIN = GPIO_NUM_9;
 static constexpr gpio_num_t MANNY_FLASH_CS_PIN = GPIO_NUM_10;
@@ -80,6 +97,7 @@ private:
     esp_netif_t* sta_netif;
     esp_netif_t* ap_netif;
     char wifi_ip_address[16];
+    char wifi_ssid[33];
     char wifi_mac_address[18];
     I2CBus _i2c_bus;
     SPIBus _spi_bus;
@@ -174,6 +192,11 @@ public:
      * @brief Return the current board-managed WiFi IP address.
      */
     const char* getWifiIpAddress() const override;
+
+    /**
+     * @brief Return the current board-managed WiFi SSID.
+     */
+    const char* getWifiSsid() const override;
 
     /**
      * @brief Return the current board-managed WiFi MAC address.

@@ -28,16 +28,14 @@ Typical usage from hil_rocketpy.py:
     from hil_capture import create_capture_file, save_hil_capture, plot_hil_log
     capture_file = create_capture_file(BASE_DIR / "hil_captures")
     ...
+    metadata = {"sampling_rate_hz": sampling_rate, "rocket": rocket_model}
     save_hil_capture(
         filename=capture_file,
         hil_log=hil_log,
         hil_events=hil_events,
-        metadata={
-            "sampling_rate_hz": sampling_rate,
-            "rocket": rocket_model,
-        },
+        metadata=metadata,
     )
-    plot_hil_log(hil_log, hil_events)
+    plot_hil_log(hil_log, hil_events, metadata=metadata)
 
 Typical direct usage:
 
@@ -73,6 +71,11 @@ from hil_utils import (
 # ----------------------------------------------------------------------
 
 G0 = 9.80665
+FRED_SITE_IMAGE = Path(__file__).with_name("Villafranca_satellite.jpg")
+FRED_SITE_ORIGIN = (44.290583, 12.027111)  # latitude, longitude of (0, 0)
+FRED_LAUNCH_SITES = {FRED_SITE_ORIGIN, (44.2901999, 12.0278684)}
+# Mission Analysis extent for the Esri tile image; verify with local control points.
+FRED_SITE_EXTENT_M = (-1043.10, 657.12, -407.15, 593.24)  # west, east, south, north
 
 # Keep this local so hil_capture.py can plot saved captures without importing
 # hil_communication.py. These names mirror RocketState / hil_communication.
@@ -221,6 +224,7 @@ def _as_array(log: dict[str, list[Any]], key: str) -> np.ndarray:
 def _lat_lon_to_local_meters(
     lat_deg: np.ndarray,
     lon_deg: np.ndarray,
+    origin_lat_lon: tuple[float, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Convert latitude/longitude to a local tangent-plane approximation.
@@ -232,7 +236,8 @@ def _lat_lon_to_local_meters(
         north ~= earth_radius * delta_lat
         east  ~= earth_radius * delta_lon * cos(latitude_at_launch)
 
-    This treats the first GPS sample as the local origin.
+    By default the first GPS sample is the local origin. A site map can supply
+    its calibrated launch point instead, so GPS noise does not shift the image.
 
     Output:
         x = east displacement [m]
@@ -241,8 +246,7 @@ def _lat_lon_to_local_meters(
     lat = np.deg2rad(lat_deg)
     lon = np.deg2rad(lon_deg)
 
-    lat0 = lat[0]
-    lon0 = lon[0]
+    lat0, lon0 = (lat[0], lon[0]) if origin_lat_lon is None else np.deg2rad(origin_lat_lon)
 
     earth_radius = 6_371_000.0
 
@@ -254,6 +258,38 @@ def _lat_lon_to_local_meters(
 
 def _nearest_sample_index(sim_time_s: np.ndarray, target_sim_time_s: float) -> int:
     return int(np.argmin(np.abs(sim_time_s - target_sim_time_s)))
+
+
+def rocketpy_apogee_event(flight: Any, capture_time_offset_s: float) -> dict[str, float]:
+    """Build the authoritative capture event from RocketPy's solved Flight."""
+    event = {
+        "time_s": float(capture_time_offset_s) + float(flight.apogee_time),
+        "rocketpy_time_s": float(flight.apogee_time),
+        "x": float(flight.apogee_x),
+        "y": float(flight.apogee_y),
+        "z": float(flight.apogee),
+    }
+    if not all(np.isfinite(value) for value in event.values()):
+        raise ValueError("RocketPy returned invalid apogee data")
+    return event
+
+
+def _sanitize_rocketpy_apogee(raw_events: Any) -> dict[str, float] | None:
+    """Return the first complete authoritative RocketPy apogee event."""
+    if raw_events is None:
+        return None
+    if isinstance(raw_events, dict):
+        raw_events = [raw_events]
+    for item in raw_events:
+        if not isinstance(item, dict):
+            continue
+        try:
+            event = {key: float(item[key]) for key in ("time_s", "rocketpy_time_s", "x", "y", "z")}
+        except (KeyError, TypeError, ValueError):
+            continue
+        if all(np.isfinite(value) for value in event.values()):
+            return event
+    return None
 
 
 def _sanitize_event_times(raw_events: Any) -> list[float]:
@@ -817,6 +853,7 @@ def replay_hil_3d(
     main_times = _sanitize_event_times(hil_events.get("open_main", []))
     fsm_events = _sanitize_fsm_events(hil_events.get("fsm_state", []))
     time_eclipses = _sanitize_time_eclipses(hil_events.get("time_eclipses", []))
+    rocketpy_apogee = _sanitize_rocketpy_apogee(hil_events.get("rocketpy_apogee"))
 
     # Keep the trajectory large while leaving two synchronized telemetry plots
     # visible throughout the replay.
@@ -875,16 +912,16 @@ def replay_hil_3d(
         "s",
     )
 
-    apogee_idx = int(np.argmax(z))
-    ax.scatter(
-        x[apogee_idx],
-        y[apogee_idx],
-        z[apogee_idx],
-        s=70,
-        marker="^",
-        color="tab:purple",
-        label="APOGEE",
-    )
+    if rocketpy_apogee is not None:
+        ax.scatter(
+            rocketpy_apogee["x"],
+            rocketpy_apogee["y"],
+            rocketpy_apogee["z"],
+            s=70,
+            marker="^",
+            color="tab:purple",
+            label="RocketPy apogee",
+        )
 
     plot_span = _set_3d_axes_equal(ax, x, y, z)
     body_axis_length = max(0.065 * plot_span, 1.0)
@@ -1506,6 +1543,7 @@ def plot_hil_log(
     hil_log: dict[str, list[Any]],
     hil_events: dict[str, list[Any]] | None = None,
     *,
+    metadata: dict[str, Any] | None = None,
     show: bool = True,
 ) -> None:
     """
@@ -1525,6 +1563,8 @@ def plot_hil_log(
     """
     if hil_events is None:
         hil_events = {}
+    if metadata is None:
+        metadata = {}
 
     sim_time_s = _as_array(hil_log, "sim_time_s")
 
@@ -1543,7 +1583,19 @@ def plot_hil_log(
     longitude_deg = _as_array(hil_log, "longitude_deg")
     altitude_m = _as_array(hil_log, "altitude_m")
 
-    gps_x, gps_y = _lat_lon_to_local_meters(latitude_deg, longitude_deg)
+    is_fred_capture = metadata.get("rocket") in {"fred", "fred_ami"}
+    launch_site = (metadata.get("environment_latitude"), metadata.get("environment_longitude"))
+    fred_site_map = (
+        is_fred_capture
+        and launch_site in FRED_LAUNCH_SITES
+    )
+    if is_fred_capture and not fred_site_map:
+        print("[PLOT] Villafranca map skipped: capture launch coordinates differ from its calibrated origin")
+    gps_x, gps_y = _lat_lon_to_local_meters(
+        latitude_deg,
+        longitude_deg,
+        launch_site if fred_site_map else None,
+    )
 
     accel_x_g = accel_x_m_s2 / G0
     accel_y_g = accel_y_m_s2 / G0
@@ -1555,8 +1607,10 @@ def plot_hil_log(
     airbrake_events = _sanitize_airbrake_events(hil_events.get("airbrakes", []))
     fsm_events = _sanitize_fsm_events(hil_events.get("fsm_state", []))
     time_eclipses = _sanitize_time_eclipses(hil_events.get("time_eclipses", []))
+    rocketpy_apogee = _sanitize_rocketpy_apogee(hil_events.get("rocketpy_apogee"))
 
-    apogee_idx = int(np.argmax(altitude_m))
+    apogee_idx = (_nearest_sample_index(sim_time_s, rocketpy_apogee["time_s"])
+                  if rocketpy_apogee is not None else None)
     sample_periods_s = np.diff(sim_time_s)
 
     print("\n========== HIL DATA SUMMARY ==========")
@@ -1571,8 +1625,11 @@ def plot_hil_log(
         print(f"Mean sample period:  {np.mean(sample_periods_s):.6f} s")
         print(f"Effective rate:      {1.0 / np.mean(sample_periods_s):.3f} Hz")
 
-    print(f"Max altitude:        {np.max(altitude_m):.3f} m")
-    print(f"Apogee sim time:     {sim_time_s[apogee_idx]:.3f} s")
+    print(f"Max payload altitude:{np.max(altitude_m):9.3f} m")
+    if rocketpy_apogee is not None:
+        print(f"RocketPy apogee:     {rocketpy_apogee['z']:.3f} m at capture t={rocketpy_apogee['time_s']:.3f} s")
+    else:
+        print("RocketPy apogee:     unavailable in this capture")
     print(f"Max |accel|:         {np.max(accel_norm_g):.3f} g")
     print(f"Drogue events:       {drogue_times}")
     print(f"Main events:         {main_times}")
@@ -1595,20 +1652,21 @@ def plot_hil_log(
     ax_3d.scatter(gps_x[-1], gps_y[-1], altitude_m[-1], s=90, marker="X", label="END")
     ax_3d.text(gps_x[-1], gps_y[-1], altitude_m[-1], f" END\nsim_time={sim_time_s[-1]:.2f}s")
 
-    ax_3d.scatter(
-        gps_x[apogee_idx],
-        gps_y[apogee_idx],
-        altitude_m[apogee_idx],
-        s=90,
-        marker="^",
-        label="APOGEE",
-    )
-    ax_3d.text(
-        gps_x[apogee_idx],
-        gps_y[apogee_idx],
-        altitude_m[apogee_idx],
-        f" APOGEE\nsim_time={sim_time_s[apogee_idx]:.2f}s\nalt={altitude_m[apogee_idx]:.1f}m",
-    )
+    if apogee_idx is not None:
+        ax_3d.scatter(
+            gps_x[apogee_idx],
+            gps_y[apogee_idx],
+            altitude_m[apogee_idx],
+            s=90,
+            marker="^",
+            label="RocketPy apogee time",
+        )
+        ax_3d.text(
+            gps_x[apogee_idx],
+            gps_y[apogee_idx],
+            altitude_m[apogee_idx],
+            f" RocketPy APOGEE\nt={rocketpy_apogee['time_s']:.2f}s\ntruth alt={rocketpy_apogee['z']:.1f}m",
+        )
 
     _mark_event_points_3d(ax_3d, sim_time_s, gps_x, gps_y, altitude_m, drogue_times, "OPEN_DROGUE", "v")
     _mark_event_points_3d(ax_3d, sim_time_s, gps_x, gps_y, altitude_m, main_times, "OPEN_MAIN", "s")
@@ -1632,7 +1690,8 @@ def plot_hil_log(
 
     ax_alt.scatter(sim_time_s[0], altitude_m[0], s=50, marker="o", label="START")
     ax_alt.scatter(sim_time_s[-1], altitude_m[-1], s=50, marker="X", label="END")
-    ax_alt.scatter(sim_time_s[apogee_idx], altitude_m[apogee_idx], s=60, marker="^", label="APOGEE")
+    if apogee_idx is not None:
+        ax_alt.scatter(rocketpy_apogee["time_s"], altitude_m[apogee_idx], s=60, marker="^", label="RocketPy apogee time")
 
     _mark_event_lines(ax_alt, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_alt, main_times, "OPEN_MAIN")
@@ -1660,14 +1719,42 @@ def plot_hil_log(
     # GPS ground track
     # ------------------------------------------------------------------
     fig_track, ax_track = plt.subplots(figsize=(8, 8))
-    ax_track.plot(gps_x, gps_y, label="GPS ground track")
-    ax_track.scatter(gps_x[0], gps_y[0], s=50, marker="o", label="START")
-    ax_track.scatter(gps_x[-1], gps_y[-1], s=50, marker="X", label="END")
-    ax_track.scatter(gps_x[apogee_idx], gps_y[apogee_idx], s=60, marker="^", label="APOGEE")
+    map_image_available = fred_site_map and FRED_SITE_IMAGE.is_file()
+    if map_image_available:
+        # The JPEG extent is calibrated to the old pad; express it relative to this capture's pad.
+        map_x, map_y = _lat_lon_to_local_meters(
+            np.array([FRED_SITE_ORIGIN[0]]), np.array([FRED_SITE_ORIGIN[1]]), launch_site
+        )
+        west, east, south, north = FRED_SITE_EXTENT_M
+        ax_track.imshow(
+            plt.imread(FRED_SITE_IMAGE),
+            extent=(west + map_x[0], east + map_x[0], south + map_y[0], north + map_y[0]),
+            origin="upper",
+        )
+    elif fred_site_map:
+        print(f"[PLOT] Villafranca map image not found: {FRED_SITE_IMAGE}")
+    track_line, = ax_track.plot(gps_x, gps_y, label="GPS ground track")
+    if fred_site_map:
+        track_line.set_color("magenta")
+        track_line.set_linewidth(2)
+        ax_track.scatter(0, 0, s=70, marker="o", color="white",
+                         edgecolors="black", label="Launch point")
+        ax_track.scatter(hil_log["x"][-1], hil_log["y"][-1], s=70,
+                         marker="X", color="red", label="RocketPy landing")
+        if rocketpy_apogee is not None:
+            ax_track.scatter(rocketpy_apogee["x"], rocketpy_apogee["y"], s=70,
+                             marker="^", color="yellow", edgecolors="black",
+                             label="RocketPy apogee")
+    else:
+        ax_track.scatter(gps_x[0], gps_y[0], s=50, marker="o", label="START")
+        ax_track.scatter(gps_x[-1], gps_y[-1], s=50, marker="X", label="END")
+        if apogee_idx is not None:
+            ax_track.scatter(gps_x[apogee_idx], gps_y[apogee_idx], s=60, marker="^", label="RocketPy apogee time")
     _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, drogue_times, "OPEN_DROGUE", "v")
     _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, main_times, "OPEN_MAIN", "s")
     _mark_fsm_points_2d(ax_track, sim_time_s, gps_x, gps_y, fsm_events, annotate=True)
-    ax_track.set_title("GPS Ground Track Sent to FC")
+    ax_track.set_title("GPS Ground Track Sent to FC" +
+                       (" (approximate Villafranca map)" if map_image_available else ""))
     ax_track.set_xlabel("local GPS x / east [m]")
     ax_track.set_ylabel("local GPS y / north [m]")
     ax_track.axis("equal")
@@ -1869,6 +1956,7 @@ def main() -> None:
         plot_hil_log(
             hil_log,
             hil_events,
+            metadata=metadata,
             show=not args.no_show and not replay_requested,
         )
 

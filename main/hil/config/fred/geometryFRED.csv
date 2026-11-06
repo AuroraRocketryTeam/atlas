@@ -1,0 +1,26 @@
+# FRED2.0 v1.0 - geometria del modello OpenRocket rocket.ork (FRED2.0-V1.0.ork) letta con ork_positions.py di Atlas
+# Mancano massa / baricentro / inerzie del razzo senza motore: vanno ricavati da OpenRocket con un motorino sul baricentro.
+# Posizioni misurate dalla punta dell'ogiva verso la coda.
+# std = deviazione standard usata dalle Monte Carlo (0 = valore fisso; prese da v0_lancio23maggio); --- = da completare a mano
+name,value,std,unit,note
+rocket_dry_mass,2.45,0.02,kg,razzo senza motore (simulazione OpenRocket meno il motore)
+rocket_dry_inertia_11,0.159,0.001,kg*m^2,perpendicolare all'asse; razzo senza motore
+rocket_dry_inertia_33,0.003,0.00003,kg*m^2,attorno all'asse; razzo senza motore
+center_of_mass_without_motor,0.439,0.004,m,razzo senza motore
+motor_position,0.9045,0,m,uscita dell'ugello = fine del razzo
+radius,0.0425,0.001,m,
+nose_length,0.14,0.001,m,ogiva elliptical
+nose_position,0,0,m,
+fin_number,3,0,-,
+fin_span,0.12,0.0005,m,
+fin_root_chord,0.12,0.0005,m,
+fin_tip_chord,0.03,0.0005,m,
+fin_position,0.7365,0.005,m,inizio della root chord
+fin_sweep_angle,45,0.005,deg,
+tail_top_radius,0.0425,0.001,m,
+tail_bottom_radius,0.03,0.001,m,
+tail_length,0.043,0.001,m,forma conical nel .ork; conica in RocketPy
+tail_position,0.8615,0.001,m,
+upper_button_position,0.4315,0.005,m,centro del pattino
+lower_button_position,0.6615,0.005,m,centro del pattino; secondo pattino del Rail Button (2 istanze a 0.23 m)
+button_angular_position,0,0.01,deg,

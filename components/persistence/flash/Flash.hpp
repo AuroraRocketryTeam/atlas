@@ -105,7 +105,7 @@ public:
      * * Streaming directly off the flash eliminates the RAM-spike vulnerability.
      */
     std::string readLine() override;
-    size_t listFiles(StorageFileInfo* files, size_t capacity) override;
+    ssize_t listFiles(StorageFileInfo* files, size_t capacity) override;
     bool readFileChunk(const char* filename, size_t offset, uint8_t* buffer,
                        size_t capacity, size_t& bytesRead, size_t& fileSize) override;
     bool deleteFile(const char* filename) override;

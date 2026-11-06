@@ -29,11 +29,9 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _flash(flash),
     _isRising(false),
     _heightGainSpeed(0.0f),
-    _currentHeight(0.0f)
-#if AURORA_HIL_ENABLED
-    , _reset_simulation(false)
-#endif
-    , _storageMutex(xSemaphoreCreateMutex())
+    _heightGainSpeedTimestamp(0),
+    _currentHeight(0.0f),
+    _storageMutex(xSemaphoreCreateMutex())
 {
     // Configure and Initialize ADC unit
     adc_oneshot_unit_init_cfg_t adc1_config = {};
@@ -81,31 +79,6 @@ RocketModel::~RocketModel() {
         _storageMutex = nullptr;
     }
 }
-
-void RocketModel::reset() {
-    _cmd.reset();
-
-    _isRising.store(false, std::memory_order_relaxed);
-    _heightGainSpeed.store(0.0f, std::memory_order_relaxed);
-    _currentHeight.store(0.0f, std::memory_order_relaxed);
-
-#if AURORA_HIL_ENABLED
-    _reset_simulation = false;
-
-    IMUData bnoData;
-    AccelerometerSensorData lis3dhData;
-    PressureSensorData ms561101ba03Data_1;
-    PressureSensorData ms561101ba03Data_2;
-    GPSData gpsData;
-    setSimulatedBNO055Data(bnoData);
-    setSimulatedLIS3DHTRData(lis3dhData);
-    setSimulatedMS561101BA03Data_1(ms561101ba03Data_1);
-    setSimulatedMS561101BA03Data_2(ms561101ba03Data_2);
-    setSimulatedGPSData(gpsData);
-
-    LOG_INFO("Main", "Set simulated data to nullptr");
-#endif
-}   
 
 void RocketModel::readBattery() {
     esp_err_t res = adc_oneshot_read(_adc1_handle, ADC_PIN, &_batteryAdc);
@@ -160,18 +133,6 @@ void RocketModel::resetCommand()
 {
     _cmd.reset();
 }
-
-#if AURORA_HIL_ENABLED
-void RocketModel::setResetSimulationFlag(bool value)
-{
-    _reset_simulation = value;
-}
-
-bool RocketModel::getResetSimulationFlag()
-{
-    return _reset_simulation;
-}
-#endif
 
 bool RocketModel::updateBNO055() {
     if (!_bno) return false;
@@ -411,8 +372,13 @@ float RocketModel::getHeightGainSpeed() {
     return _heightGainSpeed.load(std::memory_order_relaxed);
 }
 
-void RocketModel::setHeightGainSpeed(float heightGainSpeed) {
+uint32_t RocketModel::getHeightGainSpeedTimestamp() {
+    return _heightGainSpeedTimestamp.load(std::memory_order_acquire);
+}
+
+void RocketModel::setHeightGainSpeed(float heightGainSpeed, uint32_t timestamp) {
     _heightGainSpeed.store(heightGainSpeed, std::memory_order_relaxed);
+    _heightGainSpeedTimestamp.store(timestamp, std::memory_order_release);
 }
 
 float RocketModel::getCurrentHeight() {
@@ -453,6 +419,15 @@ bool RocketModel::storageFileExists(const char* filename, uint32_t timeoutMs) {
         return exists;
     }
     return false;
+}
+
+bool RocketModel::storageFileExistsChecked(const char* filename, bool& exists, uint32_t timeoutMs) {
+    if (!filename || !_storageMutex) return false;
+    if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) return false;
+    const bool ready = _storage && _storage->isInitialized();
+    if (ready) exists = _storage->fileExists(filename);
+    xSemaphoreGive(_storageMutex);
+    return ready;
 }
 
 bool RocketModel::storageResetReadCursor(const char* filename, uint32_t timeoutMs) {
@@ -521,15 +496,15 @@ bool RocketModel::storageAppendFile(const char* filename, const uint8_t* data, s
     return false;
 }
 
-size_t RocketModel::storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs) {
-    if (files == nullptr || capacity == 0) return 0;
-    if (!_storageMutex) { reportMissingMutex("storageListFiles"); return 0; }
+ssize_t RocketModel::storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs) {
+    if (files == nullptr || capacity == 0) return -1;
+    if (!_storageMutex) { reportMissingMutex("storageListFiles"); return -1; }
     if (xSemaphoreTake(_storageMutex, pdMS_TO_TICKS(timeoutMs)) == pdTRUE) {
-        const size_t count = (_storage && _storage->isInitialized()) ? _storage->listFiles(files, capacity) : 0;
+        const ssize_t count = (_storage && _storage->isInitialized()) ? _storage->listFiles(files, capacity) : -1;
         xSemaphoreGive(_storageMutex);
         return count;
     }
-    return 0;
+    return -1;
 }
 
 bool RocketModel::storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
@@ -565,6 +540,10 @@ bool RocketModel::isSensorSystemCalibrated() {
         return _bno->isFullyCalibrated(); 
     }
     return true; 
+}
+
+bool RocketModel::isIMUFusionMode() {
+    return _bno && _bno->isFusionMode();
 }
 
 void RocketModel::setCalibrationSampleTargets(size_t barometerSamples, size_t temperatureSamples) {

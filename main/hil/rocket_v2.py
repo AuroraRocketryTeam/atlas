@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numbers
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Sequence, List
 
@@ -76,10 +77,11 @@ class RocketV2(Rocket):
                     f"got {len(accel_clean)}: {accel_clean}"
                 )
 
-            if len(barometer_clean) != 1:
+            # RocketPy's Barometer.measurement is a scalar pressure in Pa.
+            if not isinstance(barometer_clean, numbers.Real):
                 raise ValueError(
-                    f"Barometer measurement must have 1 component, "
-                    f"got {len(barometer_clean)}: {barometer_clean}"
+                    f"Barometer measurement must be a scalar pressure, "
+                    f"got {type(barometer_clean).__name__}: {barometer_clean}"
                 )
 
             if len(gnss_clean) != 3:

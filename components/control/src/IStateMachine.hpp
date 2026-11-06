@@ -122,6 +122,9 @@ public:
      */
     virtual bool sendEvent(FSMEvent event, RocketState targetState = RocketState::INACTIVE, void *eventData = nullptr) = 0;
 
+    /** Result of the asynchronous READY_FOR_LAUNCH request; safe to read from HTTPD. */
+    virtual const char *getReadyAttemptStatus() const = 0;
+
     /**
      * @brief Get the current state of the state machine
      *

@@ -163,6 +163,8 @@ public:
      * @brief Thread-safe helper to check if a file exists in storage.
      */
     bool storageFileExists(const char* filename, uint32_t timeoutMs = 200);
+    // Separates "file absent" from "storage mutex unavailable" before creating a flight log.
+    bool storageFileExistsChecked(const char* filename, bool& exists, uint32_t timeoutMs = 200);
 
     /**
      * @brief Thread-safe helper to reset the read cursor of a file in storage.
@@ -189,27 +191,10 @@ public:
      */
     bool storageAppendFile(const char* filename, const uint8_t* data, size_t length, uint32_t timeoutMs = 200);
 
-    size_t storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs = 200);
+    ssize_t storageListFiles(StorageFileInfo* files, size_t capacity, uint32_t timeoutMs = 200);
     bool storageReadFileChunk(const char* filename, size_t offset, uint8_t* buffer, size_t capacity,
                               size_t& bytesRead, size_t& fileSize, uint32_t timeoutMs = 200);
     bool storageDeleteFile(const char* filename, uint32_t timeoutMs = 200);
-
-#if AURORA_HIL_ENABLED
-    // Simulation
-     /**
-     * @brief Setter of simulation reset flag.
-     *
-     * @param bool the reset flag value.
-     */
-    void setResetSimulationFlag(bool value);
-
-     /**
-     * @brief Getter of simulation reset flag.
-     *
-     * @return bool the reset flag value.
-     */
-    bool getResetSimulationFlag();
-#endif
 
     /**
      * @brief Set the simulated BNO055 sensor data
@@ -272,12 +257,14 @@ public:
      */
     float getHeightGainSpeed();
 
+    uint32_t getHeightGainSpeedTimestamp();
+
     /**
      * @brief Set the current estimated velocity
      *
      * @param heightGainSpeed The current estimated velocity
      */
-    void setHeightGainSpeed(float heightGainSpeed);
+    void setHeightGainSpeed(float heightGainSpeed, uint32_t timestamp);
 
     /**
      * @brief Get the Current Estimated Height
@@ -332,20 +319,19 @@ public:
     void resetCommand();
 
     /**
-     * @brief Reset the rocket model state.
-     *
-     */
-    void reset();
-
-    /**
      * @brief Get the BNO055 sensor instance.
      */
     std::shared_ptr<BNO055Sensor> getBNO055Sensor();
 
     /**
-     * @brief Check if the IMU is fully calibrated (Status == 3)
+     * @brief Check if the IMU is fully calibrated OR is in a non-fusion mode
      */
     bool isSensorSystemCalibrated();
+
+    /**
+     * @brief Check whether the BNO055 runs one of the fusion modes.
+     */
+    bool isIMUFusionMode();
 
     /**
      * @brief Set how many samples the barometer/temperature zeroing needs.
@@ -421,6 +407,7 @@ private:
     // Flight state variables (atomic to avoid caching issues)
     std::atomic<bool> _isRising;
     std::atomic<float> _heightGainSpeed;
+    std::atomic<uint32_t> _heightGainSpeedTimestamp;
     std::atomic<float> _currentHeight;
 
     IMUData _bnoData;
@@ -435,10 +422,6 @@ private:
     bool _ms561101ba03Data_1_Valid = false;
     bool _ms561101ba03Data_2_Valid = false;
     bool _gpsDataValid = false;
-
-#if AURORA_HIL_ENABLED
-    bool _reset_simulation;
-#endif
 
     SemaphoreHandle_t _storageMutex;
     std::shared_ptr<IStorage> _storage;

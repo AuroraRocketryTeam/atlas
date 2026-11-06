@@ -5,7 +5,7 @@ file(GLOB SRCS "src/*.cpp" "src/*.c")
 # component. Whether the linker resolves those depends on where ESP-IDF places
 # libprotocol.a relative to libradio_lora.a, and that order shifts whenever the
 # component graph changes. Linking the whole archive makes it order-independent;
-# the archive is two small objects.
+# the archive is a single small object.
 idf_component_register(
     SRCS ${SRCS}
     INCLUDE_DIRS "src"
