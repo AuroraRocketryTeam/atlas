@@ -44,6 +44,26 @@ static portMUX_TYPE s_config_mux = portMUX_INITIALIZER_UNLOCKED;
  *    snapshot for flight tasks.
  */
 
+/** Schema of the RuntimeConfig layout below; bump with every layout change. */
+static constexpr uint32_t RUNTIME_CONFIG_SCHEMA_VERSION = 10;
+
+/**
+ * @brief Airbrake defaults from the GNC Simulink support script
+ *        (Support_Atlas.m): Nemesis vehicle, 3000 m AGL target. The Cd table
+ *        itself is in airbrakes/airbrakes_cd_table.csv.
+ */
+static AirbrakesConfig make_default_airbrakes_config()
+{
+    AirbrakesConfig ab = {};
+    ab.opening_altitude_m = 1500.0f;
+    ab.target_apogee_m = 3000.0f;
+    ab.dry_mass_kg = 22.3f;
+    ab.reference_area_m2 = 0.0176714587f;   // pi * (0.15 m / 2)^2
+    ab.prediction_dt_s = 0.05f;
+    ab.prediction_max_steps = 1000;
+    return ab;
+}
+
 /**
  * @brief Build the firmware defaults for persisted mission settings.
  *
@@ -56,7 +76,7 @@ static portMUX_TYPE s_config_mux = portMUX_INITIALIZER_UNLOCKED;
 static RuntimeConfig make_default_config()
 {
     RuntimeConfig cfg = {};
-    cfg.schema_version = 9;
+    cfg.schema_version = RUNTIME_CONFIG_SCHEMA_VERSION;
     cfg.config_revision = 1;
     snprintf(cfg.mission.rocket_name, sizeof(cfg.mission.rocket_name), "%s", "Atlas Manny");
     snprintf(cfg.mission.launch_site, sizeof(cfg.mission.launch_site), "%s", "Launch Site");
@@ -72,10 +92,7 @@ static RuntimeConfig make_default_config()
     cfg.flight.launch_to_apogee_threshold_ms = LAUNCH_TO_APOGEE_THRESHOLD;
     cfg.flight.touchdown_altitude_threshold_m = TOUCHDOWN_ALTITUDE_THRESHOLD;
     cfg.telemetry.period_ms = TELEMETRY_INTERVAL_MS;
-    cfg.airbrakes.open_altitude_m = 1000.0f;
-    cfg.airbrakes.close_altitude_m = 2000.0f;
-    cfg.airbrakes.open_rate_per_s = 0.5f;
-    cfg.airbrakes.close_rate_per_s = 1.0f;
+    cfg.airbrakes = make_default_airbrakes_config();
     cfg.altitude.filter_window = ALTITUDE_FILTER_DEFAULT_WINDOW;
     // Above the expected flight envelope; this is an outlier guard, not a flight-rate limiter.
     cfg.altitude.max_pressure_rate_pa_per_s = 100000.0f;
@@ -147,25 +164,95 @@ static uint32_t compute_checksum(RuntimeConfig cfg)
     return fnv1a32(&cfg, sizeof(cfg));
 }
 
-static bool legacy_v6_checksum_ok(RuntimeConfig cfg)
+/*
+ * Frozen layout of schemas 6-9, used only to migrate older NVS blobs.
+ *
+ * Schemas 6, 7 and 8 are prefixes of schema 9 (fields were appended). Schema
+ * 10 replaced the four-float bang-bang AirbrakesConfig in the middle of the
+ * struct with the predictive controller's config, which shifts every later
+ * field, so older blobs must be decoded with this layout, not RuntimeConfig.
+ * Do not edit this struct; add a new frozen layout for the next break instead.
+ */
+struct LegacyAirbrakesConfigV9 {
+    float open_altitude_m;
+    float close_altitude_m;
+    float open_rate_per_s;
+    float close_rate_per_s;
+};
+
+struct RuntimeConfigV9 {
+    uint32_t schema_version;
+    uint32_t config_revision;
+    MissionConfig mission;
+    FlightParametersConfig flight;
+    LegacyAirbrakesConfigV9 airbrakes;
+    AltitudeConfig altitude;
+    CalibrationConfig calibration;
+    RecoveryConfig recovery;
+    TelemetryConfig telemetry;
+    bool config_locked;
+    uint32_t checksum;
+    StorageLoggingConfig storage_logging;
+    ActuatorConfig actuators;
+    FlightTransitionConfig flight_transitions;
+};
+
+static_assert(sizeof(RuntimeConfig) > sizeof(RuntimeConfigV9),
+              "legacy blobs are read into a RuntimeConfig-sized buffer");
+
+/**
+ * @brief Check a legacy checksum, computed over the first @p length bytes with
+ *        the checksum field zeroed, exactly as older firmware stored it.
+ */
+static bool legacy_checksum_ok(const uint8_t *blob, size_t length)
 {
+    RuntimeConfigV9 cfg;
+    memcpy(&cfg, blob, sizeof(cfg));
     const uint32_t storedChecksum = cfg.checksum;
-    cfg.checksum = 0;
-    return storedChecksum == fnv1a32(&cfg, offsetof(RuntimeConfig, storage_logging));
+    memset(reinterpret_cast<uint8_t *>(&cfg) + offsetof(RuntimeConfigV9, checksum), 0, sizeof(cfg.checksum));
+    return storedChecksum == fnv1a32(&cfg, length);
 }
 
-static bool legacy_v7_checksum_ok(RuntimeConfig cfg)
+/**
+ * @brief Decode a schema 6-9 blob into the current layout.
+ *
+ * Fields that did not exist in the stored schema take firmware defaults. The
+ * airbrake section always takes defaults: the schema 9 values parameterised
+ * the removed bang-bang law and have no meaning for the predictive one. The
+ * flight lock is cleared so the migrated values are reviewed and re-locked.
+ *
+ * @return true when @p blob was a valid legacy config and @p out was filled.
+ */
+static bool migrate_legacy_config(const uint8_t *blob, size_t size, RuntimeConfig *out)
 {
-    const uint32_t storedChecksum = cfg.checksum;
-    cfg.checksum = 0;
-    return storedChecksum == fnv1a32(&cfg, offsetof(RuntimeConfig, actuators));
-}
+    RuntimeConfigV9 legacy = {};
+    memcpy(&legacy, blob, size < sizeof(legacy) ? size : sizeof(legacy));
 
-static bool legacy_v8_checksum_ok(RuntimeConfig cfg)
-{
-    const uint32_t storedChecksum = cfg.checksum;
-    cfg.checksum = 0;
-    return storedChecksum == fnv1a32(&cfg, offsetof(RuntimeConfig, flight_transitions));
+    size_t storedLength = 0;
+    switch (legacy.schema_version) {
+        case 6: storedLength = offsetof(RuntimeConfigV9, storage_logging); break;
+        case 7: storedLength = offsetof(RuntimeConfigV9, actuators); break;
+        case 8: storedLength = offsetof(RuntimeConfigV9, flight_transitions); break;
+        case 9: storedLength = sizeof(RuntimeConfigV9); break;
+        default: return false;
+    }
+    if (size != storedLength || !legacy_checksum_ok(blob, storedLength)) return false;
+
+    const RuntimeConfig defaults = make_default_config();
+    RuntimeConfig cfg = defaults;
+    cfg.config_revision = legacy.config_revision;
+    cfg.mission = legacy.mission;
+    cfg.flight = legacy.flight;
+    cfg.altitude = legacy.altitude;
+    cfg.calibration = legacy.calibration;
+    cfg.recovery = legacy.recovery;
+    cfg.telemetry = legacy.telemetry;
+    cfg.config_locked = false;
+    if (legacy.schema_version >= 7) cfg.storage_logging = legacy.storage_logging;
+    if (legacy.schema_version >= 8) cfg.actuators = legacy.actuators;
+    if (legacy.schema_version >= 9) cfg.flight_transitions = legacy.flight_transitions;
+    *out = cfg;
+    return true;
 }
 
 static void update_checksum(RuntimeConfig *cfg)
@@ -222,6 +309,39 @@ static void emit_item(RuntimeConfigValidationCallback cb, void *ctx, const char 
     cb(item, ctx);
 }
 
+/**
+ * @brief Airbrake controller rules (the Cd table is checked by AeroTableCsv).
+ *
+ * Field paths end with the dashboard key so the UI can attach the message to
+ * the right input. Ranges match runtime_config_schema_json().
+ */
+template <typename ErrorFn, typename WarningFn>
+static void validate_airbrakes(const AirbrakesConfig &ab, ErrorFn error, WarningFn warning)
+{
+    if (!std::isfinite(ab.target_apogee_m) || ab.target_apogee_m < 100.0f || ab.target_apogee_m > 20000.0f) {
+        error("airbrakes.airbrakes_target_apogee_m", "Airbrake target apogee must be between 100 and 20000 m AGL");
+    }
+    if (!std::isfinite(ab.opening_altitude_m) || ab.opening_altitude_m < 0.0f ||
+        !(ab.opening_altitude_m < ab.target_apogee_m)) {
+        error("airbrakes.airbrakes_opening_altitude_m", "Airbrake opening altitude must be at least 0 m and below the target apogee");
+    }
+    if (!std::isfinite(ab.dry_mass_kg) || ab.dry_mass_kg < 0.1f || ab.dry_mass_kg > 500.0f) {
+        error("airbrakes.airbrakes_dry_mass_kg", "Airbrake dry mass must be between 0.1 and 500 kg");
+    }
+    if (!std::isfinite(ab.reference_area_m2) || ab.reference_area_m2 < 0.0001f || ab.reference_area_m2 > 1.0f) {
+        error("airbrakes.airbrakes_reference_area_m2", "Airbrake reference area must be between 0.0001 and 1 m^2");
+    }
+    if (!std::isfinite(ab.prediction_dt_s) || ab.prediction_dt_s < 0.01f || ab.prediction_dt_s > 0.2f) {
+        error("airbrakes.airbrakes_prediction_dt_s", "Airbrake prediction step must be between 0.01 and 0.2 s");
+    }
+    if (ab.prediction_max_steps < 10 || ab.prediction_max_steps > 10000) {
+        error("airbrakes.airbrakes_prediction_max_steps", "Airbrake prediction steps must be between 10 and 10000");
+    } else if (std::isfinite(ab.prediction_dt_s) &&
+               static_cast<float>(ab.prediction_max_steps) * ab.prediction_dt_s < 30.0f) {
+        warning("airbrakes.airbrakes_prediction_max_steps", "Prediction horizon (steps x step) is under 30 s and may end before apogee");
+    }
+}
+
 esp_err_t runtime_config_validate_each(const RuntimeConfig *cfg, RuntimeConfigValidationCallback cb, void *ctx)
 {
     if (cfg == nullptr) {
@@ -234,11 +354,14 @@ esp_err_t runtime_config_validate_each(const RuntimeConfig *cfg, RuntimeConfigVa
         has_error = true;
         emit_item(cb, ctx, field, "error", message);
     };
+    auto warning = [&](const char *field, const char *message) {
+        emit_item(cb, ctx, field, "warning", message);
+    };
 
     // Keep validation ranges aligned with runtime_config_schema_json(). The
     // dashboard uses schema ranges for client-side checks, but firmware repeats
     // validation here because NVS and HTTP input cannot be trusted.
-    if (cfg->schema_version != 9) error("schema_version", "Unsupported runtime config schema");
+    if (cfg->schema_version != RUNTIME_CONFIG_SCHEMA_VERSION) error("schema_version", "Unsupported runtime config schema");
     if (cfg->storage_logging.flight_filename[0] == '\0') error("storage.flight_filename", "Flight filename is required");
     if (cfg->actuators.pulse_count < 1 || cfg->actuators.pulse_count > 10) {
         error("actuators.pulse_count", "Actuator pulse count must be between 1 and 10");
@@ -296,15 +419,7 @@ esp_err_t runtime_config_validate_each(const RuntimeConfig *cfg, RuntimeConfigVa
     if (cfg->telemetry.period_ms < 100 || cfg->telemetry.period_ms > 10000) {
         error("telemetry.telemetry_period_ms", "Telemetry period must be between 100 and 10000 ms");
     }
-    if (!std::isfinite(cfg->airbrakes.open_altitude_m) || !std::isfinite(cfg->airbrakes.close_altitude_m) ||
-        cfg->airbrakes.open_altitude_m < 0.0f || cfg->airbrakes.close_altitude_m <= cfg->airbrakes.open_altitude_m) {
-        error("airbrakes.altitudes", "Airbrake close altitude must be greater than open altitude");
-    }
-    if (!std::isfinite(cfg->airbrakes.open_rate_per_s) || !std::isfinite(cfg->airbrakes.close_rate_per_s) ||
-        cfg->airbrakes.open_rate_per_s <= 0.0f || cfg->airbrakes.open_rate_per_s > 10.0f ||
-        cfg->airbrakes.close_rate_per_s <= 0.0f || cfg->airbrakes.close_rate_per_s > 10.0f) {
-        error("airbrakes.rates", "Airbrake rates must be between 0 and 10 per second");
-    }
+    validate_airbrakes(cfg->airbrakes, error, warning);
     if (cfg->altitude.filter_window < 1 || cfg->altitude.filter_window > ALTITUDE_FILTER_MAX_WINDOW) error("altitude.filter_window", "Altitude filter window must be between 1 and 31");
     if (!std::isfinite(cfg->altitude.max_pressure_rate_pa_per_s) || cfg->altitude.max_pressure_rate_pa_per_s < 1000.0f || cfg->altitude.max_pressure_rate_pa_per_s > 200000.0f) error("altitude.max_pressure_rate_pa_per_s", "Pressure slew rate must be between 1000 and 200000 Pa/s");
     if (cfg->altitude.apogee_window_size < 3 || cfg->altitude.apogee_window_size > APOGEE_DETECTOR_MAX_WINDOW) error("altitude.apogee_window", "Apogee window must be between 3 and 64 samples");
@@ -416,37 +531,15 @@ esp_err_t runtime_config_init(IBoardHardware *board)
     err = nvs_get_blob(handle, NVS_KEY_ACTIVE, &cfg, &size);
     nvs_close(handle);
 
-    const bool legacyV6 = err == ESP_OK &&
-                          size == offsetof(RuntimeConfig, storage_logging) &&
-                          cfg.schema_version == 6 && legacy_v6_checksum_ok(cfg);
-    if (legacyV6) {
-        cfg.schema_version = 9;
-        snprintf(cfg.storage_logging.flight_filename, sizeof(cfg.storage_logging.flight_filename),
-                 "%s", "flight_telemetry_000001.jsonl");
-        cfg.actuators.pulse_count = 3;
-        cfg.actuators.pulse_duration_ms = 3;
-        cfg.flight_transitions = make_default_config().flight_transitions;
-        return runtime_config_save(&cfg);
-    }
-
-    const bool legacyV7 = err == ESP_OK &&
-                          size == offsetof(RuntimeConfig, actuators) &&
-                          cfg.schema_version == 7 && legacy_v7_checksum_ok(cfg);
-    if (legacyV7) {
-        cfg.schema_version = 9;
-        cfg.actuators.pulse_count = 3;
-        cfg.actuators.pulse_duration_ms = 3;
-        cfg.flight_transitions = make_default_config().flight_transitions;
-        return runtime_config_save(&cfg);
-    }
-
-    const bool legacyV8 = err == ESP_OK &&
-                          size == offsetof(RuntimeConfig, flight_transitions) &&
-                          cfg.schema_version == 8 && legacy_v8_checksum_ok(cfg);
-    if (legacyV8) {
-        cfg.schema_version = 9;
-        cfg.flight_transitions = make_default_config().flight_transitions;
-        return runtime_config_save(&cfg);
+    // Older schemas are shorter than RuntimeConfig, so they fit the buffer.
+    if (err == ESP_OK && size <= sizeof(RuntimeConfigV9)) {
+        RuntimeConfig migrated;
+        if (migrate_legacy_config(reinterpret_cast<const uint8_t *>(&cfg), size, &migrated)) {
+            ESP_LOGW(TAG, "Migrated runtime config schema %lu to %lu; airbrake settings reset to defaults",
+                     static_cast<unsigned long>(cfg.schema_version),
+                     static_cast<unsigned long>(RUNTIME_CONFIG_SCHEMA_VERSION));
+            return runtime_config_save(&migrated);
+        }
     }
 
     char reason[96];
@@ -691,10 +784,12 @@ esp_err_t runtime_config_update_from_json(const char *json, RuntimeConfig *updat
     if (json_update_float_if_present(json, "landing_vertical_velocity_threshold", &cfg.flight_transitions.landing_vertical_velocity_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "landing_acceleration_threshold", &cfg.flight_transitions.landing_acceleration_threshold) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_uint_if_present(json, "landing_stability_ms", &cfg.flight_transitions.landing_stability_ms) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    if (json_update_float_if_present(json, "airbrakes_open_altitude_m", &cfg.airbrakes.open_altitude_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    if (json_update_float_if_present(json, "airbrakes_close_altitude_m", &cfg.airbrakes.close_altitude_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    if (json_update_float_if_present(json, "airbrakes_open_rate_per_s", &cfg.airbrakes.open_rate_per_s) != ESP_OK) return ESP_ERR_INVALID_ARG;
-    if (json_update_float_if_present(json, "airbrakes_close_rate_per_s", &cfg.airbrakes.close_rate_per_s) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "airbrakes_opening_altitude_m", &cfg.airbrakes.opening_altitude_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "airbrakes_target_apogee_m", &cfg.airbrakes.target_apogee_m) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "airbrakes_dry_mass_kg", &cfg.airbrakes.dry_mass_kg) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "airbrakes_reference_area_m2", &cfg.airbrakes.reference_area_m2) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_float_if_present(json, "airbrakes_prediction_dt_s", &cfg.airbrakes.prediction_dt_s) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    if (json_update_uint_if_present(json, "airbrakes_prediction_max_steps", &cfg.airbrakes.prediction_max_steps) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_uint_if_present(json, "altitude_filter_window", &cfg.altitude.filter_window) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_float_if_present(json, "altitude_max_pressure_rate_pa_per_s", &cfg.altitude.max_pressure_rate_pa_per_s) != ESP_OK) return ESP_ERR_INVALID_ARG;
     if (json_update_uint_if_present(json, "apogee_detection_window_size", &cfg.altitude.apogee_window_size) != ESP_OK) return ESP_ERR_INVALID_ARG;
@@ -783,8 +878,8 @@ esp_err_t runtime_config_import_from_json(const char *json, RuntimeConfig *updat
     if (root == nullptr) return ESP_ERR_INVALID_ARG;
     const cJSON *mode = cJSON_GetObjectItemCaseSensitive(root, "recovery_mode");
     const char *mode_name = cJSON_IsString(mode) ? mode->valuestring : nullptr;
-    // One schema key and 35 persisted values. Reject missing, duplicate, and extra fields.
-    bool valid = cJSON_IsObject(root) && cJSON_GetArraySize(root) == 36 &&
+    // One schema key and 37 persisted values. Reject missing, duplicate, and extra fields.
+    bool valid = cJSON_IsObject(root) && cJSON_GetArraySize(root) == 38 &&
         import_uint(root, "schema_version", &cfg.schema_version) &&
         import_string(root, "rocket_name", cfg.mission.rocket_name, sizeof(cfg.mission.rocket_name)) &&
         import_string(root, "launch_site", cfg.mission.launch_site, sizeof(cfg.mission.launch_site)) &&
@@ -804,10 +899,12 @@ esp_err_t runtime_config_import_from_json(const char *json, RuntimeConfig *updat
         import_float(root, "landing_acceleration_threshold", &cfg.flight_transitions.landing_acceleration_threshold) &&
         import_uint(root, "landing_stability_ms", &cfg.flight_transitions.landing_stability_ms) &&
         import_uint(root, "telemetry_period_ms", &cfg.telemetry.period_ms) &&
-        import_float(root, "airbrakes_open_altitude_m", &cfg.airbrakes.open_altitude_m) &&
-        import_float(root, "airbrakes_close_altitude_m", &cfg.airbrakes.close_altitude_m) &&
-        import_float(root, "airbrakes_open_rate_per_s", &cfg.airbrakes.open_rate_per_s) &&
-        import_float(root, "airbrakes_close_rate_per_s", &cfg.airbrakes.close_rate_per_s) &&
+        import_float(root, "airbrakes_opening_altitude_m", &cfg.airbrakes.opening_altitude_m) &&
+        import_float(root, "airbrakes_target_apogee_m", &cfg.airbrakes.target_apogee_m) &&
+        import_float(root, "airbrakes_dry_mass_kg", &cfg.airbrakes.dry_mass_kg) &&
+        import_float(root, "airbrakes_reference_area_m2", &cfg.airbrakes.reference_area_m2) &&
+        import_float(root, "airbrakes_prediction_dt_s", &cfg.airbrakes.prediction_dt_s) &&
+        import_uint(root, "airbrakes_prediction_max_steps", &cfg.airbrakes.prediction_max_steps) &&
         import_uint(root, "altitude_filter_window", &cfg.altitude.filter_window) &&
         import_float(root, "altitude_max_pressure_rate_pa_per_s", &cfg.altitude.max_pressure_rate_pa_per_s) &&
         import_uint(root, "apogee_detection_window_size", &cfg.altitude.apogee_window_size) &&
@@ -870,6 +967,22 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
     const unsigned bno055_i2c_addr = s_board != nullptr ? static_cast<unsigned>(s_board->get_bno055_i2c_address()) : 0;
     const char *recovery_mode = recovery_mode_to_string(static_cast<RecoveryMode>(cfg->recovery.mode));
 
+    // Read-only summary of the compiled-in Cd table (airbrakes_cd_table.csv).
+    // The message text contains no quotes, so it embeds in JSON as is.
+    char aeroSummary[128];
+    const airbrakes::AeroTableLoad &aero = airbrakes::embeddedAeroTable();
+    if (aero.ok) {
+        const airbrakes::AeroTable &t = aero.table;
+        snprintf(aeroSummary, sizeof(aeroSummary), "%u openings (%.4g-%.4g %%) x %u Mach (%.4g-%.4g)%s",
+                 static_cast<unsigned>(t.opening_count),
+                 static_cast<double>(t.opening_bp_pct[0]), static_cast<double>(t.opening_bp_pct[t.opening_count - 1]),
+                 static_cast<unsigned>(t.mach_count),
+                 static_cast<double>(t.mach_bp[0]), static_cast<double>(t.mach_bp[t.mach_count - 1]),
+                 aero.cd_monotonic ? "" : ", Cd decreases with opening somewhere");
+    } else {
+        snprintf(aeroSummary, sizeof(aeroSummary), "INVALID: %s", aero.error);
+    }
+
     int n = snprintf(out, out_size,
         "{\"ok\":true,\"schema_version\":%lu,\"config_revision\":%lu,\"checksum\":%lu,"
         "\"config_locked\":%s,\"flight_log_filename\":\"%s\",\"last_flight_log_filename\":\"%s\","
@@ -883,8 +996,10 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         "\"burnout_velocity_drop_mps\":%.9g,\"landing_vertical_velocity_threshold\":%.9g,"
         "\"landing_acceleration_threshold\":%.9g,\"landing_stability_ms\":%lu,"
         "\"telemetry_period_ms\":%lu,"
-        "\"airbrakes_open_altitude_m\":%.9g,\"airbrakes_close_altitude_m\":%.9g,"
-        "\"airbrakes_open_rate_per_s\":%.9g,\"airbrakes_close_rate_per_s\":%.9g,"
+        "\"airbrakes_opening_altitude_m\":%.9g,\"airbrakes_target_apogee_m\":%.9g,"
+        "\"airbrakes_dry_mass_kg\":%.9g,\"airbrakes_reference_area_m2\":%.9g,"
+        "\"airbrakes_prediction_dt_s\":%.9g,\"airbrakes_prediction_max_steps\":%lu,"
+        "\"airbrakes_cd_table\":\"%s\","
         "\"altitude_filter_window\":%lu,\"altitude_max_pressure_rate_pa_per_s\":%.9g,"
         "\"apogee_detection_window_size\":%lu,\"apogee_sample_rate_hz\":%.9g,\"apogee_trigger_velocity_mps\":%.9g,\"apogee_confirmation_windows\":%u,"
         "\"selected_barometer\":%u,\"calibration_timeout_ms\":%lu,"
@@ -919,10 +1034,13 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
         static_cast<double>(cfg->flight_transitions.landing_acceleration_threshold),
         static_cast<unsigned long>(cfg->flight_transitions.landing_stability_ms),
         static_cast<unsigned long>(cfg->telemetry.period_ms),
-        static_cast<double>(cfg->airbrakes.open_altitude_m),
-        static_cast<double>(cfg->airbrakes.close_altitude_m),
-        static_cast<double>(cfg->airbrakes.open_rate_per_s),
-        static_cast<double>(cfg->airbrakes.close_rate_per_s),
+        static_cast<double>(cfg->airbrakes.opening_altitude_m),
+        static_cast<double>(cfg->airbrakes.target_apogee_m),
+        static_cast<double>(cfg->airbrakes.dry_mass_kg),
+        static_cast<double>(cfg->airbrakes.reference_area_m2),
+        static_cast<double>(cfg->airbrakes.prediction_dt_s),
+        static_cast<unsigned long>(cfg->airbrakes.prediction_max_steps),
+        aeroSummary,
         static_cast<unsigned long>(cfg->altitude.filter_window),
         static_cast<double>(cfg->altitude.max_pressure_rate_pa_per_s),
         static_cast<unsigned long>(cfg->altitude.apogee_window_size),
@@ -981,10 +1099,13 @@ esp_err_t runtime_config_schema_json(char *out, size_t out_size)
         "{\"key\":\"telemetry_period_ms\",\"label\":\"Telemetry period\",\"group\":\"Telemetry\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"ms\",\"editable\":false,\"min\":100,\"max\":10000,\"description\":\"Telemetry transmit interval.\"},"
         "{\"key\":\"flight_log_filename\",\"label\":\"Incumbent flight file\",\"group\":\"Flight Recorder\",\"source\":\"RuntimeConfig / NVS\",\"editable\":false,\"description\":\"Filename prepared at boot for the next recording.\"},"
         "{\"key\":\"last_flight_log_filename\",\"label\":\"Last flight file\",\"group\":\"Flight Recorder\",\"source\":\"RuntimeConfig / NVS\",\"editable\":false,\"description\":\"Most recent flight file found while preparing the recorder.\"},"
-        "{\"key\":\"airbrakes_open_altitude_m\",\"label\":\"Open altitude\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true},"
-        "{\"key\":\"airbrakes_close_altitude_m\",\"label\":\"Close altitude\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true},"
-        "{\"key\":\"airbrakes_open_rate_per_s\",\"label\":\"Open rate\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"1/s\",\"editable\":true,\"locked_after_ready\":true},"
-        "{\"key\":\"airbrakes_close_rate_per_s\",\"label\":\"Close rate\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"1/s\",\"editable\":true,\"locked_after_ready\":true},"
+        "{\"key\":\"airbrakes_opening_altitude_m\",\"label\":\"Opening altitude\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true,\"min\":0,\"max\":20000,\"description\":\"Below this altitude the airbrake task does nothing; above it the predictive controller runs.\"},"
+        "{\"key\":\"airbrakes_target_apogee_m\",\"label\":\"Target apogee\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m AGL\",\"editable\":true,\"locked_after_ready\":true,\"min\":100,\"max\":20000,\"description\":\"Apogee the predictive controller aims for.\"},"
+        "{\"key\":\"airbrakes_dry_mass_kg\",\"label\":\"Dry mass\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"kg\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.1,\"max\":500,\"description\":\"Burnout mass used by the apogee prediction.\"},"
+        "{\"key\":\"airbrakes_reference_area_m2\",\"label\":\"Reference area\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"m^2\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.0001,\"max\":1,\"description\":\"Aerodynamic reference area the Cd table is normalized to.\"},"
+        "{\"key\":\"airbrakes_prediction_dt_s\",\"label\":\"Prediction step\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"s\",\"editable\":true,\"locked_after_ready\":true,\"min\":0.01,\"max\":0.2,\"description\":\"Euler integration step of the apogee prediction.\"},"
+        "{\"key\":\"airbrakes_prediction_max_steps\",\"label\":\"Prediction max steps\",\"group\":\"Airbrakes\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"steps\",\"editable\":true,\"locked_after_ready\":true,\"min\":10,\"max\":10000,\"description\":\"Maximum integration steps per candidate opening.\"},"
+        "{\"key\":\"airbrakes_cd_table\",\"label\":\"Cd table\",\"group\":\"Airbrakes\",\"source\":\"airbrakes_cd_table.csv\",\"editable\":false,\"description\":\"Compiled-in drag table; edit the CSV in the airbrakes folder and reflash.\"},"
         "{\"key\":\"altitude_filter_window\",\"label\":\"Pressure median window\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"editable\":true,\"locked_after_ready\":true},"
         "{\"key\":\"altitude_max_pressure_rate_pa_per_s\",\"label\":\"Pressure slew rate\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"unit\":\"Pa/s\",\"editable\":true,\"locked_after_ready\":true,\"min\":1000,\"max\":200000},"
         "{\"key\":\"apogee_detection_window_size\",\"label\":\"Apogee window\",\"group\":\"Altitude & Apogee\",\"source\":\"RuntimeConfig / NVS\",\"editable\":true,\"locked_after_ready\":true},"

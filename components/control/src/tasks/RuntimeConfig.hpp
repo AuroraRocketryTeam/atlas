@@ -23,7 +23,11 @@ class IBoardHardware;
  *    AltitudeConfig), then compose that struct in RuntimeConfig. Prefer
  *    fixed-size primitive types or char arrays because the whole value is one
  *    NVS blob.
- * 2. Increment the schema_version assigned in make_default_config().
+ * 2. Increment RUNTIME_CONFIG_SCHEMA_VERSION in RuntimeConfig.cpp. Appending
+ *    a struct at the end of RuntimeConfig keeps older blobs a byte prefix of
+ *    the new layout; changing a struct in the middle (as schema 10 did for
+ *    AirbrakesConfig) needs a frozen copy of the old layout for migration,
+ *    like RuntimeConfigV9 in RuntimeConfig.cpp.
  * 3. Set a safe firmware default in make_default_config(), usually from
  *    config.h while legacy code is still sharing those constants.
  * 4. Add validation in runtime_config_validate_each(). Keep the validation
@@ -60,7 +64,7 @@ class IBoardHardware;
  *   snapshot so later dashboard edits or recovery unlocks cannot affect an
  *   active flight.
  * - Read-only values may be visible in the dashboard without being editable;
- *   this is preferred for compiled constants like AIRBRAKES_OPEN_ALTITUDE_M
+ *   this is preferred for compiled constants like LoRa addresses
  *   until there is a clear need to tune them from NVS.
  * - Keep the dashboard essential. Expose values that support flight decisions,
  *   checklist review, debugging, or hardware verification. Avoid surfacing
@@ -99,7 +103,7 @@ struct RuntimeConfig {
     TelemetryConfig telemetry;
     bool config_locked;
     uint32_t checksum;
-    // Append fields to preserve in-place migration of prior persisted layouts.
+    // Append new fields here; see maintainer step 2 above for layout changes.
     StorageLoggingConfig storage_logging;
     ActuatorConfig actuators;
     FlightTransitionConfig flight_transitions;

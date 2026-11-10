@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cstdio>
 #include "AccelerometerSensorData.hpp"
+#include "AirbrakesData.hpp"
 #include "AltitudeData.hpp"
 #include "GPSData.hpp"
 #include "IMUData.hpp"
@@ -43,4 +44,4 @@ struct SystemLog {
 
 // The Variant: The compiler calculates the size of the largest object here
 // and reserves exactly that much stack/queue memory.
-using LogPayload = std::variant<SystemLog, AccelerometerSensorData, AltitudeData, GPSData, IMUData, PressureSensorData>;
+using LogPayload = std::variant<SystemLog, AccelerometerSensorData, AltitudeData, GPSData, IMUData, PressureSensorData, AirbrakesData>;

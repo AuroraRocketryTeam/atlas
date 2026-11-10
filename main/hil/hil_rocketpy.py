@@ -469,9 +469,44 @@ def on_fsm_state(command_sim_time_s, fsm_state):
         command_state.fsm_response_condition.notify_all()
 
 
+# Airbrake aero table Cd[opening][Mach]: the same CSV the firmware embeds, so
+# HIL tests the controller against the drag it predicts with.
+AIRBRAKES_CD_TABLE_CSV = (
+    Path(__file__).resolve().parents[2]
+    / "components" / "control" / "src" / "tasks" / "airbrakes" / "airbrakes_cd_table.csv"
+)
+
+
+def load_airbrakes_cd_table(path):
+    """Parse airbrakes_cd_table.csv: header = label + Mach breakpoints, rows = opening % + Cd per Mach."""
+    rows = []
+    with open(path, encoding="utf-8") as csv_file:
+        for line in csv_file:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                rows.append([cell.strip() for cell in line.split(",")])
+    mach_bp = np.array([float(cell) for cell in rows[0][1:]])
+    opening_bp = np.array([float(row[0]) for row in rows[1:]])
+    cd_table = np.array([[float(cell) for cell in row[1:]] for row in rows[1:]])
+    if cd_table.shape != (len(opening_bp), len(mach_bp)):
+        raise ValueError(f"{path}: every row needs one Cd per Mach breakpoint")
+    return opening_bp, mach_bp, cd_table
+
+
+AIRBRAKES_OPENING_BP_PCT, AIRBRAKES_MACH_BP, AIRBRAKES_CD_TABLE = load_airbrakes_cd_table(AIRBRAKES_CD_TABLE_CSV)
+
+
 def airbrakes_drag_function(level, mach):
-    base_drag_added = 0.5
-    return base_drag_added * level
+    """Drag the airbrakes add on top of the rocket's own (closed-brake) drag.
+
+    RocketPy adds this to the rocket's drag curve, so only the increment over
+    the table's closed row is returned. Inputs are clamped to the table, like
+    the firmware lookup.
+    """
+    opening_pct = float(np.clip(level, 0.0, 1.0)) * 100.0
+    cd_vs_opening = [np.interp(mach, AIRBRAKES_MACH_BP, row) for row in AIRBRAKES_CD_TABLE]
+    cd = np.interp(opening_pct, AIRBRAKES_OPENING_BP_PCT, cd_vs_opening)
+    return float(cd - cd_vs_opening[0])
 
 
 def airbrakes_controller(controller_time_s, sampling_rate, state_vector, state_history, observed_variables, interactive_objects):
