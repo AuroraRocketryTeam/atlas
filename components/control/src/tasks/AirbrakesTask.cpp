@@ -120,14 +120,11 @@ void AirbrakesTask::taskFunction()
     _params.aero = &aeroTable.table;
 
     const TickType_t taskPeriod = pdMS_TO_TICKS(TASK_PERIOD_MS);
-    const TickType_t velocityStaleTicks = pdMS_TO_TICKS(VELOCITY_STALE_MS);
     TickType_t lastWakeTime = xTaskGetTickCount();
     TickType_t lastControlTime = lastWakeTime;
 
     bool openingAltitudeReached = false;
     bool computeWarningIssued = false;
-    uint32_t lastVelocityTimestamp = 0;
-    TickType_t lastVelocityChange = lastWakeTime;
     uint32_t logCycleCounter = 0;
 
     while (running)
@@ -154,18 +151,13 @@ void AirbrakesTask::taskFunction()
                 continue;
             }
             openingAltitudeReached = true;
-            lastVelocityTimestamp = velocityTimestamp;
-            lastVelocityChange = controlTime;
             LOG_INFO(TAG, "opening altitude reached (%.1f m AGL), predictive control active",
                      static_cast<double>(altitude));
         }
 
-        if (velocityTimestamp != lastVelocityTimestamp)
-        {
-            lastVelocityTimestamp = velocityTimestamp;
-            lastVelocityChange = controlTime;
-        }
-        const bool velocityFresh = (controlTime - lastVelocityChange) <= velocityStaleTicks;
+        // Same freshness rule as RocketFSM: judge the sample by its own age.
+        const bool velocityFresh = velocityTimestamp != 0 &&
+                                   Utils::millis() - velocityTimestamp <= VELOCITY_STALE_MS;
 
         /* ===== CONTROL LAW ===== */
         airbrakes::ControllerOutputs out{};
