@@ -3,7 +3,7 @@
 The producer thread queues one simulator payload into ``OneSlotMailbox``. The
 TCP thread takes that payload, sends it as ``MSG_TYPE_SIM_INPUT``, waits for one
 ``MSG_TYPE_FC_COMMAND`` response, and then updates the command handlers before
-taking another payload. This one-packet exchange prevents RocketPy/preflight
+acknowledging the producer. This one-packet exchange prevents RocketPy/preflight
 code from running ahead of the flight controller.
 
 Recoverable socket errors are handled by closing the socket and reconnecting.
@@ -23,6 +23,7 @@ from typing import Callable, Optional
 
 ESP_IP = os.getenv("HIL_FC_HOST", "192.168.4.1")
 PORT = int(os.getenv("HIL_FC_PORT", "5000"))
+DEFAULT_HIL_SAMPLING_RATE_HZ = 50
 
 MAGIC = 0xA5A55A5A
 HEADER_FMT = "!IHH"
@@ -78,7 +79,6 @@ MSG_TYPE_SIM_RESET = 3
 # Control messages used only inside the Python process.
 # They are not sent as payloads.
 RESET_SIMULATION = "RESET_SIMULATION"
-STOP_COMMUNICATION = "STOP_COMMUNICATION"
 
 
 class PeerClosedConnection(ConnectionError):
@@ -272,48 +272,93 @@ class OneSlotMailbox:
     """
     Single-slot mailbox storing exactly one value.
 
-    Producer: put(value) -> blocks if slot is full.
-    Consumer: take()    -> blocks if slot is empty.
+    Producer: put(value) -> blocks until this value is acknowledged.
+    Consumer: take()    -> blocks if slot is empty; does not free it.
 
     This is intentionally one-slot for HIL lockstep. The TCP thread sends one
     simulator sample and waits for the FC command before taking the next value.
     """
 
     def __init__(self):
+        """Create an empty slot shared by the simulator and TCP threads."""
         self._cv = threading.Condition()
-        self._full = False
-        self._value = None
+        self._pending = None
+        self._closed = False
 
-    def put(self, value):
-        """Blocking put."""
+    def put(self, value, timeout_s=30.0):
+        """Wait for acknowledgement of this value, or fail on a missing response."""
+        deadline = time.monotonic() + timeout_s
         with self._cv:
-            while self._full:
-                self._cv.wait()
-
-            self._value = value
-            self._full = True
-
+            # A previous sample still owns the slot until its FC reply is handled.
+            while self._pending is not None and not self._closed:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("HIL mailbox is still full")
+                self._cv.wait(remaining)
+            if self._closed:
+                raise RuntimeError("HIL communication stopped")
+            # [payload, completion error, callbacks started]; identity tracks this exchange across reconnects.
+            pending = [value, None, False]
+            self._pending = pending
             self._cv.notify_all()
+            # take() does not release the slot: wait for every command callback to finish.
+            while self._pending is pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    if pending[2]:
+                        # Once callbacks start, wait for their result instead of letting a new sample overtake them.
+                        self._cv.wait()
+                        continue
+                    # No reply entered processing in time; release the slot for the caller to retry.
+                    self._pending = None
+                    self._cv.notify_all()
+                    raise TimeoutError("Timed out waiting for FC response")
+                self._cv.wait(remaining)
+            # acknowledge() passes protocol or callback errors back to the producer.
+            if pending[1] is not None:
+                raise pending[1]
 
     def take(self):
-        """Blocking take."""
+        """Return the exchange to send, or None after stop(); the producer stays blocked."""
         with self._cv:
-            while not self._full:
+            while self._pending is None and not self._closed:
                 self._cv.wait()
+            return self._pending
 
-            value = self._value
-            self._value = None
-            self._full = False
-
-            self._cv.notify_all()
-
-            return value
-
-    def clear(self):
-        """Drop the queued value, if any, and unblock a producer waiting to retry."""
+    def pending(self, exchange):
+        """Check whether this exchange still owns the slot after a reconnect."""
         with self._cv:
-            self._value = None
-            self._full = False
+            return self._pending is exchange
+
+    def stopped(self):
+        """Report whether local shutdown was requested."""
+        with self._cv:
+            return self._closed
+
+    def begin_processing(self, exchange):
+        """Claim a validated reply before callbacks; reject an exchange that timed out."""
+        with self._cv:
+            if self._pending is not exchange:
+                return False
+            # Keep put() waiting past its deadline while command callbacks run.
+            exchange[2] = True
+            return True
+
+    def acknowledge(self, exchange, error=None):
+        """Release the producer after callbacks, passing any error back to put()."""
+        with self._cv:
+            if self._pending is exchange:
+                exchange[1] = error
+                self._pending = None
+                self._cv.notify_all()
+
+    def stop(self):
+        """Wake both mailbox users and stop the TCP loop without sending a wire message."""
+        with self._cv:
+            self._closed = True
+            if self._pending is not None:
+                self._pending[1] = RuntimeError("HIL communication stopped")
+                self._pending = None
             self._cv.notify_all()
 
 
@@ -328,6 +373,7 @@ def tcp_client(
 ):
     announced_first_connection = False
     stop_requested = False
+    exchange = None
 
     # Message flow during a normal run:
     #   startup reset -> reconnect -> calibration samples -> flight samples -> local stop
@@ -335,10 +381,9 @@ def tcp_client(
     # RESET_SIMULATION sends MSG_TYPE_SIM_RESET to the FC, but keeps this Python
     # communication thread alive so it can reconnect and continue with calibration.
     #
-    # STOP_COMMUNICATION is local-only: it does not send anything to the FC. It
-    # simply closes the current socket and exits the thread cleanly.
+    # mailbox.stop() is local-only: it does not send anything to the FC.
 
-    while not stop_requested:
+    while not stop_requested and not mailbox.stopped():
         sock = None
         socket_phase = "connect"
 
@@ -358,11 +403,17 @@ def tcp_client(
 
             while not stop_requested:
                 # ===== GET PAYLOAD / CONTROL MESSAGE =====
-                payload = mailbox.take()
+                exchange = exchange if exchange is not None and mailbox.pending(exchange) else mailbox.take()
+                if exchange is None:
+                    stop_requested = True
+                    break
+                payload = exchange[0]
 
                 if payload == RESET_SIMULATION:
                     frame = encode_msg(MSG_TYPE_SIM_RESET, b"")
                     sock.sendall(frame)
+                    mailbox.acknowledge(exchange)
+                    exchange = None
                     print(
                         "[RESET] Board is rebooting. Reconnect this computer to "
                         "the Aurora SoftAP if it does not reconnect automatically."
@@ -371,11 +422,6 @@ def tcp_client(
                     # Do not stop the TCP client. The FC may close/recreate its
                     # HIL task while resetting the FSM. Close our current socket
                     # and let the outer loop reconnect.
-                    break
-
-                if payload == STOP_COMMUNICATION:
-                    print("[TCP] stop requested, closing socket without FC reset")
-                    stop_requested = True
                     break
 
                 # ===== ENCODE + SEND SIMULATION INPUT =====
@@ -406,6 +452,18 @@ def tcp_client(
                     fsm_state,
                 ) = decode_fc_command(rx_payload)
 
+                # The FC reply has no sequence number; its echoed float32 sim_time matches this input sample.
+                expected_time_s = struct.unpack_from("<f", payload, 4)[0]
+                # Allow float32 rounding, but reject a reply for a different 20 ms sample.
+                if not (abs(command_sim_time_s - expected_time_s) <= 0.001):
+                    raise RuntimeError(
+                        f"FC response time {command_sim_time_s} does not match sample {expected_time_s}"
+                    )
+                # The producer may have timed out while we received the reply; do not apply stale commands.
+                if not mailbox.begin_processing(exchange):
+                    exchange = None
+                    continue
+
                 # ===== HANDLE =====
                 if open_main and handlers.on_open_main:
                     handlers.on_open_main(command_sim_time_s)
@@ -418,16 +476,21 @@ def tcp_client(
 
                 if handlers.on_fsm_state:
                     handlers.on_fsm_state(command_sim_time_s, fsm_state)
+                # RocketPy may advance only after all actuator and FSM callbacks have completed.
+                mailbox.acknowledge(exchange)
+                exchange = None
 
         # Protocol/data errors:
         # These should not be hidden as normal reconnects.
         except (ValueError, RuntimeError, struct.error) as e:
+            if exchange is not None:
+                mailbox.acknowledge(exchange, e)
+                exchange = None
             message = f"{type(e).__name__}: {e}"
             print(f"[PROTOCOL ERROR] {message}")
 
         # Recoverable transport errors. Startup reset and FC task restarts can
-        # close the socket; reconnect and let the producer resend/tolerate the
-        # missed response through its normal timeout path.
+        # close the socket; reconnect and resend the still-pending sample.
         except TRANSPORT_ERRORS as e:
             if not stop_requested:
                 message = _transport_error_message(e, socket_phase)
@@ -436,6 +499,8 @@ def tcp_client(
         # Actual programming bugs:
         # Do not hide them, otherwise debugging becomes impossible.
         except Exception as e:
+            if exchange is not None:
+                mailbox.acknowledge(exchange, e)
             print(f"[BUG] Unexpected error: {type(e).__name__}: {e}")
             raise
 
@@ -451,7 +516,7 @@ def tcp_client(
                 except OSError:
                     pass
 
-            if not stop_requested:
+            if not stop_requested and not mailbox.stopped():
                 time.sleep(1.0)
 
     print("[TCP] communication thread stopped")

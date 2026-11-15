@@ -137,6 +137,13 @@ python hil_rocketpy.py --rocket fred --sensor-profile clean --no-startup-reset
 python hil_rocketpy.py --rocket fred --sensor-profile clean --startup-reset-timeout 30
 ```
 
+The default `--sampling-rate` is 50 Hz, matching the firmware's 20 ms HIL packet
+period. A different rate is allowed but prints a warning to check
+`HIL_PACKET_PERIOD_MS` in `HilSimulationTask.cpp` and the flashed firmware.
+At the default rate, the firmware logs IMU/accelerometer/GPS at 25 Hz and
+updates/logs barometers at an average of 18 Hz; these acquisition rates are
+intentional.
+
 The firmware's `HilSimulationTask` accepts fresh readings for both barometers at
 18 Hz in simulated time (`HIL_BAROMETER_RATE_HZ`), for every sensor profile and
 during both calibration and flight. Between updates it retains the previous
@@ -428,8 +435,12 @@ Header:
 
 ```text
 format: !IHH
+size:   8 bytes
 fields: magic, payload_length, message_type
 ```
+
+The header uses network byte order (big-endian). Payload fields use
+little-endian byte order. The magic value is `0xA5A55A5A`.
 
 Message types:
 
@@ -439,16 +450,23 @@ Message types:
 3 MSG_TYPE_SIM_RESET
 ```
 
-The communication thread uses a one-slot mailbox:
+The communication thread uses a one-slot mailbox at a 50 Hz simulation cadence:
 
 ```text
-queue one simulator sample -> send -> wait for one FC command -> update state -> send next sample
+produce one sample -> send -> validate matching FC command time -> run all command callbacks -> acknowledge producer
 ```
 
-This prevents the simulator from running ahead of the FC.
+The sample-producing callback stays blocked until acknowledgement; RocketPy
+cannot advance to its next integration step while the response is pending.
+The firmware still schedules its consumer tasks asynchronously and replies after
+its existing 20 ms delay. RocketPy's controller ordering runs the HIL logger
+before the airbrakes controller and parachute triggers at the same time node;
+the command is available to those callbacks after acknowledgement. This does
+not make the internal firmware consumers synchronous. A lost response after the
+firmware acted can cause the same sample to be resent after reconnect.
 
-During preflight and postflight, `hil_rocketpy.py` also waits on
-`wait_for_fsm_response()` after queueing each sample. The producer needs the FSM
+During preflight and postflight, `hil_rocketpy.py` reads the FSM state after
+the mailbox acknowledges each sample. The producer needs the FSM
 state from the command packet that corresponds to the sample it just sent:
 `INACTIVE`/`CALIBRATING` samples are logged, `GROUND_SERVICES` samples are
 eclipsed, `READY_FOR_LAUNCH` stops preflight, and `RECOVERED` stops postflight.
@@ -463,13 +481,16 @@ launcher raises a timeout instead of marking the flight recovered.
 Every simulator sample is sent as `MSG_TYPE_SIM_INPUT`.
 
 ```text
-format: <IfIffffffff
-size:   44 bytes
+format: <IfIffffffffffff
+size:   60 bytes
 fields: sequence_number, hil_sim_time_s, host_unix_time_s,
         ax_m_s2, ay_m_s2, az_m_s2,
+        quaternion_w, quaternion_x, quaternion_y, quaternion_z,
         pressure_pa, temperature_k,
         latitude_deg, longitude_deg, altitude_m
 ```
+
+`MSG_TYPE_SIM_RESET` has an empty payload and requests a firmware reboot.
 
 ### FC command packet
 

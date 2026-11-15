@@ -9,8 +9,8 @@ and saves a replayable HIL capture at the end of the run.
 import argparse
 import copy
 import math
+import sys
 import threading
-import time
 from pathlib import Path
 import numpy as np
 
@@ -48,23 +48,18 @@ class CommandState:
 
     The RocketPy thread produces one simulator packet at a time. The TCP thread
     sends that packet, receives the matching FC command packet, and updates this
-    state. ``wait_for_fsm_response`` is the barrier that keeps preflight samples
-    in lockstep with the command packets, so calibration/Ground Services code can
-    decide from the latest FC FSM state whether the sample belongs in the saved
-    capture.
+    state. The mailbox acknowledgement follows all command handlers, so each
+    phase reads the FSM state corresponding to its completed sample.
     """
 
     def __init__(self):
         self.lock = threading.Lock()
-        self.fsm_response_condition = threading.Condition(self.lock)
         self.fsm_ready_event = threading.Event()
         self.reset()
 
     def reset(self):
         with self.lock:
             self.latest_command_sim_time_s = 0.0
-            self.latest_fsm_command_sim_time_s = -1.0
-            self.latest_fsm_response_id = 0
             self.open_main = False
             self.open_drogue = False
             self.airbrakes_lvl = 0.0
@@ -73,32 +68,6 @@ class CommandState:
             self._last_printed_fsm_state = None
 
         self.fsm_ready_event.clear()
-
-    def get_fsm_response_id(self):
-        with self.lock:
-            return self.latest_fsm_response_id
-
-    def wait_for_fsm_response(self, previous_response_id, command_sim_time_s, timeout_s=5.0):
-        """Wait for the FC command corresponding to this simulated time.
-
-        RocketPy can leave one packet in flight when Flight(...) returns. Check
-        the echoed time as well as the response count so a stationary sample
-        cannot consume the preceding flight sample's response.
-        """
-        deadline = time.monotonic() + timeout_s
-        with self.fsm_response_condition:
-            while (self.latest_fsm_response_id <= previous_response_id or
-                   self.latest_fsm_command_sim_time_s + 0.001 < command_sim_time_s):
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise TimeoutError(
-                        "Timed out waiting for FC command response at "
-                        f"hil_sim_time={command_sim_time_s:.3f}s"
-                    )
-                self.fsm_response_condition.wait(timeout=remaining)
-
-            return self.fsm_state, self.fsm_state_name
-
 
 command_state = CommandState()
 
@@ -164,6 +133,20 @@ def positive_int(value):
     return parsed
 
 
+def hil_sampling_rate(value):
+    rate = positive_int(value)
+    if rate != hil_communication.DEFAULT_HIL_SAMPLING_RATE_HZ:
+        # The CLI rate remains configurable; verify the flashed FC's packet cadence before HIL runs.
+        print(
+            f"[HIL] Warning: --sampling-rate={rate} Hz differs from the "
+            f"{hil_communication.DEFAULT_HIL_SAMPLING_RATE_HZ} Hz default. "
+            "Check HIL_PACKET_PERIOD_MS in components/control/src/tasks/hil/HilSimulationTask.cpp "
+            "and the flashed firmware.",
+            file=sys.stderr,
+        )
+    return rate
+
+
 parser = argparse.ArgumentParser(description="RocketPy HiL simulation launcher")
 parser.add_argument(
     "--rocket",
@@ -175,8 +158,8 @@ parser.add_argument(
 )
 parser.add_argument(
     "--sampling-rate",
-    type=positive_int,
-    default=50,
+    type=hil_sampling_rate,
+    default=hil_communication.DEFAULT_HIL_SAMPLING_RATE_HZ,
     help="Sampling rate in Hz for sensors, logger, airbrakes and parachutes. Default: 50 Hz.",
 )
 parser.add_argument(
@@ -454,8 +437,6 @@ def on_fsm_state(command_sim_time_s, fsm_state):
 
     with command_state.lock:
         previous = command_state.fsm_state
-        command_state.latest_fsm_command_sim_time_s = command_sim_time_s
-        command_state.latest_fsm_response_id += 1
         command_state.fsm_state = fsm_state
         command_state.fsm_state_name = name
 
@@ -466,7 +447,6 @@ def on_fsm_state(command_sim_time_s, fsm_state):
         if fsm_state == hil_communication.FSM_STATE_READY_FOR_LAUNCH:
             command_state.fsm_ready_event.set()
 
-        command_state.fsm_response_condition.notify_all()
 
 
 def airbrakes_drag_function(level, mach):
@@ -858,38 +838,19 @@ def _stationary_acceleration_sensor_frame(
     }
 
 
-# ----------------------------------------------------------------------
-# CALIBRATION SENSOR MODEL REUSE
-# ----------------------------------------------------------------------
 def _apply_scalar_sensor_pipeline(sensor, value):
-    """
-    Apply the same scalar sensor post-processing used by RocketPy sensors:
-    noise/random walk/bias -> temperature drift -> quantization.
-
-    This intentionally calls the sensor object's own methods instead of
-    duplicating the noise model in HIL code.
-    """
-    value = float(value)
-    value = sensor.apply_noise(value)
+    # Match RocketPy's measure() order for stationary samples without a Flight state.
+    value = sensor.apply_noise(float(value))
     value = sensor.apply_temperature_drift(value)
-    value = sensor.quantize(value)
-    return float(value)
+    return float(sensor.quantize(value))
 
 
 def _apply_vector_sensor_pipeline(sensor, values):
-    """
-    Apply the same vector sensor post-processing used by RocketPy inertial
-    sensors: temperature drift -> noise/random walk/bias -> quantization.
-
-    Returns a plain tuple so it can be packed into the HIL protocol.
-    """
     from rocketpy.mathutils.vector_matrix import Vector
 
-    value = Vector(values)
+    value = sensor.apply_noise(Vector(values))
     value = sensor.apply_temperature_drift(value)
-    value = sensor.apply_noise(value)
     value = sensor.quantize(value)
-
     return float(value.x), float(value.y), float(value.z)
 
 
@@ -931,9 +892,9 @@ def _apply_gnss_sensor_pipeline(sensor, latitude_deg, longitude_deg, altitude_m)
     # NOTE: Mirror RocketPy GnssReceiver.measure(): position_accuracy is applied to
     # local east/north meter coordinates, altitude_accuracy is applied directly
     # to altitude, then the noisy local horizontal vector is converted to GPS.
-    east_m = np.random.normal(0.0, sensor.position_accuracy)
-    north_m = np.random.normal(0.0, sensor.position_accuracy)
-    altitude_m = np.random.normal(float(altitude_m), sensor.altitude_accuracy)
+    east_m = sensor._rng.normal(0.0, sensor.position_accuracy)
+    north_m = sensor._rng.normal(0.0, sensor.position_accuracy)
+    altitude_m = sensor._rng.normal(float(altitude_m), sensor.altitude_accuracy)
     latitude_deg, longitude_deg = _offset_lat_lon(
         latitude_deg,
         longitude_deg,
@@ -1174,16 +1135,9 @@ def run_preflight_calibration(mailbox, rate_hz):
             longitude_deg=sample_longitude_deg,
             altitude_m=sample_altitude_m,
         )
-        previous_response_id = command_state.get_fsm_response_id()
-        mailbox.put(payload)
-
         try:
-            fsm_state, fsm_name = command_state.wait_for_fsm_response(
-                previous_response_id,
-                preflight_fc_time_s,
-            )
+            mailbox.put(payload)
         except TimeoutError as exc:
-            mailbox.clear()
             consecutive_response_timeouts += 1
             print(
                 "[PREFLIGHT] no FC response for sample "
@@ -1194,6 +1148,9 @@ def run_preflight_calibration(mailbox, rate_hz):
             if consecutive_response_timeouts >= max_consecutive_response_timeouts:
                 raise
             continue
+
+        with command_state.lock:
+            fsm_state, fsm_name = command_state.fsm_state, command_state.fsm_state_name
 
         consecutive_response_timeouts = 0
         sent_samples += 1
@@ -1291,7 +1248,8 @@ def run_postflight_recovery(mailbox, rate_hz):
 
     sample_period_s = 1.0 / float(rate_hz)
     last_flight_fc_time_s = PREFLIGHT_FC_DURATION_S + last_rocketpy_callback_time_s
-    fsm_state, _ = command_state.wait_for_fsm_response(-1, last_flight_fc_time_s)
+    with command_state.lock:
+        fsm_state = command_state.fsm_state
     if fsm_state == hil_communication.FSM_STATE_RECOVERED:
         return 0
 
@@ -1340,11 +1298,9 @@ def run_postflight_recovery(mailbox, rate_hz):
             longitude_deg=longitude,
             altitude_m=altitude_m,
         )
-        previous_response_id = command_state.get_fsm_response_id()
         mailbox.put(payload)
-        fsm_state, fsm_name = command_state.wait_for_fsm_response(
-            previous_response_id, fc_time_s
-        )
+        with command_state.lock:
+            fsm_state, fsm_name = command_state.fsm_state, command_state.fsm_state_name
 
         append_hil_log_sample(
             seq_value=seq,
@@ -1412,7 +1368,7 @@ if startup_reset_enabled:
 
     print("[RESET] Waiting for flight controller to restart HIL TCP server...")
     if not esp_reconnected.acquire(timeout=startup_reset_timeout_s):
-        mailbox.put(hil_communication.STOP_COMMUNICATION)
+        mailbox.stop()
         th.join(timeout=5.0)
         raise TimeoutError(
             "Flight controller did not reconnect after startup reset "
@@ -1511,7 +1467,7 @@ try:
 finally:
     # End of Python run: do not send MSG_TYPE_SIM_RESET.
     # Just stop producing data and close the TCP socket cleanly.
-    mailbox.put(hil_communication.STOP_COMMUNICATION)
+    mailbox.stop()
     th.join(timeout=5.0)
     if th.is_alive():
         print("[TCP] Warning: communication thread did not stop within timeout")
