@@ -205,7 +205,6 @@ void AirbrakesTask::airbrakes_ctl_law() {
         const float deployment = out.armed ? out.opening_pct / 100.0f : 0.0f;
 
         /* ===== WRITE COMMAND AND ACTUATE ===== */
-        LOG_INFO(TAG, "AirBrakes commanded %f", deployment);
         command(deployment);
 
         /* ===== LOG ===== */
