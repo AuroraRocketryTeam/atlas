@@ -4,6 +4,8 @@
 #include "soc/rtc.h"
 
 #include <array>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <string>
@@ -23,6 +25,7 @@
 #include <SerialLogger.hpp>
 #include <E220LoRaTransmitter.hpp>
 #include <I2CBus.hpp>
+#include <ServoController.hpp>
 
 TestRoutine::TestRoutine(IBoardHardware& board,
                          std::shared_ptr<RocketModel> model,
@@ -55,6 +58,7 @@ static const GroundTestDescriptor GROUND_TESTS[] = {
     {14, "Sensors",   "IMU Calibration to NVS",  "Run BNO055 calibration and save offsets to internal NVS.", false, ""},
     {3,  "Actuators", "Actuators and Buzzer",    "Energize drogue/main outputs and buzzer for operator verification.", true, "ARM_ACTUATORS"},
     {15, "Actuators", "Buzzer Jingle",           "Play the armed jingle through the buzzer.", false, ""},
+    {16, "Actuators", "Servo PWM",               "Move the airbrakes: centre, 1000-2000 us end points, slow 500-2500 us sweep.", true, "MOVE_SERVO"},
     {7,  "Telemetry", "LoRa Telemetry Send",     "Initialize E220 LoRa and transmit three test packets.", false, ""},
     {8,  "Telemetry", "E220 Connector GPIO",     "Pulse E220 connector pins in a visible sequence.", false, ""},
     {10, "Telemetry", "LoRa Command Receive",    "Wait up to 30 seconds for a command from the ground station.", false, ""},
@@ -231,6 +235,7 @@ bool TestRoutine::runSingleTestById(int id)
     case 13: return clearFlashMemory();
     case 14: return calibrateAndSaveIMU();
     case 15: return testBuzzerJingle();
+    case 16: return testServo();
     default: return false;
     }
 }
@@ -436,6 +441,131 @@ bool TestRoutine::testBuzzerJingle()
     LOG_INFO("Test", "[STEP 15] Jingle buzzer");
     _buzzerController.playJingle();
     return waitForUserInput("Il buzzer ha suonato il motivetto? Scrivi PASSED o FAILED");
+}
+
+bool TestRoutine::testServo()
+{
+    const uint32_t SERVO_PULSE_CENTER_US     = 1500;
+    const uint32_t SERVO_PULSE_STD_MIN_US    = 1000;
+    const uint32_t SERVO_PULSE_STD_MAX_US    = 2000;
+    const uint32_t SERVO_PULSE_HARD_MIN_US   = 500;
+    const uint32_t SERVO_PULSE_HARD_MAX_US   = 2500;
+
+    LOG_INFO("Test", "[STEP 16] Servo PWM test");
+    LOG_INFO("Test", "Servo +V on GPIO%d signal on GPIO%d", MANNY_SERVO_POWER_PIN, MANNY_SERVO_PIN);
+
+    ServoController* servo = _board.get_airbrakes_controller();
+    uint32_t original_freq = servo->getFrequency();
+    if (!isWebTestContext()) {
+        printf("Insert frequency, default 100.\n");
+        char buffer[32] = {0};
+        Utils::readLine(buffer, sizeof(buffer));
+        std::string input(buffer);
+        Utils::trimString(input);
+        uint32_t _freq = 100;
+        if (input.find_first_not_of("0123456789") == std::string::npos) {
+            _freq = std::atoi(input.c_str());
+        }
+        if (!servo->setFrequency( _freq)) {
+            LOG_ERROR("Test", "Couldn't set servo controller frequency!");
+        }
+    }
+
+    if (!servo->start()) {
+        return waitForUserInput("Servo PWM setup failed, check the serial log. Type FAILED to retry");
+    }
+
+    auto moveTo = [this, &servo](uint32_t pulse_us, uint32_t hold_ms) {
+        char message[64];
+        snprintf(message, sizeof(message), "servo pulse %lu us", (unsigned long)pulse_us);
+        LOG_INFO("Test", "%s", message);
+        if (isWebTestContext()) setWebStatus("running", message);
+        servo->writeMicroseconds(pulse_us);
+        vTaskDelay(pdMS_TO_TICKS(hold_ms));
+    };
+
+    LOG_INFO("Test", "Step 1: centre position");
+    moveTo(SERVO_PULSE_CENTER_US, 1500);
+
+    LOG_INFO("Test", "Step 2: standard end points, two passes");
+    for (int pass = 0; pass < 2; pass++) {
+        moveTo(SERVO_PULSE_STD_MIN_US, 1500);
+        moveTo(SERVO_PULSE_STD_MAX_US, 1500);
+    }
+    moveTo(SERVO_PULSE_CENTER_US, 1000);
+
+    // Slow enough to see the limit
+    LOG_INFO("Test", "Step 3: slow sweep %lu -> %lu -> %lu us",
+             SERVO_PULSE_CENTER_US, SERVO_PULSE_HARD_MIN_US,
+             SERVO_PULSE_HARD_MAX_US);
+    if (isWebTestContext()) setWebStatus("running", "servo slow sweep 500-2500 us");
+    const uint32_t SWEEP_STEP_US = 20;
+    const uint32_t SWEEP_STEP_MS = 30;
+    const uint32_t sweep_targets[] = {
+        SERVO_PULSE_HARD_MIN_US,
+        SERVO_PULSE_HARD_MAX_US,
+        SERVO_PULSE_CENTER_US
+    };
+    uint32_t pulse = SERVO_PULSE_CENTER_US;
+    for (uint32_t target : sweep_targets) {
+        uint32_t distance = pulse > target ? pulse - target : target - pulse;
+        while (distance > SWEEP_STEP_US) {
+            if (target > pulse) {
+                pulse += SWEEP_STEP_US;
+                distance = target - pulse;
+            } else {
+                pulse -= SWEEP_STEP_US;
+                distance = pulse - target;
+            }
+            
+            servo->writeMicroseconds(pulse);
+            if (pulse % 100 == 0) LOG_INFO("Test", "sweep %ld us", pulse);
+            vTaskDelay(pdMS_TO_TICKS(SWEEP_STEP_MS));
+        }
+    }
+
+    if (!isWebTestContext()) {
+        printf("Manual mode. Type a pulse width in us (%lu-%lu) and Enter to move the servo, "
+               "D to stop the pulses, Q to finish.\n",
+               SERVO_PULSE_HARD_MIN_US, SERVO_PULSE_HARD_MAX_US);
+        while (true) {
+            char buffer[16] = {0};
+            Utils::readLine(buffer, sizeof(buffer));
+            std::string input(buffer);
+            Utils::trimString(input);
+            Utils::toUpperString(input);
+
+            if (input == "Q") break;
+            if (input == "D") {
+                servo->writeMicroseconds(0);
+                printf("Pulses stopped. Servo has no power.\n");
+                continue;
+            }
+            if (input.empty() || input.find_first_not_of("0123456789") != std::string::npos) {
+                printf("Type a number of microseconds, D or Q.\n");
+                continue;
+            }
+            uint32_t requested = static_cast<uint32_t>(std::atoi(input.c_str()));
+            if (requested < SERVO_PULSE_HARD_MIN_US ||
+                requested > SERVO_PULSE_HARD_MAX_US) {
+                printf("Out of range!\n"); continue;
+            }
+            servo->writeMicroseconds(requested);
+            printf("Pulse set to %lu us.\n", requested);
+        }
+    }
+
+    // servo->stop();
+    // LOG_INFO("Test", "Servo signal and supply released.");
+    // Could make us lose the airbrakes if called when testing via web interface.
+    LOG_INFO("Test", "Resetting servo to original frequency %lu", original_freq);
+    if (!servo->setFrequency(original_freq)) {
+        LOG_ERROR("Test", "Couldn't set servo frequency!");
+        return false;
+    }
+    servo->writeDeployment(0.0f);
+
+    return waitForUserInput("Type PASSED or FAILED");
 }
 
 bool TestRoutine::testSDCard()
@@ -985,7 +1115,7 @@ void TestRoutine::run()
     LOG_INFO("Test", "=== SYSTEM TEST ROUTINE INITIATED ===");
 
     // ── Tests Definition ────────────────
-    std::array<TestOption, 13> tests = {{
+    std::array<TestOption, 14> tests = {{
         {"Alimentation and LED Test", [this]() { return testPowerAndLEDs(); }, true},
         {"Sensors Test", [this]() { return testSensors(); }, true},
         {"Actuators Test", [this]() { return testActuators(); }, true},
@@ -999,6 +1129,7 @@ void TestRoutine::run()
         {"Dump JSONL telemetry from Flash", [this]() { return dumpFlashJsonFiles(); }, false},
         {"Format Flash memory", [this]() { return clearFlashMemory(); }, false},
         {"IMU calibration and save to NVS (Internal Flash)", [this]() { return calibrateAndSaveIMU(); }, false},
+        {"Airbrakes Servo PWM Test", [this]() { return testServo(); }, false},
     }};
 
     // ── Run Tests ────────────────

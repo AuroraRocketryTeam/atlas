@@ -60,8 +60,7 @@ void TaskManager::initializeTasks()
 #endif
         
     _tasks[TaskType::AIRBRAKES] = std::make_unique<AirbrakesTask>(
-        _rocketModel,
-        _logger);
+        _rocketModel, _logger, _fsm, _board->get_airbrakes_controller());
     
 
     // Create TelemetryTask with the LoRa transmitter

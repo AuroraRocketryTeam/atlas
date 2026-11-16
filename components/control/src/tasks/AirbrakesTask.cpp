@@ -2,64 +2,56 @@
 #include "AirbrakesData.hpp"
 #include "RuntimeConfig.hpp"
 #include <SerialLogger.hpp>
+#include <cstdint>
 #include <utils.h>
+#include "ServoController.hpp"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
+#include "freertos/projdefs.h"
 #include <cstdio>
+#include "FlightState.hpp"
+#include "airbrakes/AeroTableCsv.hpp"
 
 static const char* TAG = "Airbrakes";
 
-namespace
+// Control-command rate.
+static constexpr uint32_t TASK_PERIOD_MS = 50;
+
+// The vertical velocity is published by AltitudeTask with every barometer
+// sample (~25 Hz), if it stops changing for this long the estimate is not
+// trustworthy, so the brakes are driven closed until it resumes.
+static constexpr uint32_t VELOCITY_STALE_MS = 1000;
+
+// Log one AIRBRAKES record every N control cycles (10 Hz at 50 ms)
+static constexpr uint32_t LOG_INTERVAL_CYCLES = 2;
+
+// Warn once if the control law eats most of the control period.
+static constexpr uint32_t COMPUTE_WARNING_US = 40000;
+
+// Puts the Cd-table load result in the flight log as a system event, so the
+// flash record shows whether the predictive controller could run.
+void logCdTableStatus(RocketLogger &logger, const airbrakes::AeroTableLoad &aero)
 {
-    // Control-command rate.
-    static constexpr uint32_t TASK_PERIOD_MS = 50;
-
-    // The vertical velocity is published by AltitudeTask with every barometer
-    // sample (~25 Hz), if it stops changing for this long the estimate is not
-    // trustworthy, so the brakes are driven closed until it resumes.
-    static constexpr uint32_t VELOCITY_STALE_MS = 1000;
-
-    // Log one AIRBRAKES record every N control cycles (10 Hz at 50 ms)
-    static constexpr uint32_t LOG_INTERVAL_CYCLES = 2;
-
-    // Warn once if the control law eats most of the control period.
-    static constexpr uint32_t COMPUTE_WARNING_US = 40000;
-
-    /*
-     * Deployment command is normalized:
-     *
-     *   0.0f = fully closed
-     *   1.0f = fully open
-     */
-    float clamp01(float value)
-    {
-        if (!(value > 0.0f)) return 0.0f;
-        if (value > 1.0f) return 1.0f;
-        return value;
+    if (!aero.ok) {
+        logger.logError(TAG, aero.error);
+        return;
     }
-
-    // Puts the Cd-table load result in the flight log as a system event, so the
-    // flash record shows whether the predictive controller could run.
-    void logCdTableStatus(RocketLogger &logger, const airbrakes::AeroTableLoad &aero)
-    {
-        if (!aero.ok) {
-            logger.logError(TAG, aero.error);
-            return;
-        }
-        char message[96];
-        std::snprintf(message, sizeof(message), "Cd table loaded: %u openings x %u Mach%s",
-                      static_cast<unsigned>(aero.table.opening_count), static_cast<unsigned>(aero.table.mach_count),
-                      aero.cd_monotonic ? "" : " (Cd not monotonic in opening)");
-        logger.logInfo(TAG, message);
-    }
+    char message[96];
+    std::snprintf(message, sizeof(message), "Cd table loaded: %u openings x %u Mach%s",
+                    static_cast<unsigned>(aero.table.opening_count), static_cast<unsigned>(aero.table.mach_count),
+                    aero.cd_monotonic ? "" : " (Cd not monotonic in opening)");
+    logger.logInfo(TAG, message);
 }
 
 AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
-                             std::shared_ptr<RocketLogger> logger)
+                             std::shared_ptr<RocketLogger> logger, IStateMachine* fsm, ServoController* airbrakes_ctl)
     : BaseTask("AirbrakesTask"),
       _rocketModel(rocketModel),
-      _logger(logger)
+      _logger(logger),
+      _servo(airbrakes_ctl),
+      _fsm(fsm)
 {
+
     // Parse the embedded Cd table at boot (tasks are constructed once by
     // TaskManager), so a bad CSV shows up in the boot log
     const airbrakes::AeroTableLoad &aero = airbrakes::embeddedAeroTable();
@@ -74,19 +66,47 @@ AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
     if (_logger) logCdTableStatus(*_logger, aero);
 }
 
+void AirbrakesTask::command(float deployment)
+{
+    _rocketModel->setAirbrakesCommand(deployment);
+    _servo->writeDeployment(deployment);
+}
+
+void AirbrakesTask::calibrate()
+{
+    command(1.0f);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    command(0.0f);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    // need to delay because the servo command isn't blocking
+}
+
 void AirbrakesTask::onTaskStart()
 {
+#ifdef CONFIG_TELEMETRY_LINK_E220
+    // TODO: dynamic checks.
+    LOG_ERROR(TAG, "servo pins belong to the E220 link in this build, airbrakes are not actuated");
+#else
+    if (_servo->start())
+    {
+        // Hold the brakes closed from the first moment the task is alive.
+        _servo->writeDeployment(0.0f);
+    }
+    else
+    {
+        LOG_ERROR(TAG, "servo start failed, airbrakes are not actuated");
+    }
+#endif
 }
 
 void AirbrakesTask::onTaskStop()
 {
-    _rocketModel->setAirbrakesCommand(0.0f);
+    command(0.0f);
     LOG_INFO(TAG, "airbrakes task stopped, commanding closed (stack free: %lu bytes)",
              static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
 }
 
-void AirbrakesTask::taskFunction()
-{
+void AirbrakesTask::airbrakes_ctl_law() {
     const airbrakes::AeroTableLoad &aeroTable = airbrakes::embeddedAeroTable();
     if (_logger) logCdTableStatus(*_logger, aeroTable);
 
@@ -94,7 +114,7 @@ void AirbrakesTask::taskFunction()
     {
         // Without the Cd table the control law has nothing to run on: hold the
         // brakes closed and only keep the watchdog fed until the FSM stops us.
-        _rocketModel->setAirbrakesCommand(0.0f);
+        command(0.0f);
         if (_logger) _logger->logError(TAG, "airbrakes disabled for this flight, brakes held closed");
         LOG_ERROR(TAG, "Cd table invalid, airbrakes disabled for this flight");
         while (running)
@@ -182,10 +202,11 @@ void AirbrakesTask::taskFunction()
 
         // Opening breakpoints are percent of full travel, so the command is a
         // direct scale of the control-law output.
-        const float deployment = out.armed ? clamp01(out.opening_pct / 100.0f) : 0.0f;
+        const float deployment = out.armed ? out.opening_pct / 100.0f : 0.0f;
 
-        /* ===== WRITE COMMAND ===== */
-        _rocketModel->setAirbrakesCommand(deployment);
+        /* ===== WRITE COMMAND AND ACTUATE ===== */
+        LOG_INFO(TAG, "AirBrakes commanded %f", deployment);
+        command(deployment);
 
         /* ===== LOG ===== */
         if (_logger && ++logCycleCounter >= LOG_INTERVAL_CYCLES)
@@ -213,5 +234,15 @@ void AirbrakesTask::taskFunction()
             lastWakeTime = controlTime;
         }
         vTaskDelayUntil(&lastWakeTime, taskPeriod);
+    }
+}
+
+void AirbrakesTask::taskFunction() {
+    switch (_fsm->getCurrentState()) {
+        case RocketState::CALIBRATING:
+            calibrate();
+            break;
+        default:
+            airbrakes_ctl_law();
     }
 }

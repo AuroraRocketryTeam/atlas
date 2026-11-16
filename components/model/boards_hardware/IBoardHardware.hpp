@@ -1,8 +1,12 @@
 #pragma once
 
 #include "driver/gpio.h"
+#include "hal/ledc_types.h"
+#include "soc/gpio_num.h"
 #include <I2CBus.hpp>
 #include <SPIBus.hpp>
+#include <cstdint>
+#include <ServoController.hpp>
 
 class ISPIHandler;
 
@@ -63,7 +67,7 @@ public:
     virtual gpio_num_t get_sd_cs_pin() const = 0;
 
     virtual bool is_armed() const = 0;
-
+    
     /**
      * @brief Initialize the default NVS partition required by ESP services.
      */
@@ -138,6 +142,7 @@ public:
     virtual I2CBus* get_i2c_bus(Sensor sensor) = 0;
     virtual SPIBus* get_spi_bus() = 0;
 
+    virtual ServoController* get_airbrakes_controller() = 0;
 
     virtual void init_sensor_test_pins() = 0;
     virtual void signal_sensor_ok(Sensor sensor) = 0;

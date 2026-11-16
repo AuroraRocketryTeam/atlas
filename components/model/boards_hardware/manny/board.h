@@ -2,6 +2,7 @@
 
 #include "boards_hardware/IBoardHardware.hpp"
 #include "esp_netif.h"
+#include "hal/ledc_types.h"
 #include <driver/ledc.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -64,6 +65,13 @@ static constexpr gpio_num_t MANNY_LORA_TX_PIN  = GPIO_NUM_38;
 static constexpr gpio_num_t MANNY_LORA_M1_PIN  = GPIO_NUM_41;
 static constexpr gpio_num_t MANNY_LORA_M0_PIN  = GPIO_NUM_42;
 
+static constexpr gpio_num_t     MANNY_SERVO_PIN        = MANNY_LORA_TX_PIN;
+static constexpr gpio_num_t     MANNY_SERVO_POWER_PIN  = GPIO_NUM_NC;
+// Different timer from LED and buzzer!
+static constexpr ledc_timer_t   MANNY_SERVO_LEDC_TIMER = LEDC_TIMER_2;
+static constexpr ledc_channel_t MANNY_SERVO_LEDC_CH    = LEDC_CHANNEL_4;
+static constexpr uint32_t       MANNY_SERVO_CLOSED_US  = 1000UL;
+static constexpr uint32_t       MANNY_SERVO_OPEN_US    = 2000UL;
 // Hardware note: main and drogue outputs are valid only when board supply is 6.4V.
 
 /**
@@ -101,6 +109,7 @@ private:
     char wifi_mac_address[18];
     I2CBus _i2c_bus;
     SPIBus _spi_bus;
+    ServoController _airbrakes_ctl;
     ISPIHandler* spi_handler;
 
 public:
@@ -149,6 +158,8 @@ public:
     gpio_num_t get_sd_cs_pin() const override;
 
     bool is_armed() const override;
+
+    ServoController* get_airbrakes_controller() override;
 
     /**
      * @brief Initialize and cache readiness for the default NVS partition.

@@ -94,6 +94,8 @@ MannyBoard::MannyBoard()
       wifi_ip_address{},
       wifi_ssid{},
       wifi_mac_address{},
+      _airbrakes_ctl(MANNY_SERVO_PIN, MANNY_SERVO_LEDC_TIMER, MANNY_SERVO_LEDC_CH,
+                     MANNY_SERVO_CLOSED_US, MANNY_SERVO_OPEN_US, MANNY_SERVO_POWER_PIN),
       spi_handler(nullptr) {}
 
 MannyBoard::~MannyBoard() {
@@ -298,6 +300,11 @@ gpio_num_t MannyBoard::get_lora_rx_pin() const {
 bool MannyBoard::is_armed() const {
     return true;
 }
+
+ServoController* MannyBoard::get_airbrakes_controller() {
+    return &_airbrakes_ctl;
+}
+
 
 bool MannyBoard::initNvs() {
     SharedServiceLock lock(shared_service_mutex);

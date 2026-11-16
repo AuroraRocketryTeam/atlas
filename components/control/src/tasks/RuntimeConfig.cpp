@@ -7,12 +7,11 @@
 #include <limits>
 
 #include "IBoardHardware.hpp"
+#include "airbrakes/AeroTableCsv.hpp"
 #include "cJSON.h"
 #include "config.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
 #include "nvs.h"
-#include "sdkconfig.h"
 
 static const char *TAG = "RuntimeConfig";
 static const char *NVS_NAMESPACE = "runtime_cfg";
