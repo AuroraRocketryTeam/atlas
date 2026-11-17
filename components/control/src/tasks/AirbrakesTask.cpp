@@ -4,7 +4,6 @@
 #include <SerialLogger.hpp>
 #include <cstdint>
 #include <utils.h>
-#include "ServoController.hpp"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "freertos/projdefs.h"
@@ -44,11 +43,10 @@ void logCdTableStatus(RocketLogger &logger, const airbrakes::AeroTableLoad &aero
 }
 
 AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
-                             std::shared_ptr<RocketLogger> logger, IStateMachine* fsm, ServoController* airbrakes_ctl)
+                             std::shared_ptr<RocketLogger> logger, IStateMachine* fsm)
     : BaseTask("AirbrakesTask"),
       _rocketModel(rocketModel),
       _logger(logger),
-      _servo(airbrakes_ctl),
       _fsm(fsm)
 {
 
@@ -66,17 +64,16 @@ AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
     if (_logger) logCdTableStatus(*_logger, aero);
 }
 
-void AirbrakesTask::command(float deployment)
+void AirbrakesTask::airbrakesCommand(float deployment)
 {
     _rocketModel->setAirbrakesCommand(deployment);
-    _servo->writeDeployment(deployment);
 }
 
 void AirbrakesTask::calibrate()
 {
-    command(1.0f);
+    airbrakesCommand(1.0f);
     vTaskDelay(pdMS_TO_TICKS(1000));
-    command(0.0f);
+    airbrakesCommand(0.0f);
     vTaskDelay(pdMS_TO_TICKS(1000));
     // need to delay because the servo command isn't blocking
 }
@@ -87,12 +84,7 @@ void AirbrakesTask::onTaskStart()
     // TODO: dynamic checks.
     LOG_ERROR(TAG, "servo pins belong to the E220 link in this build, airbrakes are not actuated");
 #else
-    if (_servo->start())
-    {
-        // Hold the brakes closed from the first moment the task is alive.
-        _servo->writeDeployment(0.0f);
-    }
-    else
+    if (!_rocketModel->startAirbrakes())
     {
         LOG_ERROR(TAG, "servo start failed, airbrakes are not actuated");
     }
@@ -101,7 +93,7 @@ void AirbrakesTask::onTaskStart()
 
 void AirbrakesTask::onTaskStop()
 {
-    command(0.0f);
+    airbrakesCommand(0.0f);
     LOG_INFO(TAG, "airbrakes task stopped, commanding closed (stack free: %lu bytes)",
              static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
 }
@@ -114,7 +106,7 @@ void AirbrakesTask::airbrakes_ctl_law() {
     {
         // Without the Cd table the control law has nothing to run on: hold the
         // brakes closed and only keep the watchdog fed until the FSM stops us.
-        command(0.0f);
+        airbrakesCommand(0.0f);
         if (_logger) _logger->logError(TAG, "airbrakes disabled for this flight, brakes held closed");
         LOG_ERROR(TAG, "Cd table invalid, airbrakes disabled for this flight");
         while (running)
@@ -205,7 +197,8 @@ void AirbrakesTask::airbrakes_ctl_law() {
         const float deployment = out.armed ? out.opening_pct / 100.0f : 0.0f;
 
         /* ===== WRITE COMMAND AND ACTUATE ===== */
-        command(deployment);
+        LOG_INFO(TAG, "AirBrakes commanded %f", deployment);
+        airbrakesCommand(deployment);
 
         /* ===== LOG ===== */
         if (_logger && ++logCycleCounter >= LOG_INTERVAL_CYCLES)

@@ -1,10 +1,8 @@
 #pragma once
 
 #include "BaseTask.hpp"
-#include "IBoardHardware.hpp"
 #include "RocketModel.hpp"
 #include "RocketLogger.hpp"
-#include "ServoController.hpp"
 #include "IStateMachine.hpp"
 
 #include <memory>
@@ -25,7 +23,7 @@ class AirbrakesTask : public BaseTask
 public:
     AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
                   std::shared_ptr<RocketLogger> logger,
-                  IStateMachine* fsm, ServoController* airbrakes_ctl);
+                  IStateMachine* fsm);
 
     void onTaskStart() override;
     void onTaskStop() override;
@@ -39,17 +37,13 @@ private:
     // Points at the single embedded Cd table
     airbrakes::ControllerParams _params{};
 
-    // TODO: To be replaced by an actuator
-    // interface.
-    ServoController* _servo;
-
     IStateMachine* _fsm;
 
     /**
-     * @brief Write the deployment to the model and move the servo to match.
+     * @brief Command the airbrakes deployment through the RocketModel.
      * @param deployment 0.0f fully closed, 1.0f fully open.
      */
-    void command(float deployment);
+    void airbrakesCommand(float deployment);
 
     // Open-close
     void airbrakes_ctl_law();

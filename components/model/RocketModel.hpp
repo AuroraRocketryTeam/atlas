@@ -18,6 +18,7 @@
 #include <SD-master.hpp>
 #include <Flash.hpp>
 #include <IStorage.hpp>
+#include <ServoController.hpp>
 #include <config.h>
 
 enum class SensorReadStatus {
@@ -46,6 +47,7 @@ public:
      * @param gps Shared pointer to the GPS instance.
      * @param sd Shared pointer to SD storage backend (optional).
      * @param flash Shared pointer to external flash backend (optional).
+     * @param airbrakesServo Servo driving the airbrakes, owned by the board (optional).
      */
     RocketModel(std::shared_ptr<BNO055Sensor> bno,
             std::shared_ptr<LIS3DHTRSensor> lis3dh,
@@ -53,7 +55,8 @@ public:
             std::shared_ptr<MS561101BA03> ms56_2,
             std::shared_ptr<GPS> gps,
             std::shared_ptr<SD> sd = nullptr,
-            std::shared_ptr<Flash> flash = nullptr);
+            std::shared_ptr<Flash> flash = nullptr,
+            ServoController* airbrakesServo = nullptr);
 
     /**
      * @brief Update the BNO055 sensor data
@@ -297,9 +300,19 @@ public:
     bool setOpenDrogueCommand();
 
     /**
-     * @brief Set the airbrakes command level.
+     * @brief Start the airbrakes actuator and hold the brakes closed.
      *
-     * @param lvl Airbrakes actuation level to command
+     * @return true if the actuator is running
+     * @return false if there is no actuator or it failed to start
+     */
+    bool startAirbrakes();
+
+    /**
+     * @brief Set the airbrakes command level and move the actuator to match.
+     *
+     * The servo is not blocking: it is still travelling when this returns.
+     *
+     * @param lvl Airbrakes deployment, 0.0f fully closed, 1.0f fully open
      * @return true if the command was set successfully
      * @return false otherwise
      */
@@ -392,6 +405,11 @@ private:
     std::shared_ptr<GPS> _gps;
     std::shared_ptr<SD> _sd;
     std::shared_ptr<Flash> _flash;
+
+    // Actuators (owned by the board)
+    // TODO: To be replaced by an actuator
+    // interface.
+    ServoController* _airbrakesServo;
 
     // Critical mutexes
     SemaphoreHandle_t _imuMutex = nullptr;

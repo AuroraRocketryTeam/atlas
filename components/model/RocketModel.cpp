@@ -19,7 +19,8 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
             std::shared_ptr<MS561101BA03> ms56_2,
         std::shared_ptr<GPS> gps,
         std::shared_ptr<SD> sd,
-        std::shared_ptr<Flash> flash) :
+        std::shared_ptr<Flash> flash,
+        ServoController* airbrakesServo) :
     _bno(bno),
     _lis3dh(lis3dh),
     _ms56_1(ms56_1),
@@ -27,6 +28,7 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _gps(gps),
     _sd(sd),
     _flash(flash),
+    _airbrakesServo(airbrakesServo),
     _isRising(false),
     _heightGainSpeed(0.0f),
     _heightGainSpeedTimestamp(0),
@@ -116,12 +118,24 @@ bool RocketModel::setOpenDrogueCommand(){
     return true;
 }
 
+bool RocketModel::startAirbrakes()
+{
+    if (!_airbrakesServo) return false;
+    if (!_airbrakesServo->start()) return false;
+    // Hold the brakes closed from the first moment the actuator is alive
+    _airbrakesServo->writeDeployment(0.0f);
+    return true;
+}
+
 bool RocketModel::setAirbrakesCommand(float lvl){
     if (!_stateMutex) { reportMissingMutex("setAirbrakesCommand"); return false; }
     if (xSemaphoreTake(_stateMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        // Update the command in the model (used for telemetry, logging and HIL)
         _cmd.setAirbrakes(lvl);
         xSemaphoreGive(_stateMutex);
     }
+    // Move the actual servo
+    if (_airbrakesServo) _airbrakesServo->writeDeployment(lvl);
     return true;
 }
 

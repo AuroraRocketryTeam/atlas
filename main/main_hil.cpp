@@ -191,7 +191,8 @@ void setupHil()
     }
 
     // Create Nemesis instance (constructor expects: bno, lis3dh, ms56_1, ms56_2, gps, sdCard, flash)
-    rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
+    rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash,
+                                                board.get_airbrakes_controller());
     LOG_INFO("Main", "RocketModel system model created");
 
     testRoutine = std::make_shared<TestRoutine>(

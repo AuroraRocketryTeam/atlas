@@ -183,7 +183,8 @@ void setupFlight()
     LOG_INFO("Init", "Rocket logger initialized");
 
     // Create Nemesis instance (storage backends are optional)
-    rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash);
+    rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash,
+                                                board.get_airbrakes_controller());
     LOG_INFO("Main", "RocketModel system model created");
 
     testRoutine = std::make_shared<TestRoutine>(
