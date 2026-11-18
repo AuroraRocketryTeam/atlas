@@ -3,6 +3,7 @@
 #include "SensorTask.hpp"
 
 #include <inttypes.h>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <arpa/inet.h>
@@ -20,6 +21,7 @@ static constexpr int HIL_SERVER_PORT = 5000;
 static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 5000;
 static constexpr uint32_t HIL_PACKET_PERIOD_MS = 20;
 static constexpr uint32_t HIL_BAROMETER_RATE_HZ = 18;
+static constexpr uint32_t HIL_RECOVERED_DRAIN_TIMEOUT_MS = 3000;
 
 // The simulator drives one packet per acquisition cycle at the same 50 Hz the
 // real SensorTask loop runs at, so recording every SENSOR_LOG_INTERVAL_LOOPS-th
@@ -555,7 +557,26 @@ void HilSimulationTask::taskFunction() {
             }
 
             if (wire.fsm_state == static_cast<uint8_t>(RocketState::RECOVERED)) {
-                LOG_INFO(TAG, "RECOVERED reported to simulator; rebooting board");
+                // delay the reboot to allow the simulator to process the RECOVERED message
+                shutdown(_client_sock, SHUT_WR);
+                const TickType_t drainDeadline = xTaskGetTickCount() + pdMS_TO_TICKS(HIL_RECOVERED_DRAIN_TIMEOUT_MS);
+                bool peerClosed = false;
+                while (xTaskGetTickCount() < drainDeadline) {
+                    uint8_t discard;
+                    const ssize_t r = recv(_client_sock, &discard, sizeof(discard), 0);  // SO_RCVTIMEO bounds each call
+                    esp_task_wdt_reset();
+                    if (r == 0) {
+                        peerClosed = true;
+                        break;
+                    }
+                    if (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                        break;
+                    }
+                }
+                close(_client_sock);
+                _client_sock = -1;
+                LOG_INFO(TAG, "RECOVERED reported to simulator (%s); rebooting board",
+                         peerClosed ? "delivered" : "simulator did not close in time");
                 esp_restart();
             }
         }
