@@ -292,6 +292,21 @@ def _sanitize_rocketpy_apogee(raw_events: Any) -> dict[str, float] | None:
     return None
 
 
+def _launch_elevation_m(metadata: dict[str, Any] | None, altitude_asl_m: np.ndarray) -> float:
+    """Launch-site elevation ASL, used to turn every plotted altitude into AGL.
+    Falls back to the first sample (rocket on the pad) for captures without it."""
+    elevation = (metadata or {}).get("environment_elevation_m")
+    if elevation is not None:
+        return float(elevation)
+    return float(altitude_asl_m[0]) if len(altitude_asl_m) else 0.0
+
+
+def _apogee_agl(rocketpy_apogee: dict[str, float] | None, elevation_m: float) -> dict[str, float] | None:
+    if rocketpy_apogee is None:
+        return None
+    return {**rocketpy_apogee, "z": rocketpy_apogee["z"] - elevation_m}
+
+
 def _sanitize_event_times(raw_events: Any) -> list[float]:
     if raw_events is None:
         return []
@@ -742,7 +757,7 @@ def _draw_altitude_context(
     """Shared altitude-vs-time scaffolding: curve, START/END, apogee, FSM keypoints."""
     if draw_line:
         ax.plot(sim_time_s, altitude_m, color=AIRBRAKE_TRAJ_COLOR, linewidth=AIRBRAKE_TRAJ_LINEWIDTH,
-                label="GPS altitude")
+                label="GPS altitude AGL")
 
     ax.scatter(sim_time_s[0], altitude_m[0], s=50, marker="o", color="k", zorder=5, label="START")
     ax.scatter(sim_time_s[-1], altitude_m[-1], s=50, marker="X", color="k", zorder=5, label="END")
@@ -757,7 +772,7 @@ def _draw_altitude_context(
     _mark_fsm_points_2d(ax, sim_time_s, sim_time_s, altitude_m, fsm_events, annotate=annotate_fsm)
 
     ax.set_xlabel("Simulation time [s]")
-    ax.set_ylabel("Altitude [m]")
+    ax.set_ylabel("Altitude AGL [m]")
     ax.grid(True, alpha=0.4)
 
 
@@ -783,7 +798,7 @@ def _colored_altitude_line(ax, sim_time_s, altitude_m, levels):
         joinstyle="round",
         capstyle="butt",
         zorder=2,  # same layer as a normal line: markers stay on top
-        label="GPS altitude",
+        label="GPS altitude AGL",
     )
     lc.set_array(np.asarray(run_levels, dtype=float))
     ax.add_collection(lc)
@@ -862,7 +877,7 @@ def _plot_airbrake_trajectory(
     lc = _colored_altitude_line(ax_alt, sim_time_s, altitude_m, levels)
     _airbrake_colorbar(fig, lc, cax)
     if rocketpy_apogee is not None:
-        # Real (RocketPy) apogee, ASL like the GPS altitude on this axis.
+        # Real (RocketPy) apogee, AGL like the GPS altitude on this axis.
         ax_alt.axhline(rocketpy_apogee["z"], color="0.45", linestyle="--", linewidth=0.8, zorder=1)
         _add_reference_y_tick(ax_alt, rocketpy_apogee["z"])
     ax_alt.set_xlabel("")
@@ -924,7 +939,7 @@ def _plot_estimator_vs_truth(
     computed, each with an error lane (estimate − truth, RMSE, bias) below."""
     sim_time_s = _as_array(hil_log, "sim_time_s")
     z_asl = _as_array(hil_log, "z")
-    elevation_m = float(metadata.get("environment_elevation_m", z_asl[0]))
+    elevation_m = _launch_elevation_m(metadata, z_asl)
     if "true_pressure_pa" in hil_log and len(hil_log["true_pressure_pa"]) == len(sim_time_s):
         true_pressure = _as_array(hil_log, "true_pressure_pa")
         pressure_truth_label = "real (simulator)"
@@ -1070,7 +1085,9 @@ def replay_hil_3d(
 
     x = state["x"]
     y = state["y"]
-    z = state["z"]
+    # Inertial Z shifted so the launch pad sits at 0 (AGL), like every other plot.
+    elevation_m = _launch_elevation_m(metadata, state["z"])
+    z = state["z"] - elevation_m
     accel_x_g = state["accel_x_m_s2"] / G0
     accel_y_g = state["accel_y_m_s2"] / G0
     accel_z_g = state["accel_z_m_s2"] / G0
@@ -1161,7 +1178,7 @@ def replay_hil_3d(
     main_times = _sanitize_event_times(hil_events.get("open_main", []))
     fsm_events = _sanitize_fsm_events(hil_events.get("fsm_state", []))
     time_eclipses = _sanitize_time_eclipses(hil_events.get("time_eclipses", []))
-    rocketpy_apogee = _sanitize_rocketpy_apogee(hil_events.get("rocketpy_apogee"))
+    rocketpy_apogee = _apogee_agl(_sanitize_rocketpy_apogee(hil_events.get("rocketpy_apogee")), elevation_m)
 
     # Keep the trajectory large while leaving two synchronized telemetry plots
     # visible throughout the replay.
@@ -1454,7 +1471,7 @@ def replay_hil_3d(
     ax.set_title("RocketPy HIL 3D Trajectory and Attitude Replay")
     ax.set_xlabel("X east [m]")
     ax.set_ylabel("Y north [m]")
-    ax.set_zlabel("RocketPy inertial Z [m]")
+    ax.set_zlabel("RocketPy inertial Z AGL [m]")
     ax.view_init(elev=24, azim=-58)
     legend_3d = _set_legend_if_needed(
         ax,
@@ -1889,7 +1906,10 @@ def plot_hil_log(
     temperature_k = _as_array(hil_log, "temperature_k")
     latitude_deg = _as_array(hil_log, "latitude_deg")
     longitude_deg = _as_array(hil_log, "longitude_deg")
-    altitude_m = _as_array(hil_log, "altitude_m")
+    # Every altitude plotted below is AGL (launch pad = 0 m).
+    altitude_asl_m = _as_array(hil_log, "altitude_m")
+    elevation_m = _launch_elevation_m(metadata, altitude_asl_m)
+    altitude_m = altitude_asl_m - elevation_m
 
     is_fred_capture = metadata.get("rocket") in {"fred", "fred_ami"}
     launch_site = (metadata.get("environment_latitude"), metadata.get("environment_longitude"))
@@ -1915,9 +1935,9 @@ def plot_hil_log(
     airbrake_events = _sanitize_airbrake_events(hil_events.get("airbrakes", []))
     fsm_events = _sanitize_fsm_events(hil_events.get("fsm_state", []))
     time_eclipses = _sanitize_time_eclipses(hil_events.get("time_eclipses", []))
-    rocketpy_apogee = _sanitize_rocketpy_apogee(hil_events.get("rocketpy_apogee"))
+    rocketpy_apogee = _apogee_agl(_sanitize_rocketpy_apogee(hil_events.get("rocketpy_apogee")), elevation_m)
 
-    apogee_idx = (_nearest_sample_index(sim_time_s, rocketpy_apogee["time_s"])
+    apogee_idx =(_nearest_sample_index(sim_time_s, rocketpy_apogee["time_s"])
                   if rocketpy_apogee is not None else None)
     sample_periods_s = np.diff(sim_time_s)
 
@@ -1933,9 +1953,10 @@ def plot_hil_log(
         print(f"Mean sample period:  {np.mean(sample_periods_s):.6f} s")
         print(f"Effective rate:      {1.0 / np.mean(sample_periods_s):.3f} Hz")
 
-    print(f"Max payload altitude:{np.max(altitude_m):9.3f} m")
+    print(f"Launch elevation:    {elevation_m:.3f} m ASL (altitudes below are AGL)")
+    print(f"Max payload altitude:{np.max(altitude_m):9.3f} m AGL")
     if rocketpy_apogee is not None:
-        print(f"RocketPy apogee:     {rocketpy_apogee['z']:.3f} m at capture t={rocketpy_apogee['time_s']:.3f} s")
+        print(f"RocketPy apogee:     {rocketpy_apogee['z']:.3f} m AGL at capture t={rocketpy_apogee['time_s']:.3f} s")
     else:
         print("RocketPy apogee:     unavailable in this capture")
     print(f"Max |accel|:         {np.max(accel_norm_g):.3f} g")
@@ -1983,7 +2004,7 @@ def plot_hil_log(
     ax_3d.set_title("3D GPS Payload Trajectory Sent to Flight Controller")
     ax_3d.set_xlabel("local GPS x / east [m]")
     ax_3d.set_ylabel("local GPS y / north [m]")
-    ax_3d.set_zlabel("GPS altitude [m]")
+    ax_3d.set_zlabel("GPS altitude AGL [m]")
     _set_legend_if_needed(ax_3d)
     fig_3d.tight_layout()
 
@@ -1993,7 +2014,7 @@ def plot_hil_log(
     fig_alt_pressure, ax_alt = plt.subplots(figsize=(12, 5))
     ax_pressure = ax_alt.twinx()
 
-    ax_alt.plot(sim_time_s, altitude_m, color="C0", label="GPS altitude", linewidth=1.8)
+    ax_alt.plot(sim_time_s, altitude_m, color="C0", label="GPS altitude AGL", linewidth=1.8)
     ax_pressure.plot(sim_time_s, pressure_pa, color="C1", label="barometer pressure", linewidth=1.2)
 
     ax_alt.scatter(sim_time_s[0], altitude_m[0], s=50, marker="o", color="k", zorder=5, label="START")
@@ -2010,7 +2031,7 @@ def plot_hil_log(
 
     ax_alt.set_title("Altitude and Barometer Pressure Sent to FC")
     ax_alt.set_xlabel("Simulation time [s]")
-    ax_alt.set_ylabel("Altitude [m]", color="C0")
+    ax_alt.set_ylabel("Altitude AGL [m]", color="C0")
     ax_pressure.set_ylabel("Pressure [Pa]", color="C1")
     ax_alt.grid(True)
 
