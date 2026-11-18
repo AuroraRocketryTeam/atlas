@@ -1377,9 +1377,20 @@ def run_postflight_recovery(mailbox, rate_hz):
         )
         previous_response_id = command_state.get_fsm_response_id()
         mailbox.put(payload)
-        fsm_state, fsm_name = command_state.wait_for_fsm_response(
-            previous_response_id, fc_time_s
-        )
+        try:
+            fsm_state, fsm_name = command_state.wait_for_fsm_response(
+                previous_response_id, fc_time_s
+            )
+        except TimeoutError:
+            # If the FC RECOVERED replay is lost, keeps the capture instead of aborting the whole run
+            with command_state.lock:
+                last_state = command_state.fsm_state
+            if last_state != hil_communication.FSM_STATE_LANDING:
+                raise
+            print(f"[POSTFLIGHT] Warning: FC stopped responding in LANDING at "
+                  f"hil_sim_time={fc_time_s:.3f}s; its final RECOVERED reply was "
+                  "probably lost when it rebooted. Ending the run without it.")
+            return sample_index
 
         append_hil_log_sample(
             seq_value=seq,
