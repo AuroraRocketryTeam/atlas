@@ -13,6 +13,7 @@ static constexpr uint32_t ACCELERATION_LOG_PERIOD_MS = 5000;
 static constexpr uint8_t BURNOUT_CONFIRMATION_SAMPLES = 3;
 static constexpr uint32_t FLIGHT_ESTIMATE_FRESHNESS_MS = 250;
 static constexpr uint32_t LANDING_RECOVERY_TIMEOUT_MS = 60000;
+static constexpr uint16_t LANDING_MIN_WINDOW_SAMPLES = 5;
 
 namespace {
 void fireActuator(gpio_num_t pin, const ActuatorConfig &config)
@@ -658,7 +659,7 @@ void RocketFSM::setupStateActions()
     _stateActions[RocketState::LANDING]
         ->setEntryAction([this]()
                          {
-                             _landingStableSince = 0;
+                             resetLandingWindow();
                              _landingLastVelocityTimestamp = 0;
                              LOG_INFO("RocketFSM", "Entering LANDING");
                          })
@@ -1301,41 +1302,62 @@ void RocketFSM::checkTransitions()
                               outBno055Data.timestamp != 0 &&
                               now - outBno055Data.timestamp <= FLIGHT_ESTIMATE_FRESHNESS_MS;
 
+        // Landing is judged on the average vz (mainly for simulations with noisy data)
         if (velocityTimestamp != 0 && velocityTimestamp != _landingLastVelocityTimestamp)
         {
             _landingLastVelocityTimestamp = velocityTimestamp;
             const float verticalVelocity = _rocketModel->getHeightGainSpeed();
-            const bool velocityStable = velocityFresh && std::isfinite(verticalVelocity) &&
-                                        std::fabs(verticalVelocity) <=
-                                            runtimeCfg.flight_transitions.landing_vertical_velocity_threshold;
-            const bool accelerationStable = imuFresh && std::isfinite(accMag) &&
-                                            std::fabs(accMag - GRAVITY) <=
-                                                runtimeCfg.flight_transitions.landing_acceleration_threshold;
 
-            if (velocityStable && accelerationStable)
+            if (velocityFresh && imuFresh && std::isfinite(verticalVelocity) && std::isfinite(accMag))
             {
-                if (_landingStableSince == 0) _landingStableSince = now;
+                if (_landingWindowSamples == 0) _landingWindowStart = now;
+                _landingWindowVzSum += verticalVelocity;
+                _landingWindowAccSum += accMag;
+                ++_landingWindowSamples;
             }
             else
             {
-                _landingStableSince = 0;
+                resetLandingWindow();
             }
         }
 
         if (!velocityFresh || !imuFresh)
         {
-            _landingStableSince = 0;
+            resetLandingWindow();
         }
 
-        const bool stabilityConfirmed = _landingStableSince != 0 &&
-            now - _landingStableSince >= runtimeCfg.flight_transitions.landing_stability_ms;
+        bool stabilityConfirmed = false;
+        float windowMeanVz = NAN;
+        float windowMeanAcc = NAN;
+        if (_landingWindowSamples > 0 &&
+            now - _landingWindowStart >= runtimeCfg.flight_transitions.landing_stability_ms)
+        {
+            windowMeanVz = _landingWindowVzSum / _landingWindowSamples;
+            windowMeanAcc = _landingWindowAccSum / _landingWindowSamples;
+            stabilityConfirmed =
+                _landingWindowSamples >= LANDING_MIN_WINDOW_SAMPLES &&
+                std::fabs(windowMeanVz) <= runtimeCfg.flight_transitions.landing_vertical_velocity_threshold &&
+                std::fabs(windowMeanAcc - GRAVITY) <= runtimeCfg.flight_transitions.landing_acceleration_threshold;
+
+            if (!stabilityConfirmed)
+            {
+                resetLandingWindow();
+            }
+        }
         const bool fallbackTimeout = now - _stateStartTime >= LANDING_RECOVERY_TIMEOUT_MS;
 
         if (stabilityConfirmed || fallbackTimeout)
         {
-            LOG_INFO("RocketFSM", "Landing complete: Vz=%.2f m/s accel=%.2f m/s^2 source=%s",
-                     _rocketModel->getHeightGainSpeed(), accMag,
-                     stabilityConfirmed ? "stability" : "timeout");
+            if (stabilityConfirmed)
+            {
+                LOG_INFO("RocketFSM", "Landing complete: mean Vz=%.2f m/s mean accel=%.2f m/s^2 over %u samples source=stability",
+                         windowMeanVz, windowMeanAcc, static_cast<unsigned>(_landingWindowSamples));
+            }
+            else
+            {
+                LOG_INFO("RocketFSM", "Landing complete: Vz=%.2f m/s accel=%.2f m/s^2 source=timeout",
+                         _rocketModel->getHeightGainSpeed(), accMag);
+            }
             sendEvent(FSMEvent::LANDING_COMPLETE);
         }
         break;

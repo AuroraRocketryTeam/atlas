@@ -153,8 +153,19 @@ private:
     float _acceleratedPeakVelocityMps = 0.0f;
     uint32_t _acceleratedLastVelocityTimestamp = 0;
     uint8_t _burnoutConfirmationSamples = 0;
-    uint32_t _landingStableSince = 0;
+    // Landing detection: running sums over the current stability window.
+    uint32_t _landingWindowStart = 0;
+    uint16_t _landingWindowSamples = 0;
+    float _landingWindowVzSum = 0.0f;
+    float _landingWindowAccSum = 0.0f;
     uint32_t _landingLastVelocityTimestamp = 0;
+    void resetLandingWindow()
+    {
+        _landingWindowStart = 0;
+        _landingWindowSamples = 0;
+        _landingWindowVzSum = 0.0f;
+        _landingWindowAccSum = 0.0f;
+    }
 
     // Restarted in flight, this detector uses raw values from the barometer.
     DescentDetector _descentDetector;
