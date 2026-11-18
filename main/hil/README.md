@@ -106,9 +106,15 @@ The launcher requires an explicit rocket and sensor profile:
 python hil_rocketpy.py --rocket fred --sensor-profile clean
 python hil_rocketpy.py --rocket fred --sensor-profile noisy
 python hil_rocketpy.py --rocket fred --sensor-profile very_noisy
-python hil_rocketpy.py --rocket fred --sensor-profile RealisticNoise
-python hil_rocketpy.py --rocket fred_ami --sensor-profile RealisticNoise
+python hil_rocketpy.py --rocket fred --sensor-profile realistic_noise
+python hil_rocketpy.py --rocket fred_ami --sensor-profile realistic_noise
+python hil_rocketpy.py --rocket nemesis --sensor-profile realistic_noise
 ```
+
+Every bundled config (`fred`, `fred_ami`, `nemesis`) defines the same four
+profiles: `clean`, `noisy`, `very_noisy` and `realistic_noise`. The last one
+uses BNO055/MS5611 noise levels calibrated from water-rocket flight data
+(no bias, drift or GNSS noise, which could not be identified reliably).
 
 The FRED and FRED_AMI configs currently use the same offline ICON-D2 forecast
 for 14:30 Rome time (13:30 UTC). To fetch a new forecast while online, run:
@@ -144,7 +150,7 @@ pressure, temperature and timestamp, so altitude processing and HIL calibration
 do not consume a held reading twice. Each accepted barometer reading is queued
 for recording once.
 
-Keep `--sampling-rate 50` with `RealisticNoise`: its coefficients are calibrated
+Keep `--sampling-rate 50` with `realistic_noise`: its coefficients are calibrated
 for noise generation at 50 Hz. The receiver selects individual noisy samples
 without averaging them. On the 20 ms packet grid, accepted barometer readings
 have 40/60 ms spacing, averaging 18 Hz; missed time slots are not replayed.

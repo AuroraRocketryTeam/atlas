@@ -185,9 +185,9 @@ parser.add_argument(
     "--sensor-profile",
     required=True,
     help=(
-        "Exact sensor profile name from Sensors._profiles. "
-        "Examples: --sensor-profile clean, --sensor-profile noisy, "
-        "--sensor-profile very_noisy."
+        "Exact sensor profile name from Sensors._profiles in the rocket config. "
+        "Every bundled config provides: clean, noisy, very_noisy, realistic_noise "
+        "(noise calibrated from real flight data at 50 Hz; keep --sampling-rate 50)."
     ),
 )
 parser.add_argument(
