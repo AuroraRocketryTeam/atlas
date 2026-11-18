@@ -1685,13 +1685,14 @@ def plot_hil_log(
     fig_alt_pressure, ax_alt = plt.subplots(figsize=(12, 5))
     ax_pressure = ax_alt.twinx()
 
-    ax_alt.plot(sim_time_s, altitude_m, label="GPS altitude", linewidth=1.8)
-    ax_pressure.plot(sim_time_s, pressure_pa, linestyle="--", label="barometer pressure")
+    ax_alt.plot(sim_time_s, altitude_m, color="C0", label="GPS altitude", linewidth=1.8)
+    ax_pressure.plot(sim_time_s, pressure_pa, color="C1", label="barometer pressure", linewidth=1.2)
 
-    ax_alt.scatter(sim_time_s[0], altitude_m[0], s=50, marker="o", label="START")
-    ax_alt.scatter(sim_time_s[-1], altitude_m[-1], s=50, marker="X", label="END")
+    ax_alt.scatter(sim_time_s[0], altitude_m[0], s=50, marker="o", color="k", zorder=5, label="START")
+    ax_alt.scatter(sim_time_s[-1], altitude_m[-1], s=50, marker="X", color="k", zorder=5, label="END")
     if apogee_idx is not None:
-        ax_alt.scatter(rocketpy_apogee["time_s"], altitude_m[apogee_idx], s=60, marker="^", label="RocketPy apogee time")
+        ax_alt.scatter(rocketpy_apogee["time_s"], altitude_m[apogee_idx], s=60, marker="^",
+                       color="gold", edgecolors="k", zorder=6, label="RocketPy apogee time")
 
     _mark_event_lines(ax_alt, drogue_times, "OPEN_DROGUE")
     _mark_event_lines(ax_alt, main_times, "OPEN_MAIN")
@@ -1701,8 +1702,8 @@ def plot_hil_log(
 
     ax_alt.set_title("Altitude and Barometer Pressure Sent to FC")
     ax_alt.set_xlabel("Simulation time [s]")
-    ax_alt.set_ylabel("Altitude [m]")
-    ax_pressure.set_ylabel("Pressure [Pa]")
+    ax_alt.set_ylabel("Altitude [m]", color="C0")
+    ax_pressure.set_ylabel("Pressure [Pa]", color="C1")
     ax_alt.grid(True)
 
     handles_alt, labels_alt = ax_alt.get_legend_handles_labels()
@@ -1712,55 +1713,55 @@ def plot_hil_log(
     for handle, label in zip(handles_alt + handles_pressure, labels_alt + labels_pressure):
         if label and label not in combined:
             combined[label] = handle
-    ax_alt.legend(combined.values(), combined.keys())
+    ax_alt.legend(combined.values(), combined.keys(), loc="center right", fontsize=8)
     fig_alt_pressure.tight_layout()
 
     # ------------------------------------------------------------------
     # GPS ground track
     # ------------------------------------------------------------------
-    fig_track, ax_track = plt.subplots(figsize=(8, 8))
-    map_image_available = fred_site_map and FRED_SITE_IMAGE.is_file()
-    if map_image_available:
-        # The JPEG extent is calibrated to the old pad; express it relative to this capture's pad.
-        map_x, map_y = _lat_lon_to_local_meters(
-            np.array([FRED_SITE_ORIGIN[0]]), np.array([FRED_SITE_ORIGIN[1]]), launch_site
-        )
-        west, east, south, north = FRED_SITE_EXTENT_M
-        ax_track.imshow(
-            plt.imread(FRED_SITE_IMAGE),
-            extent=(west + map_x[0], east + map_x[0], south + map_y[0], north + map_y[0]),
-            origin="upper",
-        )
-    elif fred_site_map:
-        print(f"[PLOT] Villafranca map image not found: {FRED_SITE_IMAGE}")
-    track_line, = ax_track.plot(gps_x, gps_y, label="GPS ground track")
-    if fred_site_map:
-        track_line.set_color("magenta")
-        track_line.set_linewidth(2)
-        ax_track.scatter(0, 0, s=70, marker="o", color="white",
-                         edgecolors="black", label="Launch point")
-        ax_track.scatter(hil_log["x"][-1], hil_log["y"][-1], s=70,
-                         marker="X", color="red", label="RocketPy landing")
-        if rocketpy_apogee is not None:
-            ax_track.scatter(rocketpy_apogee["x"], rocketpy_apogee["y"], s=70,
-                             marker="^", color="yellow", edgecolors="black",
-                             label="RocketPy apogee")
-    else:
-        ax_track.scatter(gps_x[0], gps_y[0], s=50, marker="o", label="START")
-        ax_track.scatter(gps_x[-1], gps_y[-1], s=50, marker="X", label="END")
-        if apogee_idx is not None:
-            ax_track.scatter(gps_x[apogee_idx], gps_y[apogee_idx], s=60, marker="^", label="RocketPy apogee time")
-    _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, drogue_times, "OPEN_DROGUE", "v")
-    _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, main_times, "OPEN_MAIN", "s")
-    _mark_fsm_points_2d(ax_track, sim_time_s, gps_x, gps_y, fsm_events, annotate=True)
-    ax_track.set_title("GPS Ground Track Sent to FC" +
-                       (" (approximate Villafranca map)" if map_image_available else ""))
-    ax_track.set_xlabel("local GPS x / east [m]")
-    ax_track.set_ylabel("local GPS y / north [m]")
-    ax_track.axis("equal")
-    ax_track.grid(True)
-    _set_legend_if_needed(ax_track)
-    fig_track.tight_layout()
+    # fig_track, ax_track = plt.subplots(figsize=(8, 8))
+    # map_image_available = fred_site_map and FRED_SITE_IMAGE.is_file()
+    # if map_image_available:
+    #     # The JPEG extent is calibrated to the old pad; express it relative to this capture's pad.
+    #     map_x, map_y = _lat_lon_to_local_meters(
+    #         np.array([FRED_SITE_ORIGIN[0]]), np.array([FRED_SITE_ORIGIN[1]]), launch_site
+    #     )
+    #     west, east, south, north = FRED_SITE_EXTENT_M
+    #     ax_track.imshow(
+    #         plt.imread(FRED_SITE_IMAGE),
+    #         extent=(west + map_x[0], east + map_x[0], south + map_y[0], north + map_y[0]),
+    #         origin="upper",
+    #     )
+    # elif fred_site_map:
+    #     print(f"[PLOT] Villafranca map image not found: {FRED_SITE_IMAGE}")
+    # track_line, = ax_track.plot(gps_x, gps_y, label="GPS ground track")
+    # if fred_site_map:
+    #     track_line.set_color("magenta")
+    #     track_line.set_linewidth(2)
+    #     ax_track.scatter(0, 0, s=70, marker="o", color="white",
+    #                      edgecolors="black", label="Launch point")
+    #     ax_track.scatter(hil_log["x"][-1], hil_log["y"][-1], s=70,
+    #                      marker="X", color="red", label="RocketPy landing")
+    #     if rocketpy_apogee is not None:
+    #         ax_track.scatter(rocketpy_apogee["x"], rocketpy_apogee["y"], s=70,
+    #                          marker="^", color="yellow", edgecolors="black",
+    #                          label="RocketPy apogee")
+    # else:
+    #     ax_track.scatter(gps_x[0], gps_y[0], s=50, marker="o", label="START")
+    #     ax_track.scatter(gps_x[-1], gps_y[-1], s=50, marker="X", label="END")
+    #     if apogee_idx is not None:
+    #         ax_track.scatter(gps_x[apogee_idx], gps_y[apogee_idx], s=60, marker="^", label="RocketPy apogee time")
+    # _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, drogue_times, "OPEN_DROGUE", "v")
+    # _mark_event_points_2d(ax_track, sim_time_s, gps_x, gps_y, main_times, "OPEN_MAIN", "s")
+    # _mark_fsm_points_2d(ax_track, sim_time_s, gps_x, gps_y, fsm_events, annotate=True)
+    # ax_track.set_title("GPS Ground Track Sent to FC" +
+    #                    (" (approximate Villafranca map)" if map_image_available else ""))
+    # ax_track.set_xlabel("local GPS x / east [m]")
+    # ax_track.set_ylabel("local GPS y / north [m]")
+    # ax_track.axis("equal")
+    # ax_track.grid(True)
+    # _set_legend_if_needed(ax_track)
+    # fig_track.tight_layout()
 
     # ------------------------------------------------------------------
     # Acceleration payload
@@ -1784,18 +1785,18 @@ def plot_hil_log(
     # ------------------------------------------------------------------
     # Temperature payload
     # ------------------------------------------------------------------
-    fig_temp, ax_temp = plt.subplots(figsize=(12, 4))
-    ax_temp.plot(sim_time_s, temperature_k, label="temperature [K]")
-    _mark_event_lines(ax_temp, drogue_times, "OPEN_DROGUE")
-    _mark_event_lines(ax_temp, main_times, "OPEN_MAIN")
-    _mark_fsm_event_lines(ax_temp, fsm_events)
-    _mark_time_eclipses(ax_temp, time_eclipses, sim_time_s)
-    ax_temp.set_title("Temperature Payload Sent to FC")
-    ax_temp.set_xlabel("Simulation time [s]")
-    ax_temp.set_ylabel("Temperature [K]")
-    ax_temp.grid(True)
-    _set_legend_if_needed(ax_temp)
-    fig_temp.tight_layout()
+    # fig_temp, ax_temp = plt.subplots(figsize=(12, 4))
+    # ax_temp.plot(sim_time_s, temperature_k, label="temperature [K]")
+    # _mark_event_lines(ax_temp, drogue_times, "OPEN_DROGUE")
+    # _mark_event_lines(ax_temp, main_times, "OPEN_MAIN")
+    # _mark_fsm_event_lines(ax_temp, fsm_events)
+    # _mark_time_eclipses(ax_temp, time_eclipses, sim_time_s)
+    # ax_temp.set_title("Temperature Payload Sent to FC")
+    # ax_temp.set_xlabel("Simulation time [s]")
+    # ax_temp.set_ylabel("Temperature [K]")
+    # ax_temp.grid(True)
+    # _set_legend_if_needed(ax_temp)
+    # fig_temp.tight_layout()
 
     # ------------------------------------------------------------------
     # FSM state timeline
