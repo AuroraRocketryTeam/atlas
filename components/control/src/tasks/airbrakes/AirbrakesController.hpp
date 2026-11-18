@@ -4,7 +4,7 @@
 #include <cstdint>
 
 /**
- * @brief Predictive airbrake control law, ported from the GNC `Airbrakes.m`.
+ * @brief Predictive airbrake control law, ported from the GNC "Airbrakes.m" code.
  *
  * Each cycle the law:
  *
@@ -18,16 +18,19 @@
  *     lands on the target. If even the closed brakes undershoot it stays
  *     closed; if even full opening overshoots it opens fully.
  *
+ * Holds the per-flight constants; each call to computeCommand() is otherwise
+ * stateless.
  */
-namespace airbrakes
+class AirbrakesController
 {
-    inline constexpr size_t kMaxOpeningBreakpoints = 8;
-    inline constexpr size_t kMaxMachBreakpoints = 8;
+public:
+    static constexpr size_t kMaxOpeningBreakpoints = 8;
+    static constexpr size_t kMaxMachBreakpoints = 8;
 
     /**
      * @brief Airbrake drag map Cd(opening, Mach), sized at runtime.
      *
-     * Loaded from airbrakes_cd_table.csv (only the first "opening_count" x "mach_count" 
+     * Loaded from airbrakes_cd_table.csv (only the first "opening_count" x "mach_count"
      * entries are used.
      */
     struct AeroTable
@@ -45,7 +48,7 @@ namespace airbrakes
     /**
      * @brief Constants for one flight, copied from the locked flight snapshot.
      */
-    struct ControllerParams
+    struct Params
     {
         /** Altitude below which the brakes stay closed, m AGL ("openingAlt") */
         float opening_altitude_m;
@@ -68,7 +71,7 @@ namespace airbrakes
     /**
      * @brief Flight state for one cycle.
      */
-    struct ControllerInputs
+    struct Inputs
     {
         /** Current altitude, m AGL */
         float altitude_agl_m;
@@ -79,7 +82,7 @@ namespace airbrakes
     /**
      * @brief One cycle of controller output, including the prediction
      */
-    struct ControllerOutputs
+    struct Outputs
     {
         /** False when the law is holding the brakes closed by rule */
         bool armed;
@@ -97,36 +100,63 @@ namespace airbrakes
         uint8_t candidates_evaluated;
     };
 
+    AirbrakesController() = default;
+    explicit AirbrakesController(const Params &params) : _params(params) {}
+
+    /** @brief Replace the per-flight constants. */
+    void setParams(const Params &params) { _params = params; }
+
+    /** @brief Current per-flight constants. */
+    const Params &params() const { return _params; }
+
     /**
-     * @brief Simplified ISA troposphere, as in the MATLAB reference.
+     * @brief Simplified ISA troposphere.
      *
      * @param altitudeMslM Geometric altitude above mean sea level, clamped to [0, 11000] m.
      * @param densityKgm3 Receives density, kg/m^3.
      * @param speedOfSoundMps Receives speed of sound, m/s.
      */
-    void isaAtmosphere(float altitudeMslM, float &densityKgm3, float &speedOfSoundMps);
+    static void isaAtmosphere(float altitudeMslM, float &densityKgm3, float &speedOfSoundMps);
 
     /**
      * @brief Predict apogee for one opening (one Cd(Mach) table row).
      *
-     * @param params Vehicle and prediction constants.
+     * Requires a table ("params().aero != nullptr").
+     *
      * @param openingIndex Row of the aero table to hold for the whole coast.
      * @param altitudeAglM Starting altitude, m AGL.
      * @param verticalVelocityMps Starting vertical velocity, m/s.
      * @param apogeeAglM Receives the predicted apogee, m AGL.
      * @param timeToApogeeS Receives the predicted time to apogee, s.
      */
-    void predictApogee(const ControllerParams &params,
-                       size_t openingIndex,
+    void predictApogee(size_t openingIndex,
                        float altitudeAglM,
                        float verticalVelocityMps,
                        float &apogeeAglM,
-                       float &timeToApogeeS);
+                       float &timeToApogeeS) const;
 
     /**
-     * @brief Run one cycle of the predictive law. Stateless.
+     * @brief Run one cycle of the predictive law.
      *
-     * With no table ("params.aero == nullptr") the law stays disarmed.
+     * With no table ("params().aero == nullptr") the law stays disarmed.
      */
-    ControllerOutputs computeCommand(const ControllerParams &params, const ControllerInputs &inputs);
-}
+    Outputs computeCommand(const Inputs &inputs) const;
+
+private:
+    /**
+     * @brief Find which pair of breakpoints @p value falls between.
+     *
+     * @p value is first clamped to the table range. Returns the index of the
+     * lower breakpoint and sets @p fraction to how far @p value is towards the
+     * next one (0 to 1). Same search as in Airbrakes.m.
+     */
+    static size_t findSegment(const float *breakpoints, size_t count, float value, float &fraction);
+
+    /** Cd along Mach for one opening row (`interpCd`) */
+    static float cdAlongMach(const AeroTable &aero, size_t openingIndex, float mach);
+
+    /** Cd at an arbitrary opening for the current Mach (`cdAtMach` + `openingToCd`). */
+    static float cdAtOpening(const AeroTable &aero, float openingPct, float mach);
+
+    Params _params{};
+};

@@ -6,7 +6,7 @@
 #include "IStateMachine.hpp"
 
 #include <memory>
-#include "airbrakes/PredictiveController.hpp"
+#include "airbrakes/AirbrakesController.hpp"
 #include "freertos/semphr.h"
 
 struct AirbrakesConfig {
@@ -34,8 +34,8 @@ private:
 
     std::shared_ptr<RocketLogger> _logger;
 
-    // Points at the single embedded Cd table
-    airbrakes::ControllerParams _params{};
+    // Params point at the single embedded Cd table
+    AirbrakesController _controller{};
 
     IStateMachine* _fsm;
 

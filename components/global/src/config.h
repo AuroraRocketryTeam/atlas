@@ -92,6 +92,14 @@
 
 #define GRAVITY 9.80665f
 
+/* ISA troposphere, as in isaAtmosphere() of the GNC Airbrakes.m file */
+#define ISA_T0_K 288.15f                // Sea-level temperature
+#define ISA_P0_PA 101325.0f             // Sea-level pressure
+#define ISA_LAPSE_RATE_K_PER_M 0.0065f  // Temperature lapse rate
+#define ISA_GAS_CONSTANT 287.058f       // Specific gas constant of dry air, J/(kg K)
+#define ISA_GAMMA 1.4f                  // Heat capacity ratio of air
+#define ISA_TROPOPAUSE_M 11000.0f       // Upper limit of the model
+
 
 
 enum class RecoveryMode

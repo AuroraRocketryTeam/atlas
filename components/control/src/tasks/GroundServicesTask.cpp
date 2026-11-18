@@ -1676,7 +1676,7 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
     // The Cd table is compiled in from airbrakes_cd_table.csv; a malformed file
     // leaves the airbrakes disabled, so it blocks ready-for-launch.
-    const airbrakes::AeroTableLoad &aero = airbrakes::embeddedAeroTable();
+    const AeroTableLoad &aero = embeddedAeroTable();
     const char *aero_message = !aero.ok ? aero.error
                              : aero.cd_monotonic ? "airbrakes_cd_table.csv loaded"
                                                  : "airbrakes_cd_table.csv loaded; Cd decreases with opening somewhere, check the table";

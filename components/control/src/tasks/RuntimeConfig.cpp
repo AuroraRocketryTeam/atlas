@@ -969,9 +969,9 @@ esp_err_t runtime_config_to_json(const RuntimeConfig *cfg, char *out, size_t out
     // Read-only summary of the compiled-in Cd table (airbrakes_cd_table.csv).
     // The message text contains no quotes, so it embeds in JSON as is.
     char aeroSummary[128];
-    const airbrakes::AeroTableLoad &aero = airbrakes::embeddedAeroTable();
+    const AeroTableLoad &aero = embeddedAeroTable();
     if (aero.ok) {
-        const airbrakes::AeroTable &t = aero.table;
+        const AirbrakesController::AeroTable &t = aero.table;
         snprintf(aeroSummary, sizeof(aeroSummary), "%u openings (%.4g-%.4g %%) x %u Mach (%.4g-%.4g)%s",
                  static_cast<unsigned>(t.opening_count),
                  static_cast<double>(t.opening_bp_pct[0]), static_cast<double>(t.opening_bp_pct[t.opening_count - 1]),

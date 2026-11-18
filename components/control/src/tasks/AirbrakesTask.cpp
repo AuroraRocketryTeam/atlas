@@ -29,7 +29,7 @@ static constexpr uint32_t COMPUTE_WARNING_US = 40000;
 
 // Puts the Cd-table load result in the flight log as a system event, so the
 // flash record shows whether the predictive controller could run.
-void logCdTableStatus(RocketLogger &logger, const airbrakes::AeroTableLoad &aero)
+void logCdTableStatus(RocketLogger &logger, const AeroTableLoad &aero)
 {
     if (!aero.ok) {
         logger.logError(TAG, aero.error);
@@ -52,7 +52,7 @@ AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
 
     // Parse the embedded Cd table at boot (tasks are constructed once by
     // TaskManager), so a bad CSV shows up in the boot log
-    const airbrakes::AeroTableLoad &aero = airbrakes::embeddedAeroTable();
+    const AeroTableLoad &aero = embeddedAeroTable();
     if (aero.ok) {
         LOG_INFO(TAG, "Cd table loaded: %u openings x %u Mach breakpoints%s",
                  static_cast<unsigned>(aero.table.opening_count), static_cast<unsigned>(aero.table.mach_count),
@@ -99,7 +99,7 @@ void AirbrakesTask::onTaskStop()
 }
 
 void AirbrakesTask::airbrakes_ctl_law() {
-    const airbrakes::AeroTableLoad &aeroTable = airbrakes::embeddedAeroTable();
+    const AeroTableLoad &aeroTable = embeddedAeroTable();
     if (_logger) logCdTableStatus(*_logger, aeroTable);
 
     if (!aeroTable.ok)
@@ -121,15 +121,17 @@ void AirbrakesTask::airbrakes_ctl_law() {
         // Scoped so the full RuntimeConfig copy does not stay on the stack.
         const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
         const AirbrakesConfig &cfg = runtimeConfig.airbrakes;
-        _params.opening_altitude_m = cfg.opening_altitude_m;
-        _params.target_apogee_m = cfg.target_apogee_m;
-        _params.launch_site_altitude_m = runtimeConfig.mission.launch_site_altitude_m;
-        _params.dry_mass_kg = cfg.dry_mass_kg;
-        _params.reference_area_m2 = cfg.reference_area_m2;
-        _params.prediction_dt_s = cfg.prediction_dt_s;
-        _params.prediction_max_steps = cfg.prediction_max_steps;
+        AirbrakesController::Params params{};
+        params.opening_altitude_m = cfg.opening_altitude_m;
+        params.target_apogee_m = cfg.target_apogee_m;
+        params.launch_site_altitude_m = runtimeConfig.mission.launch_site_altitude_m;
+        params.dry_mass_kg = cfg.dry_mass_kg;
+        params.reference_area_m2 = cfg.reference_area_m2;
+        params.prediction_dt_s = cfg.prediction_dt_s;
+        params.prediction_max_steps = cfg.prediction_max_steps;
+        params.aero = &aeroTable.table;
+        _controller.setParams(params);
     }
-    _params.aero = &aeroTable.table;
 
     const TickType_t taskPeriod = pdMS_TO_TICKS(TASK_PERIOD_MS);
     TickType_t lastWakeTime = xTaskGetTickCount();
@@ -157,7 +159,7 @@ void AirbrakesTask::airbrakes_ctl_law() {
         // first reached (Euroc Rules: 1500m)
         if (!openingAltitudeReached)
         {
-            if (!(altitude >= _params.opening_altitude_m))
+            if (!(altitude >= _controller.params().opening_altitude_m))
             {
                 vTaskDelayUntil(&lastWakeTime, taskPeriod);
                 continue;
@@ -172,12 +174,12 @@ void AirbrakesTask::airbrakes_ctl_law() {
                                    Utils::millis() - velocityTimestamp <= VELOCITY_STALE_MS;
 
         /* ===== CONTROL LAW ===== */
-        airbrakes::ControllerOutputs out{};
+        AirbrakesController::Outputs out{};
         uint32_t computeUs = 0;
         if (velocityFresh)
         {
             const int64_t start = esp_timer_get_time();
-            out = airbrakes::computeCommand(_params, {altitude, verticalVelocity});
+            out = _controller.computeCommand({altitude, verticalVelocity});
             computeUs = static_cast<uint32_t>(esp_timer_get_time() - start);
         }
         else
