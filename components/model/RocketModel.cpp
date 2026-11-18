@@ -33,6 +33,7 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _heightGainSpeed(0.0f),
     _heightGainSpeedTimestamp(0),
     _currentHeight(0.0f),
+    _filteredPressure(0.0f),
     _storageMutex(xSemaphoreCreateMutex())
 {
     // Configure and Initialize ADC unit
@@ -401,6 +402,14 @@ float RocketModel::getCurrentHeight() {
 
 void RocketModel::setCurrentHeight(float height) {
     _currentHeight.store(height, std::memory_order_relaxed);
+}
+
+float RocketModel::getFilteredPressure() {
+    return _filteredPressure.load(std::memory_order_relaxed);
+}
+
+void RocketModel::setFilteredPressure(float pressurePa) {
+    _filteredPressure.store(pressurePa, std::memory_order_relaxed);
 }
 
 bool RocketModel::isStorageInitialized(uint32_t timeoutMs) const {

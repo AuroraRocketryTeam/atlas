@@ -36,9 +36,10 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)
 PAYLOAD_FMT = "<IfIffffffffffff"
 PAYLOAD_SIZE = struct.calcsize(PAYLOAD_FMT)
 
-# Extended command format:
-# command_sim_time_s, open_main, open_drogue, airbrakes_deployment, fsm_state
-COMMAND_FMT = "<fBBfB"
+# Extended command format (mirrors fc_command_packet_t in Command.hpp):
+# command_sim_time_s, open_main, open_drogue, airbrakes_deployment, fsm_state,
+# est_filtered_pressure_pa, est_altitude_m, est_vertical_velocity_mps, est_timestamp_ms
+COMMAND_FMT = "<fBBfBfffI"
 COMMAND_SIZE = struct.calcsize(COMMAND_FMT)
 
 # These values intentionally mirror RocketState in IStateMachine.hpp / RocketFSM.
@@ -210,16 +211,22 @@ def decode_fc_command(payload):
     if len(payload) != COMMAND_SIZE:
         raise RuntimeError(f"Payload size mismatch: {len(payload)} != {COMMAND_SIZE}")
 
-    command_sim_time_s, open_main, open_drogue, airbrakes_deployment, fsm_state = struct.unpack(
-        COMMAND_FMT,
-        payload,
-    )
+    (
+        command_sim_time_s, open_main, open_drogue, airbrakes_deployment, fsm_state,
+        est_filtered_pressure_pa, est_altitude_m, est_vertical_velocity_mps, est_timestamp_ms,
+    ) = struct.unpack(COMMAND_FMT, payload)
     return (
         command_sim_time_s,
         bool(open_main),
         bool(open_drogue),
         airbrakes_deployment,
         int(fsm_state),
+        FcEstimate(
+            filtered_pressure_pa=est_filtered_pressure_pa,
+            altitude_m=est_altitude_m,
+            vertical_velocity_mps=est_vertical_velocity_mps,
+            timestamp_ms=int(est_timestamp_ms),
+        ),
     )
 
 
@@ -260,12 +267,23 @@ def recv_msg(sock):
     return msg_type, payload
 
 
+@dataclass(frozen=True)
+class FcEstimate:
+    """Altitude-estimator outputs the FC reported with one command (timestamp 0 = none yet)."""
+
+    filtered_pressure_pa: float
+    altitude_m: float
+    vertical_velocity_mps: float
+    timestamp_ms: int
+
+
 @dataclass
 class CommandHandlers:
     on_open_main: Optional[Callable[[float], None]] = None
     on_open_drogue: Optional[Callable[[float], None]] = None
     on_set_air_brakes: Optional[Callable[[float, float], None]] = None
     on_fsm_state: Optional[Callable[[float, int], None]] = None
+    on_fc_estimate: Optional[Callable[[FcEstimate], None]] = None
 
 
 class OneSlotMailbox:
@@ -404,6 +422,7 @@ def tcp_client(
                     open_drogue,
                     airbrakes_deployment,
                     fsm_state,
+                    fc_estimate,
                 ) = decode_fc_command(rx_payload)
 
                 # ===== HANDLE =====
@@ -415,6 +434,11 @@ def tcp_client(
 
                 if handlers.on_set_air_brakes:
                     handlers.on_set_air_brakes(command_sim_time_s, airbrakes_deployment)
+
+                # Before on_fsm_state: that call releases the producer waiting on
+                # this response, so the estimate is recorded first.
+                if handlers.on_fc_estimate:
+                    handlers.on_fc_estimate(fc_estimate)
 
                 if handlers.on_fsm_state:
                     handlers.on_fsm_state(command_sim_time_s, fsm_state)

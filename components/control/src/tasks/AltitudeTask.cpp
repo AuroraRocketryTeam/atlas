@@ -124,6 +124,7 @@ void AltitudeTask::taskFunction()
         }
 
         // Update Model
+        _rocketModel->setFilteredPressure(filteredPressure);
         _rocketModel->setCurrentHeight(currentAltitude);
         
         float currentVelocity = apogeeDetector.getVelocity();

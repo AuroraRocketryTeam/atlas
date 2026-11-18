@@ -98,7 +98,8 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)
 PAYLOAD_FMT = "<IfIffffffffffff"
 PAYLOAD_SIZE = struct.calcsize(PAYLOAD_FMT)
 
-COMMAND_FMT = "<fBBfB"
+# Mirrors fc_command_packet_t; the mock reports no altitude estimate (timestamp 0).
+COMMAND_FMT = "<fBBfBfffI"
 COMMAND_SIZE = struct.calcsize(COMMAND_FMT)
 
 MSG_TYPE_SIM_INPUT = 1
@@ -216,6 +217,10 @@ def build_fc_command(
         int(open_drogue),
         float(airbrakes_deployment),
         int(fsm_state),
+        0.0,
+        0.0,
+        0.0,
+        0,
     )
     if len(payload) != COMMAND_SIZE:
         raise RuntimeError(f"FC_COMMAND size mismatch: {len(payload)} != {COMMAND_SIZE}")

@@ -534,6 +534,15 @@ void HilSimulationTask::taskFunction() {
 
             // Convert to wire format (adds sim_time and fsm state)
             fc_command_packet_t wire = cmd.serialize(pkt.sim_time, _fsm->getCurrentState());
+
+            for (int attempt = 0; attempt < 3; ++attempt) {
+                const uint32_t stampBefore = _rocketModel->getHeightGainSpeedTimestamp();
+                wire.est_filtered_pressure_pa = _rocketModel->getFilteredPressure();
+                wire.est_altitude_m = _rocketModel->getCurrentHeight();
+                wire.est_vertical_velocity_mps = _rocketModel->getHeightGainSpeed();
+                wire.est_timestamp_ms = _rocketModel->getHeightGainSpeedTimestamp();
+                if (wire.est_timestamp_ms == stampBefore) break;
+            }
             
             memset(&out_msg, 0, sizeof(out_msg));
             out_msg.type = MSG_TYPE_FC_COMMAND;

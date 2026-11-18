@@ -284,6 +284,12 @@ public:
     void setCurrentHeight(float height);
 
     /**
+     * @brief Median-filtered barometer pressure the altitude estimate was computed from [Pa].
+     */
+    float getFilteredPressure();
+    void setFilteredPressure(float pressurePa);
+
+    /**
      * @brief Set the command to open the main parachute.
      *
      * @return true if the command was set successfully
@@ -427,6 +433,7 @@ private:
     std::atomic<float> _heightGainSpeed;
     std::atomic<uint32_t> _heightGainSpeedTimestamp;
     std::atomic<float> _currentHeight;
+    std::atomic<float> _filteredPressure;
 
     IMUData _bnoData;
     AccelerometerSensorData _lis3dhData;

@@ -12,9 +12,16 @@ struct __attribute__((packed)) fc_command_packet_t {
     uint8_t open_drogue;
     float airbrakes_deployment;
     uint8_t fsm_state;
+
+    // Realtime data used to plot a comparison against its noise-free truth.
+    float est_filtered_pressure_pa;
+    float est_altitude_m;
+    float est_vertical_velocity_mps;
+    uint32_t est_timestamp_ms;
 };
 
-static_assert(sizeof(fc_command_packet_t) == 11, "fc_command_packet_t size mismatch");
+// Keep in sync with COMMAND_FMT in main/hil/hil_communication.py and mock_manny_fc_server.py.
+static_assert(sizeof(fc_command_packet_t) == 27, "fc_command_packet_t size mismatch");
 
 
 /**
