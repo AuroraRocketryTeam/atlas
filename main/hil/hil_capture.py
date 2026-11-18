@@ -588,6 +588,7 @@ def _mark_fsm_points_2d(
             s=55,
             marker=_event_marker_for_state(state),
             label="FSM state" if first else None,
+            zorder=4,
         )
         if annotate:
             ax.annotate(
@@ -677,6 +678,313 @@ def _set_legend_if_needed(ax, **legend_kwargs):
         return None
 
     return ax.legend(unique.values(), unique.keys(), **legend_kwargs)
+
+
+# ----------------------------------------------------------------------
+# AIRBRAKES-ON-TRAJECTORY PLOT
+# ----------------------------------------------------------------------
+
+# The trajectory keeps its default colour while the brakes are closed; any
+# opening recolours that stretch of the same curve with a light->dark orange
+# ramp, so "slightly open" never looks like "closed".
+AIRBRAKE_TRAJ_COLOR = "C0"
+AIRBRAKE_TRAJ_LINEWIDTH = 1.8
+
+
+def _airbrake_cmap():
+    from matplotlib.colors import ListedColormap
+
+    base = plt.get_cmap("Oranges")
+    cmap = ListedColormap(base(np.linspace(0.35, 1.0, 256)), name="airbrakes")
+    cmap.set_under(AIRBRAKE_TRAJ_COLOR)
+    return cmap
+
+
+def _airbrake_norm():
+    from matplotlib.colors import Normalize
+
+    # vmin slightly above zero routes exactly-closed samples to set_under().
+    return Normalize(vmin=1e-6, vmax=1.0)
+
+
+def _airbrake_level_per_sample(
+    sim_time_s: np.ndarray,
+    airbrake_events: list[tuple[float, float]],
+) -> np.ndarray:
+    """Hold each commanded level until the next command (step / zero-order hold)."""
+    levels = np.zeros_like(sim_time_s, dtype=float)
+    if not airbrake_events:
+        return levels
+
+    events = sorted(airbrake_events, key=lambda e: e[0])
+    event_t = np.array([t for t, _ in events])
+    event_lvl = np.clip(np.array([lvl for _, lvl in events]), 0.0, 1.0)
+    # side="right": a command at t applies to the sample at t; for duplicate
+    # timestamps the last command wins.
+    idx = np.searchsorted(event_t, sim_time_s, side="right") - 1
+    active = idx >= 0
+    levels[active] = event_lvl[idx[active]]
+    return levels
+
+
+def _draw_altitude_context(
+    ax,
+    sim_time_s: np.ndarray,
+    altitude_m: np.ndarray,
+    fsm_events: list[tuple[float, str]],
+    time_eclipses: list[dict[str, Any]],
+    rocketpy_apogee: dict[str, float] | None,
+    apogee_idx: int | None,
+    *,
+    draw_line: bool = True,
+    annotate_fsm: bool = True,
+) -> None:
+    """Shared altitude-vs-time scaffolding: curve, START/END, apogee, FSM keypoints."""
+    if draw_line:
+        ax.plot(sim_time_s, altitude_m, color=AIRBRAKE_TRAJ_COLOR, linewidth=AIRBRAKE_TRAJ_LINEWIDTH,
+                label="GPS altitude")
+
+    ax.scatter(sim_time_s[0], altitude_m[0], s=50, marker="o", color="k", zorder=5, label="START")
+    ax.scatter(sim_time_s[-1], altitude_m[-1], s=50, marker="X", color="k", zorder=5, label="END")
+    if apogee_idx is not None and rocketpy_apogee is not None:
+        ax.scatter(
+            rocketpy_apogee["time_s"], altitude_m[apogee_idx],
+            s=70, marker="^", color="gold", edgecolors="k", zorder=6, label="RocketPy apogee time",
+        )
+
+    _mark_fsm_event_lines(ax, fsm_events)
+    _mark_time_eclipses(ax, time_eclipses, sim_time_s)
+    _mark_fsm_points_2d(ax, sim_time_s, sim_time_s, altitude_m, fsm_events, annotate=annotate_fsm)
+
+    ax.set_xlabel("Simulation time [s]")
+    ax.set_ylabel("Altitude [m]")
+    ax.grid(True, alpha=0.4)
+
+
+def _colored_altitude_line(ax, sim_time_s, altitude_m, levels):
+    """The altitude trajectory itself, drawn once: default style where the brakes
+    are closed, orange ramp where they are open. Replaces the plain ax.plot line."""
+    from matplotlib.collections import LineCollection
+
+    # One continuous polyline per constant-level run (not one per sample pair):
+    # per-pair segments antialias at their seams and make the curve look washed out.
+    points = np.column_stack([sim_time_s, altitude_m])
+    change = np.flatnonzero(np.diff(levels) != 0.0) + 1
+    starts = np.concatenate(([0], change))
+    ends = np.concatenate((change, [len(levels) - 1]))
+    # Each run ends on the next run's first sample so the curve has no gaps.
+    runs = [points[s:e + 1] for s, e in zip(starts, ends) if e > s]
+    run_levels = [levels[s] for s, e in zip(starts, ends) if e > s]
+    lc = LineCollection(
+        runs,
+        cmap=_airbrake_cmap(),
+        norm=_airbrake_norm(),
+        linewidth=AIRBRAKE_TRAJ_LINEWIDTH,
+        joinstyle="round",
+        capstyle="butt",
+        zorder=2,  # same layer as a normal line: markers stay on top
+        label="GPS altitude",
+    )
+    lc.set_array(np.asarray(run_levels, dtype=float))
+    ax.add_collection(lc)
+    ax.autoscale_view()
+    return lc
+
+
+def _add_reference_y_tick(ax, value: float, *, decimals: int = 1) -> None:
+    """Always show ``value`` as a y tick (with its exact number), dropping automatic
+    ticks too close to it so labels never overlap. Survives zoom/pan."""
+    from matplotlib.ticker import AutoLocator, FuncFormatter, Locator
+
+    class _WithReference(Locator):
+        def __init__(self):
+            self._base = AutoLocator()
+
+        def __call__(self):
+            vmin, vmax = sorted(self.axis.get_view_interval())
+            ticks = [t for t in self._base.tick_values(vmin, vmax)
+                     if abs(t - value) > 0.045 * (vmax - vmin)]
+            if vmin <= value <= vmax:
+                ticks.append(value)
+            return sorted(ticks)
+
+    ax.yaxis.set_major_locator(_WithReference())
+    ax.yaxis.set_major_formatter(FuncFormatter(
+        lambda v, _: f"{v:.{decimals}f}" if abs(v - value) < 1e-9 else f"{v:g}"))
+
+
+def _airbrake_colorbar(fig, mappable, cax):
+    cbar = fig.colorbar(mappable, cax=cax, extend="min", extendfrac=0.03)
+    cbar.set_label("Airbrakes (blue = closed)", fontsize=8, labelpad=2)
+    cbar.set_ticks([0.25, 0.5, 0.75, 1.0])
+    cbar.set_ticklabels(["25%", "50%", "75%", "100%"])
+    cbar.ax.tick_params(labelsize=7, length=2, pad=1)
+    cbar.outline.set_linewidth(0.5)
+    return cbar
+
+
+def _plot_airbrake_trajectory(
+    sim_time_s: np.ndarray,
+    altitude_m: np.ndarray,
+    airbrake_events: list[tuple[float, float]],
+    fsm_events: list[tuple[float, str]],
+    time_eclipses: list[dict[str, Any]],
+    rocketpy_apogee: dict[str, float] | None,
+    apogee_idx: int | None,
+) -> None:
+    """Altitude vs time coloured by airbrake opening, FSM keypoints, and a
+    deployment-level strip below on the same time axis."""
+    levels = _airbrake_level_per_sample(sim_time_s, airbrake_events)
+
+    fig = plt.figure(figsize=(13, 7))
+    # Narrow third column holds the colorbar so both rows keep identical x extents.
+    grid = fig.add_gridspec(
+        2, 2,
+        height_ratios=[3.5, 1],
+        width_ratios=[1, 0.008],
+        hspace=0.06,
+        wspace=0.008,
+    )
+    ax_alt = fig.add_subplot(grid[0, 0])
+    ax_lvl = fig.add_subplot(grid[1, 0], sharex=ax_alt)
+    cax = fig.add_subplot(grid[0, 1])
+
+    _draw_altitude_context(
+        ax_alt,
+        sim_time_s,
+        altitude_m,
+        fsm_events,
+        time_eclipses,
+        rocketpy_apogee,
+        apogee_idx,
+        draw_line=False,
+    )
+    lc = _colored_altitude_line(ax_alt, sim_time_s, altitude_m, levels)
+    _airbrake_colorbar(fig, lc, cax)
+    if rocketpy_apogee is not None:
+        # Real (RocketPy) apogee, ASL like the GPS altitude on this axis.
+        ax_alt.axhline(rocketpy_apogee["z"], color="0.45", linestyle="--", linewidth=0.8, zorder=1)
+        _add_reference_y_tick(ax_alt, rocketpy_apogee["z"])
+    ax_alt.set_xlabel("")
+    ax_alt.tick_params(labelbottom=False)
+    ax_alt.set_title("Altitude and Airbrake Deployment")
+    _set_legend_if_needed(ax_alt, loc="upper right", fontsize=8)
+
+    ax_lvl.fill_between(sim_time_s, levels * 100.0, step="post", color="tab:orange", alpha=0.35, linewidth=0)
+    ax_lvl.step(sim_time_s, levels * 100.0, where="post", color="tab:orange", linewidth=1.6)
+    _mark_fsm_event_lines(ax_lvl, fsm_events)
+    ax_lvl.set_ylim(-5, 105)
+    ax_lvl.set_yticks([0, 50, 100])
+    ax_lvl.set_ylabel("Airbrakes [%]")
+    ax_lvl.set_xlabel("Simulation time [s]")
+    ax_lvl.grid(True, alpha=0.4)
+
+    fig.subplots_adjust(left=0.06, right=0.955, top=0.94, bottom=0.08)
+
+
+# ----------------------------------------------------------------------
+# FC ALTITUDE ESTIMATOR VS SIMULATOR TRUTH
+# ----------------------------------------------------------------------
+
+EST_TRUTH_COLOR = "0.1"
+EST_RAW_COLOR = "0.72"
+EST_ESTIMATE_COLOR = "C0"
+EST_ERROR_COLOR = "C3"
+
+
+def _sanitize_fc_estimates(raw_events: Any) -> np.ndarray:
+    """Rows of [capture_time_s, filtered_pressure_pa, altitude_m, vertical_velocity_mps]."""
+    rows = []
+    for item in raw_events or []:
+        if isinstance(item, (list, tuple)) and len(item) == 4:
+            try:
+                row = [float(value) for value in item]
+            except (TypeError, ValueError):
+                continue
+            if all(np.isfinite(row)):
+                rows.append(row)
+    rows.sort(key=lambda row: row[0])
+    return np.asarray(rows, dtype=float).reshape(-1, 4)
+
+
+def _interp_or_nan(x: np.ndarray, xp: np.ndarray, fp: np.ndarray) -> np.ndarray:
+    out = np.interp(x, xp, fp)
+    out[(x < xp[0]) | (x > xp[-1])] = np.nan
+    return out
+
+
+def _plot_estimator_vs_truth(
+    hil_log: dict[str, list[Any]],
+    metadata: dict[str, Any],
+    estimates: np.ndarray,
+    fsm_events: list[tuple[float, str]],
+    time_eclipses: list[dict[str, Any]],
+) -> None:
+    """Altitude, vertical velocity and pressure: simulator truth vs what the FC
+    computed, each with an error lane (estimate − truth, RMSE, bias) below."""
+    sim_time_s = _as_array(hil_log, "sim_time_s")
+    z_asl = _as_array(hil_log, "z")
+    elevation_m = float(metadata.get("environment_elevation_m", z_asl[0]))
+    if "true_pressure_pa" in hil_log and len(hil_log["true_pressure_pa"]) == len(sim_time_s):
+        true_pressure = _as_array(hil_log, "true_pressure_pa")
+        pressure_truth_label = "real (simulator)"
+    else:
+        # Captures recorded before true_pressure_pa existed: ISA at the truth altitude.
+        true_pressure = 101325.0 * np.power(1.0 - 2.25577e-5 * z_asl, 5.25588)
+        pressure_truth_label = "real (ISA approx., old capture)"
+    raw_pressure = _as_array(hil_log, "pressure_pa")
+
+    est_t = estimates[:, 0]
+    quantities = (
+        # title, unit, FC estimate, truth series, estimate label
+        ("Altitude AGL", "m", estimates[:, 2], z_asl - elevation_m, "FC altitude estimate"),
+        ("Vertical velocity", "m/s", estimates[:, 3], _as_array(hil_log, "vz"), "FC OLS velocity"),
+        ("Pressure", "Pa", estimates[:, 1], true_pressure, "FC filtered pressure"),
+    )
+
+    fig, axes = plt.subplots(
+        6, 1, figsize=(13, 14), sharex=True,
+        gridspec_kw={"height_ratios": [3, 1, 3, 1, 3, 1]},
+    )
+    for row, (title, unit, estimate, truth, label) in enumerate(quantities):
+        ax_value, ax_error = axes[2 * row], axes[2 * row + 1]
+        is_pressure = title == "Pressure"
+
+        if is_pressure:
+            ax_value.plot(sim_time_s, raw_pressure, color=EST_RAW_COLOR, linewidth=0.7,
+                          label="raw pressure sent to FC")
+        ax_value.plot(sim_time_s, truth, color=EST_TRUTH_COLOR, linewidth=1.2,
+                      label=pressure_truth_label if is_pressure else "real (simulator)")
+        ax_value.plot(est_t, estimate, color=EST_ESTIMATE_COLOR, linewidth=1.3, label=label)
+        if is_pressure:
+            # Scale on the useful signals; raw noise may clip at the edges.
+            low = np.nanmin([np.nanmin(truth), np.nanmin(estimate)])
+            high = np.nanmax([np.nanmax(truth), np.nanmax(estimate)])
+            margin = 0.05 * (high - low) + 1.0
+            ax_value.set_ylim(low - margin, high + margin)
+        _mark_fsm_event_lines(ax_value, fsm_events)
+        _mark_time_eclipses(ax_value, time_eclipses, sim_time_s)
+        ax_value.set_title(f"{title}: real vs FC computed")
+        ax_value.set_ylabel(f"[{unit}]")
+        ax_value.grid(True, alpha=0.4)
+        _set_legend_if_needed(ax_value, loc="upper right", fontsize=8)
+
+        error = estimate - _interp_or_nan(est_t, sim_time_s, truth)
+        ax_error.axhline(0.0, color="0.4", linewidth=0.8)
+        ax_error.plot(est_t, error, color=EST_ERROR_COLOR, linewidth=1.0)
+        _mark_fsm_event_lines(ax_error, fsm_events)
+        valid = np.isfinite(error)
+        if valid.any():
+            rmse = float(np.sqrt(np.mean(error[valid] ** 2)))
+            bias = float(np.mean(error[valid]))
+            ax_error.text(0.995, 0.94, f"RMSE {rmse:.2f} {unit} · bias {bias:+.2f} {unit}",
+                          transform=ax_error.transAxes, ha="right", va="top", fontsize=8,
+                          bbox={"boxstyle": "round,pad=0.25", "facecolor": "white", "edgecolor": "0.8"})
+        ax_error.set_ylabel(f"error [{unit}]")
+        ax_error.grid(True, alpha=0.4)
+
+    axes[-1].set_xlabel("Simulation time [s]")
+    fig.tight_layout()
 
 
 # ----------------------------------------------------------------------
@@ -1853,30 +2161,27 @@ def plot_hil_log(
         fig_fsm.tight_layout()
 
     # ------------------------------------------------------------------
-    # Airbrakes command level
+    # Altitude coloured by airbrake deployment + deployment strip
     # ------------------------------------------------------------------
     if len(airbrake_events) > 0:
-        air_t = [sim_time_s[0]]
-        air_lvl = [0.0]
+        _plot_airbrake_trajectory(
+            sim_time_s,
+            altitude_m,
+            airbrake_events,
+            fsm_events,
+            time_eclipses,
+            rocketpy_apogee,
+            apogee_idx,
+        )
 
-        for event_t, lvl in airbrake_events:
-            air_t.append(event_t)
-            air_lvl.append(lvl)
-
-        air_t.append(sim_time_s[-1])
-        air_lvl.append(air_lvl[-1])
-
-        fig_air, ax_air = plt.subplots(figsize=(12, 4))
-        ax_air.step(air_t, air_lvl, where="post")
-        _mark_fsm_event_lines(ax_air, fsm_events)
-        _mark_time_eclipses(ax_air, time_eclipses, sim_time_s)
-        ax_air.set_title("Airbrakes Command Received from FC")
-        ax_air.set_xlabel("Simulation time [s]")
-        ax_air.set_ylabel("Deployment level")
-        ax_air.set_ylim(-0.05, 1.05)
-        ax_air.grid(True)
-        _set_legend_if_needed(ax_air)
-        fig_air.tight_layout()
+    # ------------------------------------------------------------------
+    # FC altitude estimator vs simulator truth
+    # ------------------------------------------------------------------
+    fc_estimates = _sanitize_fc_estimates(hil_events.get("fc_estimates"))
+    if len(fc_estimates) >= 2:
+        _plot_estimator_vs_truth(hil_log, metadata, fc_estimates, fsm_events, time_eclipses)
+    else:
+        print("[PLOT] No FC altitude estimates in this capture (needs firmware that reports them).")
 
     if show:
         plt.show()
