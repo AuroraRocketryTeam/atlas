@@ -113,6 +113,7 @@ hil_events = {
     "fsm_state": [],
     "time_eclipses": [],
     "rocketpy_apogee": [],
+    "fc_estimates": [],
 }
 
 hil_log = {
@@ -140,6 +141,7 @@ hil_log = {
     "accel_y_m_s2": [],
     "accel_z_m_s2": [],
     "pressure_pa": [],
+    "true_pressure_pa": [],
     "temperature_k": [],
     "latitude_deg": [],
     "longitude_deg": [],
@@ -449,6 +451,30 @@ def on_set_air_brakes(command_sim_time_s, deployment_level):
             print("[E]: time mismatch, overwriting with old values new stuff.")
 
 
+_last_fc_estimate_timestamp_ms = 0
+
+
+def on_fc_estimate(estimate):
+    """Record each new FC altitude estimate (replies repeat it until the next baro sample)."""
+    global _last_fc_estimate_timestamp_ms
+
+    if estimate.timestamp_ms == 0 or estimate.timestamp_ms == _last_fc_estimate_timestamp_ms:
+        return
+    _last_fc_estimate_timestamp_ms = estimate.timestamp_ms
+
+    fc_time_s = estimate.timestamp_ms / 1000.0
+    if PREFLIGHT_ECLIPSED_DURATION_S > 0.0 and PREFLIGHT_DURATION_S <= fc_time_s < PREFLIGHT_FC_DURATION_S:
+        return
+
+    with command_state.lock:
+        hil_events["fc_estimates"].append([
+            compact_hil_time(fc_time_s),
+            float(estimate.filtered_pressure_pa),
+            float(estimate.altitude_m),
+            float(estimate.vertical_velocity_mps),
+        ])
+
+
 def on_fsm_state(command_sim_time_s, fsm_state):
     name = hil_communication.fsm_state_name(fsm_state)
 
@@ -506,6 +532,9 @@ def airbrakes_drag_function(level, mach):
     opening_pct = float(np.clip(level, 0.0, 1.0)) * 100.0
     cd_vs_opening = [np.interp(mach, AIRBRAKES_MACH_BP, row) for row in AIRBRAKES_CD_TABLE]
     cd = np.interp(opening_pct, AIRBRAKES_OPENING_BP_PCT, cd_vs_opening)
+
+    print("USING CD:", cd)
+    
     return float(cd - cd_vs_opening[0])
 
 
@@ -619,6 +648,7 @@ def append_hil_log_sample(
     hil_log["accel_z_m_s2"].append(accel_z_m_s2)
 
     hil_log["pressure_pa"].append(pressure_pa)
+    hil_log["true_pressure_pa"].append(environment_pressure_at_asl_m(z))
     hil_log["temperature_k"].append(temperature_k)
 
     hil_log["latitude_deg"].append(latitude_deg)
@@ -1305,6 +1335,14 @@ def run_preflight_calibration(mailbox, rate_hz):
             (compact_hil_time(event_time_s), state)
             for event_time_s, state in hil_events["fsm_state"]
         ]
+        # Estimates recorded so far still carry raw FC time (the eclipse length
+        # was unknown until now): drop the Ground Services ones, compact the rest.
+        with command_state.lock:
+            hil_events["fc_estimates"] = [
+                [compact_hil_time(event_time_s), *values]
+                for event_time_s, *values in hil_events["fc_estimates"]
+                if not (PREFLIGHT_DURATION_S <= event_time_s < PREFLIGHT_FC_DURATION_S)
+            ]
 
     print(
         "[PREFLIGHT] FC reported READY_FOR_LAUNCH after "
@@ -1420,6 +1458,7 @@ handlers_dict = {
     "on_open_main": on_open_main,
     "on_set_air_brakes": on_set_air_brakes,
     "on_fsm_state": on_fsm_state,
+    "on_fc_estimate": on_fc_estimate,
 }
 handlers = hil_communication.CommandHandlers(**handlers_dict)
 
