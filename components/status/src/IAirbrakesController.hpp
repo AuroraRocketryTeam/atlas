@@ -21,7 +21,7 @@ public:
 
     /**
      * @brief Command the airbrakes deployment.
-     * @param deployment 0.0f fully closed, 1.9f fully open.
+     * @param deployment 0.0f fully closed, 1.0f fully open.
      */
     virtual void command(float deployment) = 0;
 };
