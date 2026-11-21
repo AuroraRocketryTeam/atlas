@@ -20,7 +20,7 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
         std::shared_ptr<GPS> gps,
         std::shared_ptr<SD> sd,
         std::shared_ptr<Flash> flash,
-        ServoController* airbrakesServo) :
+        IAirbrakesController* airbrakesServo) :
     _bno(bno),
     _lis3dh(lis3dh),
     _ms56_1(ms56_1),
@@ -124,7 +124,7 @@ bool RocketModel::startAirbrakes()
     if (!_airbrakesServo) return false;
     if (!_airbrakesServo->start()) return false;
     // Hold the brakes closed from the first moment the actuator is alive
-    _airbrakesServo->writeDeployment(0.0f);
+    _airbrakesServo->command(0.0f);
     return true;
 }
 
@@ -136,7 +136,7 @@ bool RocketModel::setAirbrakesCommand(float lvl){
         xSemaphoreGive(_stateMutex);
     }
     // Move the actual servo
-    if (_airbrakesServo) _airbrakesServo->writeDeployment(lvl);
+    if (_airbrakesServo) _airbrakesServo->command(lvl);
     return true;
 }
 

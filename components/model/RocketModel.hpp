@@ -18,7 +18,7 @@
 #include <SD-master.hpp>
 #include <Flash.hpp>
 #include <IStorage.hpp>
-#include <ServoController.hpp>
+#include <IAirbrakesController.hpp>
 #include <config.h>
 
 enum class SensorReadStatus {
@@ -56,7 +56,7 @@ public:
             std::shared_ptr<GPS> gps,
             std::shared_ptr<SD> sd = nullptr,
             std::shared_ptr<Flash> flash = nullptr,
-            ServoController* airbrakesServo = nullptr);
+            IAirbrakesController* airbrakesServo = nullptr);
 
     /**
      * @brief Update the BNO055 sensor data
@@ -413,9 +413,7 @@ private:
     std::shared_ptr<Flash> _flash;
 
     // Actuators (owned by the board)
-    // TODO: To be replaced by an actuator
-    // interface.
-    ServoController* _airbrakesServo;
+    IAirbrakesController* _airbrakesServo;
 
     // Critical mutexes
     SemaphoreHandle_t _imuMutex = nullptr;

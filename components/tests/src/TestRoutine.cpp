@@ -563,7 +563,7 @@ bool TestRoutine::testServo()
         LOG_ERROR("Test", "Couldn't set servo frequency!");
         return false;
     }
-    servo->writeDeployment(0.0f);
+    servo->command(0.0f);
 
     return waitForUserInput("Type PASSED or FAILED");
 }

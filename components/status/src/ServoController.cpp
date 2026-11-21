@@ -109,7 +109,7 @@ bool ServoController::setFrequency(uint32_t new_freq) {
     * @param deployment 0.0f fully closed, 1.0f fully open.
     * @return Pulse width in microseconds, linear between the two ends.
     */
-void ServoController::writeDeployment(float deployment)
+void ServoController::command(float deployment)
 {
     if (deployment < 0.0f || deployment > 1.0f) {
         LOG_WARNING("Servo", "Commanded impossible deployment %f!", deployment);
