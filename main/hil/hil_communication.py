@@ -38,8 +38,14 @@ PAYLOAD_SIZE = struct.calcsize(PAYLOAD_FMT)
 
 # Extended command format (mirrors fc_command_packet_t in Command.hpp):
 # command_sim_time_s, open_main, open_drogue, airbrakes_deployment, fsm_state,
-# est_filtered_pressure_pa, est_altitude_m, est_vertical_velocity_mps, est_timestamp_ms
-COMMAND_FMT = "<fBBfBfffI"
+# est_filtered_pressure_pa, est_altitude_m, est_vertical_velocity_mps, est_timestamp_ms,
+# then the airbrake controller cycle (AirbrakesTelemetry):
+# ab_cycle, ab_timestamp_ms, ab_velocity_timestamp_ms, ab_flags,
+# ab_altitude_m, ab_vertical_velocity_mps, ab_deployment, ab_predicted_apogee_m,
+# ab_apogee_closed_m, ab_compute_us,
+# ab_target_apogee_m, ab_opening_altitude_m, ab_dry_mass_kg, ab_reference_area_m2,
+# ab_launch_site_altitude_m, ab_prediction_dt_s, ab_prediction_max_steps
+COMMAND_FMT = "<fBBfBfffI" + "IIIB5fI" + "6fI"
 COMMAND_SIZE = struct.calcsize(COMMAND_FMT)
 
 # These values intentionally mirror RocketState in IStateMachine.hpp / RocketFSM.
@@ -211,10 +217,38 @@ def decode_fc_command(payload):
     if len(payload) != COMMAND_SIZE:
         raise RuntimeError(f"Payload size mismatch: {len(payload)} != {COMMAND_SIZE}")
 
+    values = struct.unpack(COMMAND_FMT, payload)
     (
         command_sim_time_s, open_main, open_drogue, airbrakes_deployment, fsm_state,
         est_filtered_pressure_pa, est_altitude_m, est_vertical_velocity_mps, est_timestamp_ms,
-    ) = struct.unpack(COMMAND_FMT, payload)
+    ) = values[:9]
+    (
+        ab_cycle, ab_timestamp_ms, ab_velocity_timestamp_ms, ab_flags,
+        ab_altitude_m, ab_vertical_velocity_mps, ab_deployment, ab_predicted_apogee_m,
+        ab_apogee_closed_m, ab_compute_us,
+        ab_target_apogee_m, ab_opening_altitude_m, ab_dry_mass_kg, ab_reference_area_m2,
+        ab_launch_site_altitude_m, ab_prediction_dt_s, ab_prediction_max_steps,
+    ) = values[9:]
+    airbrakes_telemetry = AirbrakesTelemetry(
+        cycle=int(ab_cycle),
+        timestamp_ms=int(ab_timestamp_ms),
+        velocity_timestamp_ms=int(ab_velocity_timestamp_ms),
+        armed=bool(ab_flags & 0x01),
+        velocity_fresh=bool(ab_flags & 0x02),
+        altitude_m=ab_altitude_m,
+        vertical_velocity_mps=ab_vertical_velocity_mps,
+        deployment=ab_deployment,
+        predicted_apogee_m=ab_predicted_apogee_m,
+        apogee_closed_m=ab_apogee_closed_m,
+        compute_us=int(ab_compute_us),
+        target_apogee_m=ab_target_apogee_m,
+        opening_altitude_m=ab_opening_altitude_m,
+        dry_mass_kg=ab_dry_mass_kg,
+        reference_area_m2=ab_reference_area_m2,
+        launch_site_altitude_m=ab_launch_site_altitude_m,
+        prediction_dt_s=ab_prediction_dt_s,
+        prediction_max_steps=int(ab_prediction_max_steps),
+    )
     return (
         command_sim_time_s,
         bool(open_main),
@@ -227,6 +261,7 @@ def decode_fc_command(payload):
             vertical_velocity_mps=est_vertical_velocity_mps,
             timestamp_ms=int(est_timestamp_ms),
         ),
+        airbrakes_telemetry,
     )
 
 
@@ -277,6 +312,35 @@ class FcEstimate:
     timestamp_ms: int
 
 
+@dataclass(frozen=True)
+class AirbrakesTelemetry:
+    """Airbrake controller cycle reported with one command (cycle 0 = law not run yet).
+
+    Mirrors AirbrakesTelemetry in AirbrakesData.hpp. Altitudes are m AGL.
+    ``apogee_closed_m`` is the apogee predicted with the brakes held closed
+    (NaN when the law did not run this cycle).
+    """
+
+    cycle: int
+    timestamp_ms: int
+    velocity_timestamp_ms: int
+    armed: bool
+    velocity_fresh: bool
+    altitude_m: float
+    vertical_velocity_mps: float
+    deployment: float
+    predicted_apogee_m: float
+    apogee_closed_m: float
+    compute_us: int
+    target_apogee_m: float
+    opening_altitude_m: float
+    dry_mass_kg: float
+    reference_area_m2: float
+    launch_site_altitude_m: float
+    prediction_dt_s: float
+    prediction_max_steps: int
+
+
 @dataclass
 class CommandHandlers:
     on_open_main: Optional[Callable[[float], None]] = None
@@ -284,6 +348,7 @@ class CommandHandlers:
     on_set_air_brakes: Optional[Callable[[float, float], None]] = None
     on_fsm_state: Optional[Callable[[float, int], None]] = None
     on_fc_estimate: Optional[Callable[[FcEstimate], None]] = None
+    on_airbrakes_telemetry: Optional[Callable[[AirbrakesTelemetry], None]] = None
 
 
 class OneSlotMailbox:
@@ -423,6 +488,7 @@ def tcp_client(
                     airbrakes_deployment,
                     fsm_state,
                     fc_estimate,
+                    airbrakes_telemetry,
                 ) = decode_fc_command(rx_payload)
 
                 # ===== HANDLE =====
@@ -439,6 +505,9 @@ def tcp_client(
                 # this response, so the estimate is recorded first.
                 if handlers.on_fc_estimate:
                     handlers.on_fc_estimate(fc_estimate)
+
+                if handlers.on_airbrakes_telemetry:
+                    handlers.on_airbrakes_telemetry(airbrakes_telemetry)
 
                 if handlers.on_fsm_state:
                     handlers.on_fsm_state(command_sim_time_s, fsm_state)

@@ -543,6 +543,26 @@ void HilSimulationTask::taskFunction() {
                 wire.est_timestamp_ms = _rocketModel->getHeightGainSpeedTimestamp();
                 if (wire.est_timestamp_ms == stampBefore) break;
             }
+
+            const AirbrakesTelemetry ab = _rocketModel->getAirbrakesTelemetry();
+            wire.ab_cycle = ab.cycle;
+            wire.ab_timestamp_ms = ab.record.timestamp;
+            wire.ab_velocity_timestamp_ms = ab.velocity_timestamp_ms;
+            wire.ab_flags = static_cast<uint8_t>((ab.record.armed ? 0x01u : 0u) |
+                                                 (ab.record.velocity_fresh ? 0x02u : 0u));
+            wire.ab_altitude_m = ab.record.altitude_m;
+            wire.ab_vertical_velocity_mps = ab.record.vertical_velocity_mps;
+            wire.ab_deployment = ab.record.deployment;
+            wire.ab_predicted_apogee_m = ab.record.predicted_apogee_m;
+            wire.ab_apogee_closed_m = ab.record.apogee_closed_m;
+            wire.ab_compute_us = ab.record.compute_us;
+            wire.ab_target_apogee_m = ab.target_apogee_m;
+            wire.ab_opening_altitude_m = ab.opening_altitude_m;
+            wire.ab_dry_mass_kg = ab.dry_mass_kg;
+            wire.ab_reference_area_m2 = ab.reference_area_m2;
+            wire.ab_launch_site_altitude_m = ab.launch_site_altitude_m;
+            wire.ab_prediction_dt_s = ab.prediction_dt_s;
+            wire.ab_prediction_max_steps = ab.prediction_max_steps;
             
             memset(&out_msg, 0, sizeof(out_msg));
             out_msg.type = MSG_TYPE_FC_COMMAND;

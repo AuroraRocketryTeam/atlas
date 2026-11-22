@@ -87,6 +87,7 @@ AirbrakesController::Outputs AirbrakesController::computeCommand(const Inputs &i
 {
     Outputs out{};
     out.armed = false;
+    out.apogee_closed_m = NAN;
     if (_params.aero == nullptr)
     {
         return out;
@@ -127,6 +128,10 @@ AirbrakesController::Outputs AirbrakesController::computeCommand(const Inputs &i
         float timeToApogee = 0.0f;
         predictApogee(k, h0, v0, apogee, timeToApogee);
         ++out.candidates_evaluated;
+        if (k == 0)
+        {
+            out.apogee_closed_m = apogee;
+        }
 
         if (apogee <= _params.target_apogee_m)
         {

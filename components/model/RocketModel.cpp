@@ -396,6 +396,19 @@ void RocketModel::setHeightGainSpeed(float heightGainSpeed, uint32_t timestamp) 
     _heightGainSpeedTimestamp.store(timestamp, std::memory_order_release);
 }
 
+RocketModel::VerticalFitState RocketModel::getVerticalFitState() {
+    portENTER_CRITICAL(&_verticalFitStateLock);
+    const VerticalFitState copy = _verticalFitState;
+    portEXIT_CRITICAL(&_verticalFitStateLock);
+    return copy;
+}
+
+void RocketModel::setVerticalFitState(const VerticalFitState &state) {
+    portENTER_CRITICAL(&_verticalFitStateLock);
+    _verticalFitState = state;
+    portEXIT_CRITICAL(&_verticalFitStateLock);
+}
+
 float RocketModel::getCurrentHeight() {
     return _currentHeight.load(std::memory_order_relaxed);
 }
@@ -410,6 +423,19 @@ float RocketModel::getFilteredPressure() {
 
 void RocketModel::setFilteredPressure(float pressurePa) {
     _filteredPressure.store(pressurePa, std::memory_order_relaxed);
+}
+
+AirbrakesTelemetry RocketModel::getAirbrakesTelemetry() {
+    portENTER_CRITICAL(&_airbrakesTelemetryLock);
+    const AirbrakesTelemetry copy = _airbrakesTelemetry;
+    portEXIT_CRITICAL(&_airbrakesTelemetryLock);
+    return copy;
+}
+
+void RocketModel::setAirbrakesTelemetry(const AirbrakesTelemetry &telemetry) {
+    portENTER_CRITICAL(&_airbrakesTelemetryLock);
+    _airbrakesTelemetry = telemetry;
+    portEXIT_CRITICAL(&_airbrakesTelemetryLock);
 }
 
 bool RocketModel::isStorageInitialized(uint32_t timeoutMs) const {

@@ -18,10 +18,30 @@ struct __attribute__((packed)) fc_command_packet_t {
     float est_altitude_m;
     float est_vertical_velocity_mps;
     uint32_t est_timestamp_ms;
+
+    // Airbrake controller cycle (AirbrakesTelemetry)
+    uint32_t ab_cycle;
+    uint32_t ab_timestamp_ms;
+    uint32_t ab_velocity_timestamp_ms;
+    uint8_t ab_flags;                     // bit0 armed, bit1 velocity fresh
+    float ab_altitude_m;
+    float ab_vertical_velocity_mps;
+    float ab_deployment;                  // 0..1
+    float ab_predicted_apogee_m;
+    float ab_apogee_closed_m;             // apogee predicted with the brakes held closed
+    uint32_t ab_compute_us;
+    // Per-flight controller parameters
+    float ab_target_apogee_m;
+    float ab_opening_altitude_m;
+    float ab_dry_mass_kg;
+    float ab_reference_area_m2;
+    float ab_launch_site_altitude_m;
+    float ab_prediction_dt_s;
+    uint32_t ab_prediction_max_steps;
 };
 
 // Keep in sync with COMMAND_FMT in main/hil/hil_communication.py and mock_manny_fc_server.py.
-static_assert(sizeof(fc_command_packet_t) == 27, "fc_command_packet_t size mismatch");
+static_assert(sizeof(fc_command_packet_t) == 92, "fc_command_packet_t size mismatch");
 
 
 /**

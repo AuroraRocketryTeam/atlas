@@ -201,7 +201,7 @@ void AirbrakesTask::airbrakes_ctl_law() {
         else
         {
             out.armed = false;
-            for (float &apogee : out.candidate_apogee_m) apogee = NAN;
+            out.apogee_closed_m = NAN;
         }
 
         if (computeUs > COMPUTE_WARNING_US && !computeWarningIssued)
@@ -227,9 +227,8 @@ void AirbrakesTask::airbrakes_ctl_law() {
         record.deployment = deployment;
         record.cd_cmd = out.cd_cmd;
         record.predicted_apogee_m = out.predicted_apogee_m;
-        record.apogee_closed_m = out.candidates_evaluated > 0 ? out.candidate_apogee_m[0] : NAN;
+        record.apogee_closed_m = out.apogee_closed_m;
         record.time_to_apogee_s = out.time_to_apogee_s;
-        // held_opening_pct / apogee_error_m / integrator are PID-only: left NaN.
         record.compute_us = computeUs;
         record.candidates = out.candidates_evaluated;
         record.armed = out.armed;
@@ -239,14 +238,7 @@ void AirbrakesTask::airbrakes_ctl_law() {
         ++telemetry.cycle;
         // The instant the controller's (altitude, velocity) state refers to.
         telemetry.velocity_timestamp_ms = fit.fit_timestamp_ms;
-        telemetry.opening_gate_reached = openingAltitudeReached;
         telemetry.record = record;
-        for (size_t k = 0; k < AirbrakesTelemetry::kMaxCandidates; ++k)
-        {
-            telemetry.candidate_apogee_m[k] = (velocityFresh && k < AirbrakesController::kMaxOpeningBreakpoints)
-                                                  ? out.candidate_apogee_m[k]
-                                                  : NAN;
-        }
         _rocketModel->setAirbrakesTelemetry(telemetry);
 
         if (_logger && ++logCycleCounter >= LOG_INTERVAL_CYCLES)

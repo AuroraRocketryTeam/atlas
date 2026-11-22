@@ -114,6 +114,7 @@ hil_events = {
     "time_eclipses": [],
     "rocketpy_apogee": [],
     "fc_estimates": [],
+    "airbrakes_telemetry": [],
 }
 
 hil_log = {
@@ -146,6 +147,9 @@ hil_log = {
     "latitude_deg": [],
     "longitude_deg": [],
     "altitude_m": [],
+
+    # actuator state RocketPy actually applied at this sample
+    "airbrakes_applied_level": [],
 }
 
 
@@ -475,6 +479,52 @@ def on_fc_estimate(estimate):
         ])
 
 
+_last_airbrakes_cycle = 0
+# Parameters the FC controller reported last (constant for a flight), for the capture metadata.
+latest_airbrakes_controller_params = None
+
+
+def on_airbrakes_telemetry(telemetry):
+    """Record each new airbrake control cycle (replies repeat it until the next cycle)."""
+    global _last_airbrakes_cycle, latest_airbrakes_controller_params
+
+    if telemetry.cycle == 0 or telemetry.cycle == _last_airbrakes_cycle:
+        return
+    _last_airbrakes_cycle = telemetry.cycle
+
+    fc_time_s = telemetry.timestamp_ms / 1000.0
+    if PREFLIGHT_ECLIPSED_DURATION_S > 0.0 and PREFLIGHT_DURATION_S <= fc_time_s < PREFLIGHT_FC_DURATION_S:
+        return
+
+    def finite_or_none(value):
+        value = float(value)
+        return value if math.isfinite(value) else None
+
+    with command_state.lock:
+        latest_airbrakes_controller_params = {
+            "target_apogee_m": float(telemetry.target_apogee_m),
+            "opening_altitude_m": float(telemetry.opening_altitude_m),
+            "dry_mass_kg": float(telemetry.dry_mass_kg),
+            "reference_area_m2": float(telemetry.reference_area_m2),
+            "launch_site_altitude_m": float(telemetry.launch_site_altitude_m),
+            "prediction_dt_s": float(telemetry.prediction_dt_s),
+            "prediction_max_steps": int(telemetry.prediction_max_steps),
+        }
+        hil_events["airbrakes_telemetry"].append({
+            "time_s": compact_hil_time(fc_time_s),
+            "velocity_time_s": compact_hil_time(telemetry.velocity_timestamp_ms / 1000.0),
+            "cycle": int(telemetry.cycle),
+            "armed": bool(telemetry.armed),
+            "velocity_fresh": bool(telemetry.velocity_fresh),
+            "altitude_m": float(telemetry.altitude_m),
+            "vertical_velocity_mps": float(telemetry.vertical_velocity_mps),
+            "deployment": float(telemetry.deployment),
+            "predicted_apogee_m": float(telemetry.predicted_apogee_m),
+            "apogee_closed_m": finite_or_none(telemetry.apogee_closed_m),
+            "compute_us": int(telemetry.compute_us),
+        })
+
+
 def on_fsm_state(command_sim_time_s, fsm_state):
     name = hil_communication.fsm_state_name(fsm_state)
 
@@ -538,10 +588,16 @@ def airbrakes_drag_function(level, mach):
     return float(cd - cd_vs_opening[0])
 
 
+# Deployment level RocketPy is applying right now (after its clamp), logged per sample.
+applied_airbrakes_level = 0.0
+
+
 def airbrakes_controller(controller_time_s, sampling_rate, state_vector, state_history, observed_variables, interactive_objects):
+    global applied_airbrakes_level
     airbrake = interactive_objects
     with command_state.lock:
         airbrake.deployment_level = command_state.airbrakes_lvl
+    applied_airbrakes_level = float(airbrake.deployment_level)
     return airbrake
 
 seq = 0
@@ -612,6 +668,7 @@ def append_hil_log_sample(
     omega1=0.0,
     omega2=0.0,
     omega3=0.0,
+    airbrakes_applied_level=0.0,
 ):
     """
     Log one HIL packet that was actually queued/sent to the FC.
@@ -654,6 +711,8 @@ def append_hil_log_sample(
     hil_log["latitude_deg"].append(latitude_deg)
     hil_log["longitude_deg"].append(longitude_deg)
     hil_log["altitude_m"].append(altitude_m)
+
+    hil_log["airbrakes_applied_level"].append(airbrakes_applied_level)
 
 def enqueue_data(rocketpy_time_s, state, sensors):
     global seq
@@ -747,6 +806,7 @@ def enqueue_data(rocketpy_time_s, state, sensors):
         vx=vx, vy=vy, vz=vz, 
         e0=e0, e1=e1, e2=e2, e3=e3,
         omega1=omega1, omega2=omega2, omega3=omega3,
+        airbrakes_applied_level=applied_airbrakes_level,
     )
 
     # Update only after the packet has actually been queued and logged.
@@ -1343,6 +1403,13 @@ def run_preflight_calibration(mailbox, rate_hz):
                 for event_time_s, *values in hil_events["fc_estimates"]
                 if not (PREFLIGHT_DURATION_S <= event_time_s < PREFLIGHT_FC_DURATION_S)
             ]
+            hil_events["airbrakes_telemetry"] = [
+                {**row,
+                 "time_s": compact_hil_time(row["time_s"]),
+                 "velocity_time_s": compact_hil_time(row["velocity_time_s"])}
+                for row in hil_events["airbrakes_telemetry"]
+                if not (PREFLIGHT_DURATION_S <= row["time_s"] < PREFLIGHT_FC_DURATION_S)
+            ]
 
     print(
         "[PREFLIGHT] FC reported READY_FOR_LAUNCH after "
@@ -1459,6 +1526,7 @@ handlers_dict = {
     "on_set_air_brakes": on_set_air_brakes,
     "on_fsm_state": on_fsm_state,
     "on_fc_estimate": on_fc_estimate,
+    "on_airbrakes_telemetry": on_airbrakes_telemetry,
 }
 handlers = hil_communication.CommandHandlers(**handlers_dict)
 
@@ -1510,6 +1578,50 @@ else:
 # ----------------------------------------------------------------------
 # BUILD CAPTURE METADATA
 # ----------------------------------------------------------------------
+def build_airbrakes_truth_model(flight):
+    """Tables of what RocketPy simulates during the coast (atmosphere, wind,
+    drag, mass), so the airbrake controller analysis can run its reference
+    predictor from a saved capture without RocketPy."""
+    elevation_m = require_environment_float("elevation")
+    apogee_agl_m = float(flight.apogee) - elevation_m
+    top_m = elevation_m + max(2.0 * apogee_agl_m, 1000.0)
+    altitude_asl_m = np.arange(elevation_m, top_m + 10.0, 10.0)
+
+    def sample(function, xs):
+        return [float(function.get_value_opt(float(x))) for x in xs]
+
+    mach_grid = np.round(np.arange(0.0, 2.0001, 0.01), 4)
+    burn_out_time_s = float(motor.burn_out_time)
+    airbrakes_reference_area_m2 = next(
+        (float(brake.reference_area) for brake in getattr(rocket, "air_brakes", [])),
+        float(rocket.area),
+    )
+    return {
+        "elevation_m": elevation_m,
+        "altitude_asl_m": altitude_asl_m.tolist(),
+        "density_kg_m3": sample(env.density, altitude_asl_m),
+        "speed_of_sound_m_s": sample(env.speed_of_sound, altitude_asl_m),
+        "wind_x_m_s": sample(env.wind_velocity_x, altitude_asl_m),
+        "wind_y_m_s": sample(env.wind_velocity_y, altitude_asl_m),
+        "gravity_m_s2": sample(env.gravity, altitude_asl_m),
+        "mach_grid": mach_grid.tolist(),
+        "body_cd_power_off": sample(rocket.power_off_drag, mach_grid),
+        "burnout_mass_kg": float(rocket.total_mass.get_value_opt(burn_out_time_s + 0.1)),
+        "reference_area_m2": float(rocket.area),
+        "airbrakes_reference_area_m2": airbrakes_reference_area_m2,
+        "burn_out_rocketpy_time_s": burn_out_time_s,
+        "burn_out_capture_time_s": PREFLIGHT_DURATION_S + burn_out_time_s,
+        "airbrakes_opening_bp_pct": AIRBRAKES_OPENING_BP_PCT.tolist(),
+        "airbrakes_mach_bp": AIRBRAKES_MACH_BP.tolist(),
+        "airbrakes_cd_table": AIRBRAKES_CD_TABLE.tolist(),
+        "notes": (
+            "Coast physics RocketPy simulates: drag = 0.5 rho |V_air|^2 (A Cd_body(M) "
+            "+ A_brake (Cd_table(level, M) - Cd_table(0, M))), mass constant after burnout. "
+            "Altitudes ASL; wind/density/speed of sound from the configured Environment."
+        ),
+    }
+
+
 def build_capture_metadata():
     flight_args = prepare_rocketpy_kwargs(require_config_section(cfg, "Flight"), CONFIG_DIR)
 
@@ -1540,6 +1652,8 @@ def build_capture_metadata():
         "ground_services_eclipsed_duration_s": PREFLIGHT_ECLIPSED_DURATION_S,
         "postflight_stationary_samples": postflight_samples,
         "postflight_stationary_duration_s": postflight_samples / sampling_rate,
+        "airbrakes_controller_params": latest_airbrakes_controller_params,
+        "airbrakes_truth_model": airbrakes_truth_model,
         "notes": (
             "HIL payload stream sent to ESP32 flight controller. "
             "A startup reset is sent before calibration unless disabled. "
@@ -1563,6 +1677,7 @@ def build_capture_metadata():
 # ----------------------------------------------------------------------
 capture_file = create_capture_file(BASE_DIR / "hil_captures")
 postflight_samples = 0
+airbrakes_truth_model = None
 
 try:
     run_preflight_calibration(
@@ -1589,6 +1704,11 @@ try:
         f"capture_time={apogee_event['time_s']:.3f}s, "
         f"altitude={apogee_event['z']:.2f}m"
     )
+
+    try:
+        airbrakes_truth_model = build_airbrakes_truth_model(test_flight)
+    except Exception as exc:  # analysis aid only: never lose the capture over it
+        print(f"[WARN] Airbrakes truth model not captured: {exc}")
 
     print("Flight... COMPLETED; waiting for FC recovery")
     postflight_samples = run_postflight_recovery(mailbox, sampling_rate)

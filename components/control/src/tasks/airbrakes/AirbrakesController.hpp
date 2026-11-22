@@ -98,6 +98,8 @@ public:
         float mach;
         /** Apogee predictions run this cycle, for cost monitoring */
         uint8_t candidates_evaluated;
+        /** Predicted apogee with the brakes held closed (NaN when not run) */
+        float apogee_closed_m;
     };
 
     AirbrakesController() = default;
