@@ -1,0 +1,15 @@
+# Airbrake drag coefficient Cd(opening, Mach) for Nemesis, aligned with the
+# RASAero drag the HIL simulation flies. Reference area = body cross-section
+# (pi * 0.075^2 m^2).
+#
+# Not embedded by default: the firmware (EMBED_TXTFILES in
+# components/control/CMakeLists.txt) and the HIL simulator
+# (main/hil/hil_rocketpy.py) read airbrakes_cd_table.csv.
+#
+opening_pct/mach, 0.00,  0.15,  0.30,  0.45,  0.60,  0.75
+0,                0.443, 0.427, 0.412, 0.417, 0.426, 0.438
+20,               0.479, 0.464, 0.450, 0.456, 0.467, 0.481
+40,               0.533, 0.518, 0.505, 0.513, 0.526, 0.545
+60,               0.594, 0.580, 0.568, 0.579, 0.596, 0.619
+80,               0.659, 0.645, 0.635, 0.648, 0.668, 0.696
+100,              0.723, 0.710, 0.701, 0.717, 0.741, 0.773
