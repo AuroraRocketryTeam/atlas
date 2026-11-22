@@ -15,6 +15,7 @@
 #include <PressureSensorData.hpp>
 #include <GPSData.hpp>
 #include <Command.hpp>
+#include <AirbrakesData.hpp>
 #include <SD-master.hpp>
 #include <Flash.hpp>
 #include <IStorage.hpp>
@@ -270,6 +271,19 @@ public:
     void setHeightGainSpeed(float heightGainSpeed, uint32_t timestamp);
 
     /**
+     * @brief Time-consistent barometric state from the OLS velocity fit.
+     *
+     */
+    struct VerticalFitState {
+        float altitude_m = 0.0f;
+        float vertical_velocity_mps = 0.0f;
+        uint32_t fit_timestamp_ms = 0;
+        uint32_t sample_timestamp_ms = 0;
+    };
+    VerticalFitState getVerticalFitState();
+    void setVerticalFitState(const VerticalFitState &state);
+
+    /**
      * @brief Get the Current Estimated Height
      *
      * @return current estimated height
@@ -288,6 +302,15 @@ public:
      */
     float getFilteredPressure();
     void setFilteredPressure(float pressurePa);
+
+    /**
+     * @brief Latest airbrake control cycle (inputs, prediction, output, parameters).
+     *
+     * Written by AirbrakesTask every cycle, read by the HIL task to report the
+     * controller internals. A copy guarded by a short critical section.
+     */
+    AirbrakesTelemetry getAirbrakesTelemetry();
+    void setAirbrakesTelemetry(const AirbrakesTelemetry &telemetry);
 
     /**
      * @brief Set the command to open the main parachute.
@@ -434,6 +457,12 @@ private:
     std::atomic<uint32_t> _heightGainSpeedTimestamp;
     std::atomic<float> _currentHeight;
     std::atomic<float> _filteredPressure;
+
+    AirbrakesTelemetry _airbrakesTelemetry;
+    portMUX_TYPE _airbrakesTelemetryLock = portMUX_INITIALIZER_UNLOCKED;
+
+    VerticalFitState _verticalFitState;
+    portMUX_TYPE _verticalFitStateLock = portMUX_INITIALIZER_UNLOCKED;
 
     IMUData _bnoData;
     AccelerometerSensorData _lis3dhData;

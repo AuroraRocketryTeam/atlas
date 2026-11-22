@@ -112,8 +112,13 @@ public:
         if (_sampleCount < windowSize) ++_sampleCount;
 
         // A partially filled regression window has a changing response; do not
-        // use it for apogee decisions.
-        if (_sampleCount < windowSize) return;
+        // use it for apogee decisions. Until then the fit state is the newest
+        // sample (velocity stays 0).
+        if (_sampleCount < windowSize) {
+            _fitAltitudeM = altitudeM;
+            _fitTimestampMs = timestampMs;
+            return;
+        }
 
         const uint32_t oldestTimestampMs = _sampleTimestampsMs[_nextWriteIndex];
         float sumTimeS = 0.0f;
@@ -146,6 +151,12 @@ public:
                 ((windowSize * sumTimeAltitudeMS) - (sumTimeS * sumAltitudeM)) /
                 slopeDenominator;
 
+            // The fitted line at the window centroid: the altitude at the
+            // same instant the slope describes.
+            _fitAltitudeM = sumAltitudeM / static_cast<float>(windowSize);
+            _fitTimestampMs = oldestTimestampMs +
+                static_cast<uint32_t>(1000.0f * sumTimeS / static_cast<float>(windowSize) + 0.5f);
+
             // Require consecutive descending OLS fits to reject a one-window
             // noise excursion. The configured threshold remains the definition
             // of a descending fit (normally a small negative velocity).
@@ -167,6 +178,10 @@ public:
     }
 
     float getVelocity() const { return _estimatedVelocityMps; }
+    /** Altitude of the fitted line at the window centroid, the instant getVelocity() refers to. */
+    float getFitAltitude() const { return _fitAltitudeM; }
+    /** Timestamp of the window centroid, ms. */
+    uint32_t getFitTimestamp() const { return _fitTimestampMs; }
     bool isReady() const { return _sampleCount >= _activeWindowSize; }
     void reset()
     {
@@ -174,6 +189,8 @@ public:
         _sampleCount = 0;
         _consecutiveDescendingFits = 0;
         _estimatedVelocityMps = 0.0f;
+        _fitAltitudeM = 0.0f;
+        _fitTimestampMs = 0;
     }
 
 private:
@@ -186,6 +203,8 @@ private:
     uint8_t _confirmationWindows = 3;
     uint8_t _consecutiveDescendingFits = 0;
     float _estimatedVelocityMps = 0.0f;
+    float _fitAltitudeM = 0.0f;
+    uint32_t _fitTimestampMs = 0;
 };
 
 /**

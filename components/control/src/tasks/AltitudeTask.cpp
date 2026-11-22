@@ -131,6 +131,15 @@ void AltitudeTask::taskFunction()
 
         _rocketModel->setHeightGainSpeed(currentVelocity, baroData.timestamp);
 
+        // Same fit, as a time-consistent (altitude, velocity) pair for the
+        // airbrake apogee predictor.
+        RocketModel::VerticalFitState fitState;
+        fitState.altitude_m = apogeeDetector.getFitAltitude();
+        fitState.vertical_velocity_mps = currentVelocity;
+        fitState.fit_timestamp_ms = apogeeDetector.getFitTimestamp();
+        fitState.sample_timestamp_ms = baroData.timestamp;
+        _rocketModel->setVerticalFitState(fitState);
+
         // Preserve the exact data consumed by the apogee detector so flight
         // analysis can compare raw pressure with the filtered estimator input.
         if (_logger && ++altitudeLogSampleCounter >= ALTITUDE_LOG_INTERVAL_SAMPLES) {

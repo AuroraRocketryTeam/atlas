@@ -121,17 +121,31 @@ void AirbrakesTask::airbrakes_ctl_law() {
         // Scoped so the full RuntimeConfig copy does not stay on the stack.
         const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
         const AirbrakesConfig &cfg = runtimeConfig.airbrakes;
-        AirbrakesController::Params params{};
-        params.opening_altitude_m = cfg.opening_altitude_m;
-        params.target_apogee_m = cfg.target_apogee_m;
-        params.launch_site_altitude_m = runtimeConfig.mission.launch_site_altitude_m;
-        params.dry_mass_kg = cfg.dry_mass_kg;
-        params.reference_area_m2 = cfg.reference_area_m2;
-        params.prediction_dt_s = cfg.prediction_dt_s;
-        params.prediction_max_steps = cfg.prediction_max_steps;
-        params.aero = &aeroTable.table;
-        _controller.setParams(params);
+        AirbrakesController::Params predictor{};
+        predictor.opening_altitude_m = cfg.opening_altitude_m;
+        predictor.target_apogee_m = cfg.target_apogee_m;
+        predictor.launch_site_altitude_m = runtimeConfig.mission.launch_site_altitude_m;
+        predictor.dry_mass_kg = cfg.dry_mass_kg;
+        predictor.reference_area_m2 = cfg.reference_area_m2;
+        predictor.prediction_dt_s = cfg.prediction_dt_s;
+        predictor.prediction_max_steps = cfg.prediction_max_steps;
+        predictor.aero = &aeroTable.table;
+        _controller.setParams(predictor);
+        LOG_INFO(TAG, "opening-scan law: target %.1f m AGL, gate %.1f m AGL",
+                 static_cast<double>(predictor.target_apogee_m),
+                 static_cast<double>(predictor.opening_altitude_m));
     }
+
+    // Published every cycle for HIL comparison against the simulated truth.
+    const AirbrakesController::Params &activeParams = _controller.params();
+    AirbrakesTelemetry telemetry{};
+    telemetry.target_apogee_m = activeParams.target_apogee_m;
+    telemetry.opening_altitude_m = activeParams.opening_altitude_m;
+    telemetry.dry_mass_kg = activeParams.dry_mass_kg;
+    telemetry.reference_area_m2 = activeParams.reference_area_m2;
+    telemetry.launch_site_altitude_m = activeParams.launch_site_altitude_m;
+    telemetry.prediction_dt_s = activeParams.prediction_dt_s;
+    telemetry.prediction_max_steps = activeParams.prediction_max_steps;
 
     const TickType_t taskPeriod = pdMS_TO_TICKS(TASK_PERIOD_MS);
     TickType_t lastWakeTime = xTaskGetTickCount();
@@ -150,26 +164,28 @@ void AirbrakesTask::airbrakes_ctl_law() {
         lastControlTime = controlTime;
 
         /* ===== READ MODEL ===== */
-        const float altitude = _rocketModel->getCurrentHeight();
-        const float verticalVelocity = _rocketModel->getHeightGainSpeed();
-        const uint32_t velocityTimestamp = _rocketModel->getHeightGainSpeedTimestamp();
+        const RocketModel::VerticalFitState fit = _rocketModel->getVerticalFitState();
+        const float altitude = fit.altitude_m;
+        const float verticalVelocity = fit.vertical_velocity_mps;
+        const uint32_t velocityTimestamp = fit.sample_timestamp_ms;
 
         /* ===== OPENING-ALTITUDE GATE ===== */
         // Nothing is computed or commanded until the opening altitude is
         // first reached (Euroc Rules: 1500m)
         if (!openingAltitudeReached)
         {
-            if (!(altitude >= _controller.params().opening_altitude_m))
+            const float latestAltitude = _rocketModel->getCurrentHeight();
+            if (!(latestAltitude >= _controller.params().opening_altitude_m))
             {
                 vTaskDelayUntil(&lastWakeTime, taskPeriod);
                 continue;
             }
             openingAltitudeReached = true;
             LOG_INFO(TAG, "opening altitude reached (%.1f m AGL), predictive control active",
-                     static_cast<double>(altitude));
+                     static_cast<double>(latestAltitude));
         }
 
-        // Same freshness rule as RocketFSM: judge the sample by its own age.
+        // Same freshness rule as RocketFSM: judge the newest sample in the fit by its own age.
         const bool velocityFresh = velocityTimestamp != 0 &&
                                    Utils::millis() - velocityTimestamp <= VELOCITY_STALE_MS;
 
@@ -185,6 +201,7 @@ void AirbrakesTask::airbrakes_ctl_law() {
         else
         {
             out.armed = false;
+            for (float &apogee : out.candidate_apogee_m) apogee = NAN;
         }
 
         if (computeUs > COMPUTE_WARNING_US && !computeWarningIssued)
@@ -202,23 +219,39 @@ void AirbrakesTask::airbrakes_ctl_law() {
         LOG_INFO(TAG, "AirBrakes commanded %f", deployment);
         airbrakesCommand(deployment);
 
-        /* ===== LOG ===== */
+        /* ===== PUBLISH AND LOG ===== */
+        AirbrakesData record;
+        record.altitude_m = altitude;
+        record.vertical_velocity_mps = verticalVelocity;
+        record.mach = out.mach;
+        record.deployment = deployment;
+        record.cd_cmd = out.cd_cmd;
+        record.predicted_apogee_m = out.predicted_apogee_m;
+        record.apogee_closed_m = out.candidates_evaluated > 0 ? out.candidate_apogee_m[0] : NAN;
+        record.time_to_apogee_s = out.time_to_apogee_s;
+        // held_opening_pct / apogee_error_m / integrator are PID-only: left NaN.
+        record.compute_us = computeUs;
+        record.candidates = out.candidates_evaluated;
+        record.armed = out.armed;
+        record.velocity_fresh = velocityFresh;
+        record.timestamp = Utils::millis();
+
+        ++telemetry.cycle;
+        // The instant the controller's (altitude, velocity) state refers to.
+        telemetry.velocity_timestamp_ms = fit.fit_timestamp_ms;
+        telemetry.opening_gate_reached = openingAltitudeReached;
+        telemetry.record = record;
+        for (size_t k = 0; k < AirbrakesTelemetry::kMaxCandidates; ++k)
+        {
+            telemetry.candidate_apogee_m[k] = (velocityFresh && k < AirbrakesController::kMaxOpeningBreakpoints)
+                                                  ? out.candidate_apogee_m[k]
+                                                  : NAN;
+        }
+        _rocketModel->setAirbrakesTelemetry(telemetry);
+
         if (_logger && ++logCycleCounter >= LOG_INTERVAL_CYCLES)
         {
             logCycleCounter = 0;
-            AirbrakesData record;
-            record.altitude_m = altitude;
-            record.vertical_velocity_mps = verticalVelocity;
-            record.mach = out.mach;
-            record.deployment = deployment;
-            record.cd_cmd = out.cd_cmd;
-            record.predicted_apogee_m = out.predicted_apogee_m;
-            record.time_to_apogee_s = out.time_to_apogee_s;
-            record.compute_us = computeUs;
-            record.candidates = out.candidates_evaluated;
-            record.armed = out.armed;
-            record.velocity_fresh = velocityFresh;
-            record.timestamp = Utils::millis();
             _logger->logSensorData(record);
         }
 
