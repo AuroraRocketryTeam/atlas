@@ -81,6 +81,7 @@ FSM_STATE_NAMES = {
 MSG_TYPE_SIM_INPUT = 1
 MSG_TYPE_FC_COMMAND = 2
 MSG_TYPE_SIM_RESET = 3
+MSG_TYPE_SIM_RECOVERED_ACK = 4
 
 # Control messages used only inside the Python process.
 # They are not sent as payloads.
@@ -511,6 +512,12 @@ def tcp_client(
 
                 if handlers.on_fsm_state:
                     handlers.on_fsm_state(command_sim_time_s, fsm_state)
+
+                # The FC holds its post-recovery reboot until this ACK arrives
+                if fsm_state == FSM_STATE_RECOVERED:
+                    socket_phase = "send"
+                    sock.sendall(encode_msg(MSG_TYPE_SIM_RECOVERED_ACK, b""))
+                    socket_phase = "idle"
 
         # Protocol/data errors:
         # These should not be hidden as normal reconnects.

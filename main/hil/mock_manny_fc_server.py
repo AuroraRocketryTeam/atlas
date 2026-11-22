@@ -108,6 +108,7 @@ COMMAND_SIZE = struct.calcsize(COMMAND_FMT)
 MSG_TYPE_SIM_INPUT = 1
 MSG_TYPE_FC_COMMAND = 2
 MSG_TYPE_SIM_RESET = 3
+MSG_TYPE_SIM_RECOVERED_ACK = 4
 
 FSM_STATE_INACTIVE = 0
 FSM_STATE_CALIBRATING = 1
@@ -491,6 +492,11 @@ def handle_client(conn: socket.socket, addr, fsm: MockMannyState, cfg: MockConfi
                         print("[MOCK MANNY] closing connection to emulate FC restart")
                         return
                     continue
+
+                if msg_type == MSG_TYPE_SIM_RECOVERED_ACK:
+                    # The real FC reboots here; the mock just drops the link.
+                    print("[MOCK MANNY] received RECOVERED ack: closing connection to emulate FC reboot")
+                    return
 
                 if msg_type != MSG_TYPE_SIM_INPUT:
                     print(f"[MOCK MANNY] unexpected message type: {msg_type}")

@@ -21,7 +21,6 @@ static constexpr int HIL_SERVER_PORT = 5000;
 static constexpr uint32_t HIL_PACKET_LOG_PERIOD_MS = 5000;
 static constexpr uint32_t HIL_PACKET_PERIOD_MS = 20;
 static constexpr uint32_t HIL_BAROMETER_RATE_HZ = 18;
-static constexpr uint32_t HIL_RECOVERED_DRAIN_TIMEOUT_MS = 3000;
 
 // The simulator drives one packet per acquisition cycle at the same 50 Hz the
 // real SensorTask loop runs at, so recording every SENSOR_LOG_INTERVAL_LOOPS-th
@@ -134,6 +133,45 @@ static bool send_all(int _client_sock, const uint8_t *buf, size_t len, const vol
     }
 
     return true;
+}
+
+/**
+ * Once the simulator has the RECOVERED command the next
+ * frame it sends is MSG_TYPE_SIM_RECOVERED_ACK. Any other frame is discarded.
+ * Returns false if the connection ends first (peer closed, socket error, or
+ * the task stopping), a peer close also means the reply was read, since the
+ * simulator only closes after processing it.
+ */
+static bool wait_for_recovered_ack(int _client_sock, const volatile bool& running)
+{
+    uint8_t header[PROTO_HEADER_SIZE];
+    uint8_t payload[PROTO_MAX_PAYLOAD_SIZE];
+
+    while (recv_all(_client_sock, header, PROTO_HEADER_SIZE, running)) {
+        uint32_t magic;
+        uint16_t plen;
+        uint16_t type;
+        memcpy(&magic, header + 0, 4);
+        memcpy(&plen,  header + 4, 2);
+        memcpy(&type,  header + 6, 2);
+        magic = ntohl(magic);
+        plen  = ntohs(plen);
+        type  = ntohs(type);
+
+        if (magic != PROTO_MAGIC || plen > PROTO_MAX_PAYLOAD_SIZE) {
+            LOG_WARNING(TAG, "invalid frame while waiting for RECOVERED ack");
+            return false;
+        }
+        if (plen > 0 && !recv_all(_client_sock, payload, plen, running)) {
+            return false;
+        }
+        if (type == MSG_TYPE_SIM_RECOVERED_ACK) {
+            return true;
+        }
+        LOG_WARNING(TAG, "ignoring message type %u while waiting for RECOVERED ack", type);
+    }
+
+    return false;
 }
 
 /* ===================== CTOR ===================== */
@@ -586,26 +624,13 @@ void HilSimulationTask::taskFunction() {
             }
 
             if (wire.fsm_state == static_cast<uint8_t>(RocketState::RECOVERED)) {
-                // delay the reboot to allow the simulator to process the RECOVERED message
-                shutdown(_client_sock, SHUT_WR);
-                const TickType_t drainDeadline = xTaskGetTickCount() + pdMS_TO_TICKS(HIL_RECOVERED_DRAIN_TIMEOUT_MS);
-                bool peerClosed = false;
-                while (xTaskGetTickCount() < drainDeadline) {
-                    uint8_t discard;
-                    const ssize_t r = recv(_client_sock, &discard, sizeof(discard), 0);  // SO_RCVTIMEO bounds each call
-                    esp_task_wdt_reset();
-                    if (r == 0) {
-                        peerClosed = true;
-                        break;
-                    }
-                    if (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-                        break;
-                    }
-                }
+                // RocketFSM defers the RECOVERED reboot to this task in HIL builds:
+                // reboot only once the simulator acknowledges this final reply.
+                const bool acked = wait_for_recovered_ack(_client_sock, running);
                 close(_client_sock);
                 _client_sock = -1;
-                LOG_INFO(TAG, "RECOVERED reported to simulator (%s); rebooting board",
-                         peerClosed ? "delivered" : "simulator did not close in time");
+                LOG_INFO(TAG, "RECOVERED %s; rebooting board",
+                         acked ? "acknowledged by simulator" : "not acknowledged (connection ended)");
                 esp_restart();
             }
         }

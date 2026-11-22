@@ -443,7 +443,13 @@ Message types:
 1 MSG_TYPE_SIM_INPUT
 2 MSG_TYPE_FC_COMMAND
 3 MSG_TYPE_SIM_RESET
+4 MSG_TYPE_SIM_RECOVERED_ACK
 ```
+
+`MSG_TYPE_SIM_RECOVERED_ACK` (empty payload) closes the run: the communication
+thread sends it right after handling the FC command that reports `RECOVERED`.
+The FC holds its post-recovery reboot until the ACK arrives (or the connection
+ends), so the final `RECOVERED` reply is never lost to the restart.
 
 The communication thread uses a one-slot mailbox:
 
@@ -628,7 +634,8 @@ Currently present behavior:
 - supports `single_main_at_apogee` and `drogue_then_main` recovery modes;
 - progresses through `APOGEE -> STABILIZATION -> DECELERATION -> LANDING -> RECOVERED`;
 - treats `RECOVERED` as terminal until reset;
-- resets and closes the connection on `MSG_TYPE_SIM_RESET`.
+- resets and closes the connection on `MSG_TYPE_SIM_RESET`;
+- closes the connection on `MSG_TYPE_SIM_RECOVERED_ACK`, emulating the FC reboot.
 
 ## Fail-fast policy
 
