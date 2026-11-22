@@ -57,7 +57,7 @@ static AirbrakesConfig make_default_airbrakes_config()
     ab.opening_altitude_m = 1500.0f;
     ab.target_apogee_m = 3000.0f;
     ab.dry_mass_kg = 22.3f;
-    ab.reference_area_m2 = 0.0176714587f;   // pi * (0.15 m / 2)^2
+    ab.reference_area_m2 = 0.0176714587f;
     ab.prediction_dt_s = 0.05f;
     ab.prediction_max_steps = 1000;
     return ab;
@@ -97,8 +97,8 @@ static RuntimeConfig make_default_config()
     cfg.altitude.max_pressure_rate_pa_per_s = 100000.0f;
     cfg.altitude.apogee_window_size = APOGEE_DETECTOR_DEFAULT_WINDOW;
     cfg.altitude.apogee_sample_rate_hz = 50.0f;
-    cfg.altitude.apogee_trigger_velocity_mps = -0.5f;
-    cfg.altitude.apogee_confirmation_windows = 5;
+    cfg.altitude.apogee_trigger_velocity_mps = 2.0f;
+    cfg.altitude.apogee_confirmation_windows = 3;
     cfg.altitude.selected_barometer = 1;
     cfg.calibration.timeout_ms = 10000;
     cfg.calibration.barometer_samples = 100;
