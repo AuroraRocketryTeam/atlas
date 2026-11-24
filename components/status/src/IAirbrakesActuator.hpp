@@ -3,10 +3,10 @@
 /**
  * @brief Interface for the actuator driving the airbrackes.
  */
-class IAirbrakesController
+class IAirbrakesActuator
 {
 public:
-    virtual ~IAirbrakesController() = default;
+    virtual ~IAirbrakesActuator() = default;
 
     /**
      * @brief Init the actuator.

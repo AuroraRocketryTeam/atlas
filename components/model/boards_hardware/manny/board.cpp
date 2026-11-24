@@ -301,10 +301,13 @@ bool MannyBoard::is_armed() const {
     return true;
 }
 
-ServoController* MannyBoard::get_airbrakes_controller() {
+IAirbrakesActuator* MannyBoard::get_airbrakes_actuator() {
     return &_airbrakes_ctl;
 }
 
+ServoController* MannyBoard::get_servo_controller() {
+    return &_airbrakes_ctl;
+}
 
 bool MannyBoard::initNvs() {
     SharedServiceLock lock(shared_service_mutex);

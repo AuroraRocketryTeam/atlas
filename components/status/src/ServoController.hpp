@@ -1,10 +1,10 @@
 #pragma once
-#include "IAirbrakesController.hpp"
+#include "IAirbrakesActuator.hpp"
 #include "soc/gpio_num.h"
 #include <driver/ledc.h>
 #include <cstdint>
 
-class ServoController : public IAirbrakesController
+class ServoController : public IAirbrakesActuator
 {
 public:
     /**

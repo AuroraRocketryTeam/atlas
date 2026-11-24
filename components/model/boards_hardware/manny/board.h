@@ -1,6 +1,7 @@
 #pragma once
 
 #include "boards_hardware/IBoardHardware.hpp"
+#include "ServoController.hpp"
 #include "esp_netif.h"
 #include "hal/ledc_types.h"
 #include <driver/ledc.h>
@@ -159,7 +160,8 @@ public:
 
     bool is_armed() const override;
 
-    ServoController* get_airbrakes_controller() override;
+    IAirbrakesActuator* get_airbrakes_actuator() override;
+    ServoController* get_servo_controller() override;
 
     /**
      * @brief Initialize and cache readiness for the default NVS partition.

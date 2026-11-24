@@ -20,7 +20,7 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
         std::shared_ptr<GPS> gps,
         std::shared_ptr<SD> sd,
         std::shared_ptr<Flash> flash,
-        IAirbrakesController* airbrakesServo) :
+        IAirbrakesActuator* airbrakesServo) :
     _bno(bno),
     _lis3dh(lis3dh),
     _ms56_1(ms56_1),
