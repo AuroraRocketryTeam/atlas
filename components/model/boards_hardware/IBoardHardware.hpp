@@ -147,11 +147,11 @@ public:
 
     /**
      * @brief Get the airbrakes servo as its concrete type.
-     *
-     * Intended for testing purposes only (hardware tests need PWM-level access
-     * that IAirbrakesActuator hides). Production code must use get_airbrakes_actuator().
-     *
-     * @return The servo, or nullptr if the board has no servo.
+     * 
+     * It must be used exclusively for testing purposes.
+     * Otherwise, use get_airbrakes_actuator() for proper usage.
+     * 
+     * @return The servo used, or nullptr if the board has no servo.
      */
     virtual ServoController* get_servo_controller() { return nullptr; }
 
