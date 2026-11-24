@@ -1,9 +1,10 @@
 #pragma once
+#include "IAirbrakesActuator.hpp"
 #include "soc/gpio_num.h"
 #include <driver/ledc.h>
 #include <cstdint>
 
-class ServoController
+class ServoController : public IAirbrakesActuator
 {
 public:
     /**
@@ -23,24 +24,24 @@ public:
      *
      * @return true if timer and channel successfully configured
      */
-    bool start();
+    bool start() override;
+
+    /**
+     * @brief Stop the pulses and release the signal and power pins.
+     */
+    void stop() override;
+
+    /**
+     * @brief Command servo to deployment
+     * @param deployment 0.0f closed, 1.0f open.
+     */
+    void command(float deployment) override;
 
     /**
      * @brief Set the pulse width
      * @param pulseUs High time of each pulse in microseconds
      */
     void writeMicroseconds(uint32_t pulseUs);
-
-    /**
-     * @brief Command servo to deployment
-     * @param deployment 0.0f closed, 1.0f open.
-     */
-    void writeDeployment(float deployment);
-
-    /**
-     * @brief Stop the pulses and release the signal and power pins.
-     */
-    void stop();
 
     bool isStarted() const { return _started; }
     uint32_t getFrequency() const { return _freq; }

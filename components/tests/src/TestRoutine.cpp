@@ -454,7 +454,12 @@ bool TestRoutine::testServo()
     LOG_INFO("Test", "[STEP 16] Servo PWM test");
     LOG_INFO("Test", "Servo +V on GPIO%d signal on GPIO%d", MANNY_SERVO_POWER_PIN, MANNY_SERVO_PIN);
 
-    ServoController* servo = _board.get_airbrakes_controller();
+    ServoController* servo = _board.get_servo_controller();
+    if (servo == nullptr) {
+        LOG_ERROR("Test", "This board has no airbrakes servo!");
+        return waitForUserInput("Type FAILED to continue");
+    }
+
     uint32_t original_freq = servo->getFrequency();
     if (!isWebTestContext()) {
         printf("Insert frequency, default 100.\n");
@@ -563,7 +568,7 @@ bool TestRoutine::testServo()
         LOG_ERROR("Test", "Couldn't set servo frequency!");
         return false;
     }
-    servo->writeDeployment(0.0f);
+    servo->command(0.0f);
 
     return waitForUserInput("Type PASSED or FAILED");
 }

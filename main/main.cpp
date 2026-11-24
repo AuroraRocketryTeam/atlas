@@ -184,7 +184,7 @@ void setupFlight()
 
     // Create Nemesis instance (storage backends are optional)
     rocketModel = std::make_shared<RocketModel>(bno055, accl, baro1, baro2, gps, sdCard, flash,
-                                                board.get_airbrakes_controller());
+                                                board.get_airbrakes_actuator());
     LOG_INFO("Main", "RocketModel system model created");
 
     testRoutine = std::make_shared<TestRoutine>(
