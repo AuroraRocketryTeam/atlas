@@ -5,7 +5,6 @@
 #include "soc/gpio_num.h"
 #include <I2CBus.hpp>
 #include <SPIBus.hpp>
-#include <cstdint>
 #include <IAirbrakesActuator.hpp>
 
 class ISPIHandler;

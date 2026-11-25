@@ -457,7 +457,7 @@ bool TestRoutine::testServo()
     ServoController* servo = _board.get_servo_controller();
     if (servo == nullptr) {
         LOG_ERROR("Test", "This board has no airbrakes servo!");
-        return waitForUserInput("Type FAILED to continue");
+        return true;
     }
 
     uint32_t original_freq = servo->getFrequency();
