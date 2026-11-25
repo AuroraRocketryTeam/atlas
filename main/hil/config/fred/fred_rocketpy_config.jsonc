@@ -382,7 +382,7 @@
         }
       },
 
-      "RealisticNoise": {
+      "realistic_noise": {
         "_inherits": "clean",
 
         // Empirical noise model calibrated from water-rocket flights.

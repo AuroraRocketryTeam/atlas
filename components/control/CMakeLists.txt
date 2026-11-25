@@ -30,6 +30,7 @@ idf_component_register(
         "src/tasks/web/index.html"
         "src/tasks/web/style.css"
         "src/tasks/web/app.js"
+        "src/tasks/airbrakes/airbrakes_cd_table.csv"
         "${SDKCONFIG_SNAPSHOT}"
     REQUIRES
         app_update

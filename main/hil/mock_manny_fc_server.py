@@ -98,12 +98,17 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)
 PAYLOAD_FMT = "<IfIffffffffffff"
 PAYLOAD_SIZE = struct.calcsize(PAYLOAD_FMT)
 
-COMMAND_FMT = "<fBBfB"
+# Mirrors fc_command_packet_t; the mock reports no altitude estimate (timestamp 0)
+# and no airbrake controller cycle (cycle 0).
+COMMAND_FMT = "<fBBfBfffI" + "IIIB5fI" + "6fI"
+AIRBRAKES_TELEMETRY_IDLE = ((0, 0, 0, 0) + (0.0,) * 4 + (float("nan"),) + (0,)
+                            + (0.0,) * 6 + (0,))
 COMMAND_SIZE = struct.calcsize(COMMAND_FMT)
 
 MSG_TYPE_SIM_INPUT = 1
 MSG_TYPE_FC_COMMAND = 2
 MSG_TYPE_SIM_RESET = 3
+MSG_TYPE_SIM_RECOVERED_ACK = 4
 
 FSM_STATE_INACTIVE = 0
 FSM_STATE_CALIBRATING = 1
@@ -216,6 +221,11 @@ def build_fc_command(
         int(open_drogue),
         float(airbrakes_deployment),
         int(fsm_state),
+        0.0,
+        0.0,
+        0.0,
+        0,
+        *AIRBRAKES_TELEMETRY_IDLE,
     )
     if len(payload) != COMMAND_SIZE:
         raise RuntimeError(f"FC_COMMAND size mismatch: {len(payload)} != {COMMAND_SIZE}")
@@ -482,6 +492,11 @@ def handle_client(conn: socket.socket, addr, fsm: MockMannyState, cfg: MockConfi
                         print("[MOCK MANNY] closing connection to emulate FC restart")
                         return
                     continue
+
+                if msg_type == MSG_TYPE_SIM_RECOVERED_ACK:
+                    # The real FC reboots here; the mock just drops the link.
+                    print("[MOCK MANNY] received RECOVERED ack: closing connection to emulate FC reboot")
+                    return
 
                 if msg_type != MSG_TYPE_SIM_INPUT:
                     print(f"[MOCK MANNY] unexpected message type: {msg_type}")

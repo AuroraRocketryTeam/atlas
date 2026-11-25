@@ -1,10 +1,14 @@
 #pragma once
 
 #include "driver/gpio.h"
+#include "hal/ledc_types.h"
+#include "soc/gpio_num.h"
 #include <I2CBus.hpp>
 #include <SPIBus.hpp>
+#include <IAirbrakesActuator.hpp>
 
 class ISPIHandler;
+class ServoController;
 
 /**
  * @brief Hardware abstraction for board-specific pins, buses, and shared services.
@@ -63,7 +67,7 @@ public:
     virtual gpio_num_t get_sd_cs_pin() const = 0;
 
     virtual bool is_armed() const = 0;
-
+    
     /**
      * @brief Initialize the default NVS partition required by ESP services.
      */
@@ -138,6 +142,17 @@ public:
     virtual I2CBus* get_i2c_bus(Sensor sensor) = 0;
     virtual SPIBus* get_spi_bus() = 0;
 
+    virtual IAirbrakesActuator* get_airbrakes_actuator() = 0;
+
+    /**
+     * @brief Get the airbrakes servo as its concrete type.
+     * 
+     * It must be used exclusively for testing purposes.
+     * Otherwise, use get_airbrakes_actuator() for proper usage.
+     * 
+     * @return The servo used, or nullptr if the board has no servo.
+     */
+    virtual ServoController* get_servo_controller() { return nullptr; }
 
     virtual void init_sensor_test_pins() = 0;
     virtual void signal_sensor_ok(Sensor sensor) = 0;

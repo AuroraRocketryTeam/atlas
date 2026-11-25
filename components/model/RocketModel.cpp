@@ -19,7 +19,8 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
             std::shared_ptr<MS561101BA03> ms56_2,
         std::shared_ptr<GPS> gps,
         std::shared_ptr<SD> sd,
-        std::shared_ptr<Flash> flash) :
+        std::shared_ptr<Flash> flash,
+        IAirbrakesActuator* airbrakesServo) :
     _bno(bno),
     _lis3dh(lis3dh),
     _ms56_1(ms56_1),
@@ -27,10 +28,12 @@ RocketModel::RocketModel(std::shared_ptr<BNO055Sensor> bno,
     _gps(gps),
     _sd(sd),
     _flash(flash),
+    _airbrakesServo(airbrakesServo),
     _isRising(false),
     _heightGainSpeed(0.0f),
     _heightGainSpeedTimestamp(0),
     _currentHeight(0.0f),
+    _filteredPressure(0.0f),
     _storageMutex(xSemaphoreCreateMutex())
 {
     // Configure and Initialize ADC unit
@@ -116,12 +119,24 @@ bool RocketModel::setOpenDrogueCommand(){
     return true;
 }
 
+bool RocketModel::startAirbrakes()
+{
+    if (!_airbrakesServo) return false;
+    if (!_airbrakesServo->start()) return false;
+    // Hold the brakes closed from the first moment the actuator is alive
+    _airbrakesServo->command(0.0f);
+    return true;
+}
+
 bool RocketModel::setAirbrakesCommand(float lvl){
     if (!_stateMutex) { reportMissingMutex("setAirbrakesCommand"); return false; }
     if (xSemaphoreTake(_stateMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        // Update the command in the model (used for telemetry, logging and HIL)
         _cmd.setAirbrakes(lvl);
         xSemaphoreGive(_stateMutex);
     }
+    // Move the actual servo
+    if (_airbrakesServo) _airbrakesServo->command(lvl);
     return true;
 }
 
@@ -381,12 +396,46 @@ void RocketModel::setHeightGainSpeed(float heightGainSpeed, uint32_t timestamp) 
     _heightGainSpeedTimestamp.store(timestamp, std::memory_order_release);
 }
 
+RocketModel::VerticalFitState RocketModel::getVerticalFitState() {
+    portENTER_CRITICAL(&_verticalFitStateLock);
+    const VerticalFitState copy = _verticalFitState;
+    portEXIT_CRITICAL(&_verticalFitStateLock);
+    return copy;
+}
+
+void RocketModel::setVerticalFitState(const VerticalFitState &state) {
+    portENTER_CRITICAL(&_verticalFitStateLock);
+    _verticalFitState = state;
+    portEXIT_CRITICAL(&_verticalFitStateLock);
+}
+
 float RocketModel::getCurrentHeight() {
     return _currentHeight.load(std::memory_order_relaxed);
 }
 
 void RocketModel::setCurrentHeight(float height) {
     _currentHeight.store(height, std::memory_order_relaxed);
+}
+
+float RocketModel::getFilteredPressure() {
+    return _filteredPressure.load(std::memory_order_relaxed);
+}
+
+void RocketModel::setFilteredPressure(float pressurePa) {
+    _filteredPressure.store(pressurePa, std::memory_order_relaxed);
+}
+
+AirbrakesTelemetry RocketModel::getAirbrakesTelemetry() {
+    portENTER_CRITICAL(&_airbrakesTelemetryLock);
+    const AirbrakesTelemetry copy = _airbrakesTelemetry;
+    portEXIT_CRITICAL(&_airbrakesTelemetryLock);
+    return copy;
+}
+
+void RocketModel::setAirbrakesTelemetry(const AirbrakesTelemetry &telemetry) {
+    portENTER_CRITICAL(&_airbrakesTelemetryLock);
+    _airbrakesTelemetry = telemetry;
+    portEXIT_CRITICAL(&_airbrakesTelemetryLock);
 }
 
 bool RocketModel::isStorageInitialized(uint32_t timeoutMs) const {

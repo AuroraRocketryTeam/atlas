@@ -3,6 +3,7 @@
 #include "SensorTask.hpp"
 
 #include <inttypes.h>
+#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <arpa/inet.h>
@@ -132,6 +133,45 @@ static bool send_all(int _client_sock, const uint8_t *buf, size_t len, const vol
     }
 
     return true;
+}
+
+/**
+ * Once the simulator has the RECOVERED command the next
+ * frame it sends is MSG_TYPE_SIM_RECOVERED_ACK. Any other frame is discarded.
+ * Returns false if the connection ends first (peer closed, socket error, or
+ * the task stopping), a peer close also means the reply was read, since the
+ * simulator only closes after processing it.
+ */
+static bool wait_for_recovered_ack(int _client_sock, const volatile bool& running)
+{
+    uint8_t header[PROTO_HEADER_SIZE];
+    uint8_t payload[PROTO_MAX_PAYLOAD_SIZE];
+
+    while (recv_all(_client_sock, header, PROTO_HEADER_SIZE, running)) {
+        uint32_t magic;
+        uint16_t plen;
+        uint16_t type;
+        memcpy(&magic, header + 0, 4);
+        memcpy(&plen,  header + 4, 2);
+        memcpy(&type,  header + 6, 2);
+        magic = ntohl(magic);
+        plen  = ntohs(plen);
+        type  = ntohs(type);
+
+        if (magic != PROTO_MAGIC || plen > PROTO_MAX_PAYLOAD_SIZE) {
+            LOG_WARNING(TAG, "invalid frame while waiting for RECOVERED ack");
+            return false;
+        }
+        if (plen > 0 && !recv_all(_client_sock, payload, plen, running)) {
+            return false;
+        }
+        if (type == MSG_TYPE_SIM_RECOVERED_ACK) {
+            return true;
+        }
+        LOG_WARNING(TAG, "ignoring message type %u while waiting for RECOVERED ack", type);
+    }
+
+    return false;
 }
 
 /* ===================== CTOR ===================== */
@@ -532,6 +572,35 @@ void HilSimulationTask::taskFunction() {
 
             // Convert to wire format (adds sim_time and fsm state)
             fc_command_packet_t wire = cmd.serialize(pkt.sim_time, _fsm->getCurrentState());
+
+            for (int attempt = 0; attempt < 3; ++attempt) {
+                const uint32_t stampBefore = _rocketModel->getHeightGainSpeedTimestamp();
+                wire.est_filtered_pressure_pa = _rocketModel->getFilteredPressure();
+                wire.est_altitude_m = _rocketModel->getCurrentHeight();
+                wire.est_vertical_velocity_mps = _rocketModel->getHeightGainSpeed();
+                wire.est_timestamp_ms = _rocketModel->getHeightGainSpeedTimestamp();
+                if (wire.est_timestamp_ms == stampBefore) break;
+            }
+
+            const AirbrakesTelemetry ab = _rocketModel->getAirbrakesTelemetry();
+            wire.ab_cycle = ab.cycle;
+            wire.ab_timestamp_ms = ab.record.timestamp;
+            wire.ab_velocity_timestamp_ms = ab.velocity_timestamp_ms;
+            wire.ab_flags = static_cast<uint8_t>((ab.record.armed ? 0x01u : 0u) |
+                                                 (ab.record.velocity_fresh ? 0x02u : 0u));
+            wire.ab_altitude_m = ab.record.altitude_m;
+            wire.ab_vertical_velocity_mps = ab.record.vertical_velocity_mps;
+            wire.ab_deployment = ab.record.deployment;
+            wire.ab_predicted_apogee_m = ab.record.predicted_apogee_m;
+            wire.ab_apogee_closed_m = ab.record.apogee_closed_m;
+            wire.ab_compute_us = ab.record.compute_us;
+            wire.ab_target_apogee_m = ab.target_apogee_m;
+            wire.ab_opening_altitude_m = ab.opening_altitude_m;
+            wire.ab_dry_mass_kg = ab.dry_mass_kg;
+            wire.ab_reference_area_m2 = ab.reference_area_m2;
+            wire.ab_launch_site_altitude_m = ab.launch_site_altitude_m;
+            wire.ab_prediction_dt_s = ab.prediction_dt_s;
+            wire.ab_prediction_max_steps = ab.prediction_max_steps;
             
             memset(&out_msg, 0, sizeof(out_msg));
             out_msg.type = MSG_TYPE_FC_COMMAND;
@@ -555,7 +624,13 @@ void HilSimulationTask::taskFunction() {
             }
 
             if (wire.fsm_state == static_cast<uint8_t>(RocketState::RECOVERED)) {
-                LOG_INFO(TAG, "RECOVERED reported to simulator; rebooting board");
+                // RocketFSM defers the RECOVERED reboot to this task in HIL builds:
+                // reboot only once the simulator acknowledges this final reply.
+                const bool acked = wait_for_recovered_ack(_client_sock, running);
+                close(_client_sock);
+                _client_sock = -1;
+                LOG_INFO(TAG, "RECOVERED %s; rebooting board",
+                         acked ? "acknowledged by simulator" : "not acknowledged (connection ended)");
                 esp_restart();
             }
         }

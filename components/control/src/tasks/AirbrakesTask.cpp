@@ -1,97 +1,159 @@
 #include "AirbrakesTask.hpp"
+#include "AirbrakesData.hpp"
 #include "RuntimeConfig.hpp"
+#include <SerialLogger.hpp>
+#include <cstdint>
+#include <utils.h>
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
+#include "freertos/projdefs.h"
+#include <cstdio>
+#include "FlightState.hpp"
+#include "airbrakes/AeroTableCsv.hpp"
 
 static const char* TAG = "Airbrakes";
 
-namespace
+// Control-command rate.
+static constexpr uint32_t TASK_PERIOD_MS = 50;
+
+// The vertical velocity is published by AltitudeTask with every barometer
+// sample (~25 Hz), if it stops changing for this long the estimate is not
+// trustworthy, so the brakes are driven closed until it resumes.
+static constexpr uint32_t VELOCITY_STALE_MS = 1000;
+
+// Log one AIRBRAKES record every N control cycles (10 Hz at 50 ms)
+static constexpr uint32_t LOG_INTERVAL_CYCLES = 2;
+
+// Warn once if the control law eats most of the control period.
+static constexpr uint32_t COMPUTE_WARNING_US = 40000;
+
+// Puts the Cd-table load result in the flight log as a system event, so the
+// flash record shows whether the predictive controller could run.
+void logCdTableStatus(RocketLogger &logger, const AeroTableLoad &aero)
 {
-    // Maximum control-command rate. Raise this only after validating actuator response.
-    static constexpr uint32_t TASK_PERIOD_MS = 50;
-
-    /*
-     * Deployment command is normalized:
-     *
-     *   0.0f = fully closed
-     *   1.0f = fully open
-     *
-     * Rate is expressed in normalized units per second.
-     *
-     * Examples:
-     *   1.0f -> full 0 to 1 movement in 1 second
-     *   0.5f -> full 0 to 1 movement in 2 seconds
-     *   2.0f -> full 0 to 1 movement in 0.5 seconds
-     */
-    enum class AirbrakesState
-    {
-        WAITING_TO_OPEN,
-        OPEN,
-        CLOSED_FOREVER
-    };
-
-    float clamp01(float value)
-    {
-        if (value > 1.0f) return 1.0f;
-        if (value < 0.0f) return 0.0f;
-        return value;
+    if (!aero.ok) {
+        logger.logError(TAG, aero.error);
+        return;
     }
-
-    float moveTowards(float current, float target, float maxStep)
-    {
-        current = clamp01(current);
-        target  = clamp01(target);
-
-        if (current < target)
-        {
-            current += maxStep;
-
-            if (current > target)
-            {
-                current = target;
-            }
-        }
-        else if (current > target)
-        {
-            current -= maxStep;
-
-            if (current < target)
-            {
-                current = target;
-            }
-        }
-
-        return clamp01(current);
-    }
+    char message[96];
+    std::snprintf(message, sizeof(message), "Cd table loaded: %u openings x %u Mach%s",
+                    static_cast<unsigned>(aero.table.opening_count), static_cast<unsigned>(aero.table.mach_count),
+                    aero.cd_monotonic ? "" : " (Cd not monotonic in opening)");
+    logger.logInfo(TAG, message);
 }
 
 AirbrakesTask::AirbrakesTask(std::shared_ptr<RocketModel> rocketModel,
-                             std::shared_ptr<RocketLogger> logger)
+                             std::shared_ptr<RocketLogger> logger, IStateMachine* fsm)
     : BaseTask("AirbrakesTask"),
       _rocketModel(rocketModel),
-      _logger(logger)
+      _logger(logger),
+      _fsm(fsm)
 {
-    // LOG_INFO(TAG, "Constructor initialized");
+
+    // Parse the embedded Cd table at boot (tasks are constructed once by
+    // TaskManager), so a bad CSV shows up in the boot log
+    const AeroTableLoad &aero = embeddedAeroTable();
+    if (aero.ok) {
+        LOG_INFO(TAG, "Cd table loaded: %u openings x %u Mach breakpoints%s",
+                 static_cast<unsigned>(aero.table.opening_count), static_cast<unsigned>(aero.table.mach_count),
+                 aero.cd_monotonic ? "" : " (warning: Cd decreases with opening somewhere)");
+    } else {
+        LOG_ERROR(TAG, "Cd table invalid, airbrakes will stay closed: %s", aero.error);
+    }
+    // Boot events wait in RAM and are written at the start of the flight file.
+    if (_logger) logCdTableStatus(*_logger, aero);
+}
+
+void AirbrakesTask::airbrakesCommand(float deployment)
+{
+    _rocketModel->setAirbrakesCommand(deployment);
+}
+
+void AirbrakesTask::calibrate()
+{
+    airbrakesCommand(1.0f);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    airbrakesCommand(0.0f);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    // need to delay because the servo command isn't blocking
 }
 
 void AirbrakesTask::onTaskStart()
 {
-    // LOG_INFO(TAG, "onTaskStart");
+#ifdef CONFIG_TELEMETRY_LINK_E220
+    // TODO: dynamic checks.
+    LOG_ERROR(TAG, "servo pins belong to the E220 link in this build, airbrakes are not actuated");
+#else
+    if (!_rocketModel->startAirbrakes())
+    {
+        LOG_ERROR(TAG, "servo start failed, airbrakes are not actuated");
+    }
+#endif
 }
 
 void AirbrakesTask::onTaskStop()
 {
-    // LOG_INFO(TAG, "onTaskStop");
+    airbrakesCommand(0.0f);
+    LOG_INFO(TAG, "airbrakes task stopped, commanding closed (stack free: %lu bytes)",
+             static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
 }
 
-void AirbrakesTask::taskFunction()
-{
-    const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
-    AirbrakesState airbrakesState = AirbrakesState::WAITING_TO_OPEN;
+void AirbrakesTask::airbrakes_ctl_law() {
+    const AeroTableLoad &aeroTable = embeddedAeroTable();
+    if (_logger) logCdTableStatus(*_logger, aeroTable);
+
+    if (!aeroTable.ok)
+    {
+        // Without the Cd table the control law has nothing to run on: hold the
+        // brakes closed and only keep the watchdog fed until the FSM stops us.
+        airbrakesCommand(0.0f);
+        if (_logger) _logger->logError(TAG, "airbrakes disabled for this flight, brakes held closed");
+        LOG_ERROR(TAG, "Cd table invalid, airbrakes disabled for this flight");
+        while (running)
+        {
+            esp_task_wdt_reset();
+            vTaskDelay(pdMS_TO_TICKS(TASK_PERIOD_MS));
+        }
+        return;
+    }
+
+    {
+        // Scoped so the full RuntimeConfig copy does not stay on the stack.
+        const RuntimeConfig runtimeConfig = runtime_config_get_flight_snapshot();
+        const AirbrakesConfig &cfg = runtimeConfig.airbrakes;
+        AirbrakesController::Params predictor{};
+        predictor.opening_altitude_m = cfg.opening_altitude_m;
+        predictor.target_apogee_m = cfg.target_apogee_m;
+        predictor.launch_site_altitude_m = runtimeConfig.mission.launch_site_altitude_m;
+        predictor.dry_mass_kg = cfg.dry_mass_kg;
+        predictor.reference_area_m2 = cfg.reference_area_m2;
+        predictor.prediction_dt_s = cfg.prediction_dt_s;
+        predictor.prediction_max_steps = cfg.prediction_max_steps;
+        predictor.aero = &aeroTable.table;
+        _controller.setParams(predictor);
+        LOG_INFO(TAG, "opening-scan law: target %.1f m AGL, gate %.1f m AGL",
+                 static_cast<double>(predictor.target_apogee_m),
+                 static_cast<double>(predictor.opening_altitude_m));
+    }
+
+    // Published every cycle for HIL comparison against the simulated truth.
+    const AirbrakesController::Params &activeParams = _controller.params();
+    AirbrakesTelemetry telemetry{};
+    telemetry.target_apogee_m = activeParams.target_apogee_m;
+    telemetry.opening_altitude_m = activeParams.opening_altitude_m;
+    telemetry.dry_mass_kg = activeParams.dry_mass_kg;
+    telemetry.reference_area_m2 = activeParams.reference_area_m2;
+    telemetry.launch_site_altitude_m = activeParams.launch_site_altitude_m;
+    telemetry.prediction_dt_s = activeParams.prediction_dt_s;
+    telemetry.prediction_max_steps = activeParams.prediction_max_steps;
+
     const TickType_t taskPeriod = pdMS_TO_TICKS(TASK_PERIOD_MS);
     TickType_t lastWakeTime = xTaskGetTickCount();
-    TickType_t lastControlTime = lastWakeTime - taskPeriod;
+    TickType_t lastControlTime = lastWakeTime;
 
-    float targetDeployment = 0.0f;
+    bool openingAltitudeReached = false;
+    bool computeWarningIssued = false;
+    uint32_t logCycleCounter = 0;
 
     while (running)
     {
@@ -101,91 +163,89 @@ void AirbrakesTask::taskFunction()
         const TickType_t elapsedTicks = controlTime - lastControlTime;
         lastControlTime = controlTime;
 
-        float altitude = 0.0f;
-        float currentLevel = 0.0f;
-
         /* ===== READ MODEL ===== */
-        altitude = _rocketModel->getCurrentHeight();
+        const RocketModel::VerticalFitState fit = _rocketModel->getVerticalFitState();
+        const float altitude = fit.altitude_m;
+        const float verticalVelocity = fit.vertical_velocity_mps;
+        const uint32_t velocityTimestamp = fit.sample_timestamp_ms;
 
-        currentLevel = _rocketModel->getCommand().getAirbrakes();
-
-        currentLevel = clamp01(currentLevel);
-
-        /* ===== AIRBRAKES FSM: DECIDE TARGET ===== */
-        switch (airbrakesState)
+        /* ===== OPENING-ALTITUDE GATE ===== */
+        // Nothing is computed or commanded until the opening altitude is
+        // first reached (Euroc Rules: 1500m)
+        if (!openingAltitudeReached)
         {
-            case AirbrakesState::WAITING_TO_OPEN:
+            const float latestAltitude = _rocketModel->getCurrentHeight();
+            if (!(latestAltitude >= _controller.params().opening_altitude_m))
             {
-                targetDeployment = 0.0f;
-
-                if (altitude >= runtimeConfig.airbrakes.open_altitude_m)
-                {
-                    LOG_INFO(TAG, "opening airbrakes");
-
-                    targetDeployment = 1.0f;
-                    airbrakesState = AirbrakesState::OPEN;
-                }
-
-                break;
+                vTaskDelayUntil(&lastWakeTime, taskPeriod);
+                continue;
             }
-
-            case AirbrakesState::OPEN:
-            {
-                targetDeployment = 1.0f;
-
-                if (altitude >= runtimeConfig.airbrakes.close_altitude_m)
-                {
-                    LOG_INFO(TAG, "closing airbrakes");
-
-                    targetDeployment = 0.0f;
-                    airbrakesState = AirbrakesState::CLOSED_FOREVER;
-                }
-
-                break;
-            }
-
-            case AirbrakesState::CLOSED_FOREVER:
-            {
-                targetDeployment = 0.0f;
-                break;
-            }
+            openingAltitudeReached = true;
+            LOG_INFO(TAG, "opening altitude reached (%.1f m AGL), predictive control active",
+                     static_cast<double>(latestAltitude));
         }
 
-        targetDeployment = clamp01(targetDeployment);
+        // Same freshness rule as RocketFSM: judge the newest sample in the fit by its own age.
+        const bool velocityFresh = velocityTimestamp != 0 &&
+                                   Utils::millis() - velocityTimestamp <= VELOCITY_STALE_MS;
 
-        /* ===== SLEW-RATE LIMIT COMMAND ===== */
-        const float ratePerSec =
-            targetDeployment > currentLevel
-                ? runtimeConfig.airbrakes.open_rate_per_s
-                : runtimeConfig.airbrakes.close_rate_per_s;
+        /* ===== CONTROL LAW ===== */
+        AirbrakesController::Outputs out{};
+        uint32_t computeUs = 0;
+        if (velocityFresh)
+        {
+            const int64_t start = esp_timer_get_time();
+            out = _controller.computeCommand({altitude, verticalVelocity});
+            computeUs = static_cast<uint32_t>(esp_timer_get_time() - start);
+        }
+        else
+        {
+            out.armed = false;
+            out.apogee_closed_m = NAN;
+        }
 
-        // Never replay missed periods as a burst of actuator commands. A delayed
-        // cycle may slow the response, but cannot exceed the configured slew rate.
-        const TickType_t limitedElapsedTicks = elapsedTicks > taskPeriod ? taskPeriod : elapsedTicks;
-        const float maxStep = ratePerSec * static_cast<float>(limitedElapsedTicks) / configTICK_RATE_HZ;
+        if (computeUs > COMPUTE_WARNING_US && !computeWarningIssued)
+        {
+            computeWarningIssued = true;
+            LOG_WARNING(TAG, "control law took %lu us of the %lu ms period",
+                        static_cast<unsigned long>(computeUs), static_cast<unsigned long>(TASK_PERIOD_MS));
+        }
 
-        const float newDeployment = moveTowards(
-            currentLevel,
-            targetDeployment,
-            maxStep
-        );
+        // Opening breakpoints are percent of full travel, so the command is a
+        // direct scale of the control-law output.
+        const float deployment = out.armed ? out.opening_pct / 100.0f : 0.0f;
 
-        // TODO: we still need real actuation!
+        /* ===== WRITE COMMAND AND ACTUATE ===== */
+        LOG_INFO(TAG, "AirBrakes commanded %f", deployment);
+        airbrakesCommand(deployment);
 
-        /* ===== WRITE COMMAND ===== */
-        _rocketModel->setAirbrakesCommand(newDeployment);
+        /* ===== PUBLISH AND LOG ===== */
+        AirbrakesData record;
+        record.altitude_m = altitude;
+        record.vertical_velocity_mps = verticalVelocity;
+        record.mach = out.mach;
+        record.deployment = deployment;
+        record.cd_cmd = out.cd_cmd;
+        record.predicted_apogee_m = out.predicted_apogee_m;
+        record.apogee_closed_m = out.apogee_closed_m;
+        record.time_to_apogee_s = out.time_to_apogee_s;
+        record.compute_us = computeUs;
+        record.candidates = out.candidates_evaluated;
+        record.armed = out.armed;
+        record.velocity_fresh = velocityFresh;
+        record.timestamp = Utils::millis();
 
-        /*
-         * Optional debug:
-         *
-         * LOG_INFO(TAG,
-         *          "alt=%.1f current=%.2f target=%.2f cmd=%.2f state=%d",
-         *          altitude,
-         *          currentLevel,
-         *          targetDeployment,
-         *          newDeployment,
-         *          static_cast<int>(airbrakesState));
-         */
+        ++telemetry.cycle;
+        // The instant the controller's (altitude, velocity) state refers to.
+        telemetry.velocity_timestamp_ms = fit.fit_timestamp_ms;
+        telemetry.record = record;
+        _rocketModel->setAirbrakesTelemetry(telemetry);
+
+        if (_logger && ++logCycleCounter >= LOG_INTERVAL_CYCLES)
+        {
+            logCycleCounter = 0;
+            _logger->logSensorData(record);
+        }
 
         // Re-anchor after a missed period so vTaskDelayUntil() cannot run catch-up
         // iterations back-to-back and spam identical control commands.
@@ -193,5 +253,15 @@ void AirbrakesTask::taskFunction()
             lastWakeTime = controlTime;
         }
         vTaskDelayUntil(&lastWakeTime, taskPeriod);
+    }
+}
+
+void AirbrakesTask::taskFunction() {
+    switch (_fsm->getCurrentState()) {
+        case RocketState::CALIBRATING:
+            calibrate();
+            break;
+        default:
+            airbrakes_ctl_law();
     }
 }

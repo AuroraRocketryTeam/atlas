@@ -148,7 +148,7 @@ atlas/
 | `TelemetryTask` | 500 ms | 1 | Builds and sends `TelemetryPacket` over LoRa; publishes link status |
 | `GroundServicesTask` | — | 1 | HTTP/WebSocket server for the dashboard |
 | `HilSimulationTask` | lockstep | 0 | Replaces Sensor/GPS tasks in HIL builds (TCP server on port 5000) |
-| `AirbrakesTask` | — | 0 | Implemented and configurable, but currently disabled in every state |
+| `AirbrakesTask` | 20 Hz | 0 | `CALIBRATION` for initial movement test and `BALLISTIC_FLIGHT`. Idle below the opening altitude, then the GNC predictive law (`tasks/airbrakes/AirbrakesController`) predicts apogee for each Cd-table opening and interpolates to the target. Parameters are editable on the dashboard, the Cd table is `tasks/airbrakes/airbrakes_cd_table.csv`, embedded at build time |
 
 ---
 

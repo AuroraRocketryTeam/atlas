@@ -66,6 +66,7 @@
 #include "freertos/task.h"
 #include "config.h"
 #include "IGroundTestRunner.hpp"
+#include "airbrakes/AeroTableCsv.hpp"
 #include "SerialLogger.hpp"
 #include "utils.h"
 
@@ -88,7 +89,7 @@ static constexpr size_t AUTH_HEADER_MAX_LEN = 96;
 static constexpr size_t AUTH_SHA256_HEX_LEN = 64;
 static constexpr size_t AUTH_SIGNATURE_HEX_LEN = 64;
 static constexpr size_t BODY_MAX_LEN = 4096;
-static constexpr size_t RESPONSE_BUFFER_SIZE = 12288;
+static constexpr size_t RESPONSE_BUFFER_SIZE = 14336; // ground-only heap; the config schema alone is ~13.7 KB
 static constexpr size_t STREAM_CHUNK_SIZE = 4096;
 static constexpr size_t LOG_RESPONSE_BUFFER_SIZE = 4096;
 static constexpr size_t MAX_HTTP_CLIENTS = 4;
@@ -1673,6 +1674,12 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
                             : imu_fusion ? "IMU calibration is ready"
                                          : "Non-fusion mode: no IMU calibration to run, check acceleration magnitude on Live Data";
     const LoRaTelemetryStatus lora = TelemetryTask::getLoRaStatus();
+    // The Cd table is compiled in from airbrakes_cd_table.csv; a malformed file
+    // leaves the airbrakes disabled, so it blocks ready-for-launch.
+    const AeroTableLoad &aero = embeddedAeroTable();
+    const char *aero_message = !aero.ok ? aero.error
+                             : aero.cd_monotonic ? "airbrakes_cd_table.csv loaded"
+                                                 : "airbrakes_cd_table.csv loaded; Cd decreases with opening somewhere, check the table";
 
     bool all_ok = true;
     size_t offset = 0;
@@ -1681,6 +1688,7 @@ esp_err_t GroundServicesTask::buildPrelaunchChecklistJson(GroundServicesTask *se
     offset = static_cast<size_t>(written);
 
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, config_valid, "runtime_config_valid", "Runtime config valid", "error", config_valid ? "Runtime config validation passed" : reason)) return ESP_ERR_NO_MEM;
+    if (!appendChecklistItem(body, body_size, &offset, &all_ok, aero.ok, "airbrakes_cd_table", "Airbrake Cd table", "error", aero_message)) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, config_unlocked, "config_unlocked", "Config not already locked", "error", config_unlocked ? "Configuration can be locked for flight" : "Configuration is already locked")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, barometer_ready, "barometer_baseline", "Barometer baseline available", "error", barometer_ready ? "Barometer baseline is available" : "Barometer baseline is not ready")) return ESP_ERR_NO_MEM;
     if (!appendChecklistItem(body, body_size, &offset, &all_ok, imu_ready, "imu_calibrated", "IMU calibrated", "error", imu_message)) return ESP_ERR_NO_MEM;

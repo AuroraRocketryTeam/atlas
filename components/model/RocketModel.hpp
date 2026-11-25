@@ -15,9 +15,11 @@
 #include <PressureSensorData.hpp>
 #include <GPSData.hpp>
 #include <Command.hpp>
+#include <AirbrakesData.hpp>
 #include <SD-master.hpp>
 #include <Flash.hpp>
 #include <IStorage.hpp>
+#include <IAirbrakesActuator.hpp>
 #include <config.h>
 
 enum class SensorReadStatus {
@@ -46,6 +48,7 @@ public:
      * @param gps Shared pointer to the GPS instance.
      * @param sd Shared pointer to SD storage backend (optional).
      * @param flash Shared pointer to external flash backend (optional).
+     * @param airbrakesServo Servo driving the airbrakes, owned by the board (optional).
      */
     RocketModel(std::shared_ptr<BNO055Sensor> bno,
             std::shared_ptr<LIS3DHTRSensor> lis3dh,
@@ -53,7 +56,8 @@ public:
             std::shared_ptr<MS561101BA03> ms56_2,
             std::shared_ptr<GPS> gps,
             std::shared_ptr<SD> sd = nullptr,
-            std::shared_ptr<Flash> flash = nullptr);
+            std::shared_ptr<Flash> flash = nullptr,
+            IAirbrakesActuator* airbrakesServo = nullptr);
 
     /**
      * @brief Update the BNO055 sensor data
@@ -267,6 +271,19 @@ public:
     void setHeightGainSpeed(float heightGainSpeed, uint32_t timestamp);
 
     /**
+     * @brief Time-consistent barometric state from the OLS velocity fit.
+     *
+     */
+    struct VerticalFitState {
+        float altitude_m = 0.0f;
+        float vertical_velocity_mps = 0.0f;
+        uint32_t fit_timestamp_ms = 0;
+        uint32_t sample_timestamp_ms = 0;
+    };
+    VerticalFitState getVerticalFitState();
+    void setVerticalFitState(const VerticalFitState &state);
+
+    /**
      * @brief Get the Current Estimated Height
      *
      * @return current estimated height
@@ -279,6 +296,21 @@ public:
      * @param height The current estimated height
      */
     void setCurrentHeight(float height);
+
+    /**
+     * @brief Median-filtered barometer pressure the altitude estimate was computed from [Pa].
+     */
+    float getFilteredPressure();
+    void setFilteredPressure(float pressurePa);
+
+    /**
+     * @brief Latest airbrake control cycle (inputs, prediction, output, parameters).
+     *
+     * Written by AirbrakesTask every cycle, read by the HIL task to report the
+     * controller internals. A copy guarded by a short critical section.
+     */
+    AirbrakesTelemetry getAirbrakesTelemetry();
+    void setAirbrakesTelemetry(const AirbrakesTelemetry &telemetry);
 
     /**
      * @brief Set the command to open the main parachute.
@@ -297,9 +329,19 @@ public:
     bool setOpenDrogueCommand();
 
     /**
-     * @brief Set the airbrakes command level.
+     * @brief Start the airbrakes actuator and hold the brakes closed.
      *
-     * @param lvl Airbrakes actuation level to command
+     * @return true if the actuator is running
+     * @return false if there is no actuator or it failed to start
+     */
+    bool startAirbrakes();
+
+    /**
+     * @brief Set the airbrakes command level and move the actuator to match.
+     *
+     * The servo is not blocking: it is still travelling when this returns.
+     *
+     * @param lvl Airbrakes deployment, 0.0f fully closed, 1.0f fully open
      * @return true if the command was set successfully
      * @return false otherwise
      */
@@ -393,6 +435,9 @@ private:
     std::shared_ptr<SD> _sd;
     std::shared_ptr<Flash> _flash;
 
+    // Actuators (owned by the board)
+    IAirbrakesActuator* _airbrakesServo;
+
     // Critical mutexes
     SemaphoreHandle_t _imuMutex = nullptr;
     SemaphoreHandle_t _baro1Mutex = nullptr;
@@ -409,6 +454,13 @@ private:
     std::atomic<float> _heightGainSpeed;
     std::atomic<uint32_t> _heightGainSpeedTimestamp;
     std::atomic<float> _currentHeight;
+    std::atomic<float> _filteredPressure;
+
+    AirbrakesTelemetry _airbrakesTelemetry;
+    portMUX_TYPE _airbrakesTelemetryLock = portMUX_INITIALIZER_UNLOCKED;
+
+    VerticalFitState _verticalFitState;
+    portMUX_TYPE _verticalFitStateLock = portMUX_INITIALIZER_UNLOCKED;
 
     IMUData _bnoData;
     AccelerometerSensorData _lis3dhData;
